@@ -13,7 +13,10 @@ import (
 )
 
 func (g *Generator) generateFuncDecl(n *parser.FuncDecl) error {
-	retType := g.mapSoyuzTypeToLLVM(n.ReturnType)
+	var retType types.Type = types.Void
+	if n.ReturnType != nil {
+		retType = g.mapSoyuzTypeToLLVM(n.ReturnType)
+	}
 	var params []*ir.Param
 	for _, p := range n.Params {
 		pt := g.mapSoyuzTypeToLLVM(p.Type)
@@ -306,7 +309,10 @@ func (g *Generator) declareFuncVariants(name string, variants []*parser.FuncDecl
 
 	ft, ok := g.check.NodeTypes[first].(*checker.FuncType)
 	if !ok {
-		retType := g.mapSoyuzTypeToLLVM(first.ReturnType)
+		var retType types.Type = types.Void
+		if first.ReturnType != nil {
+			retType = g.mapSoyuzTypeToLLVM(first.ReturnType)
+		}
 		var params []*ir.Param
 		for i, p := range first.Params {
 			pt := g.mapSoyuzTypeToLLVM(p.Type)

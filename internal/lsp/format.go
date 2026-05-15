@@ -618,7 +618,14 @@ func (p *printer) funcParams(params []parser.FuncParam) string {
 func (p *printer) funcParamStr(param parser.FuncParam) string {
 	name := p.pattern(param.Pattern)
 	if param.Type != nil {
-		return name + ": " + p.typeExpr(param.Type)
+		s := name + ": " + p.typeExpr(param.Type)
+		if param.Default != nil {
+			s += " = " + p.expr(param.Default)
+		}
+		return s
+	}
+	if param.Default != nil {
+		return name + " = " + p.expr(param.Default)
 	}
 	return name
 }

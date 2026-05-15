@@ -14,6 +14,8 @@ type Checker struct {
 	funcVariants    map[string][]*parser.FuncDecl
 	captures        map[*parser.ArrowFunc][]string
 	currentClass    *ClassType
+	synthCallArgs   map[*parser.CallExpr][]parser.Node
+	inferredBodies  map[*parser.FuncDecl]bool // expr-body bodies already inferred during registration
 }
 
 type CheckResult struct {
@@ -23,6 +25,7 @@ type CheckResult struct {
 	FuncVariants        map[string][]*parser.FuncDecl
 	Captures            map[*parser.ArrowFunc][]string
 	ImplicitWeakFields  map[string]map[string]bool // typeName → fieldName → true
+	SynthCallArgs       map[*parser.CallExpr][]parser.Node
 }
 
 type context struct {
@@ -96,6 +99,8 @@ func New() *Checker {
 		specializations: make(map[parser.Node]*FuncType),
 		funcVariants:    make(map[string][]*parser.FuncDecl),
 		captures:        make(map[*parser.ArrowFunc][]string),
+		synthCallArgs:   make(map[*parser.CallExpr][]parser.Node),
+		inferredBodies:  make(map[*parser.FuncDecl]bool),
 	}
 }
 
@@ -146,6 +151,7 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 		FuncVariants:       c.funcVariants,
 		Captures:           c.captures,
 		ImplicitWeakFields: implicitWeak,
+		SynthCallArgs:      c.synthCallArgs,
 	}
 }
 

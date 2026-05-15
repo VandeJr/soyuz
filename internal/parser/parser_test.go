@@ -337,10 +337,52 @@ val desc = match n {
 }
 
 func TestArrowFunc(t *testing.T) {
+	// Top-level val = fn(...) => ... is rewritten as FuncDecl.
 	prog := parseSource(t, `val dobrar = fn(x: Int) => x`)
-	decl := prog.Body[0].(*VarDecl)
-	if _, ok := decl.Init.(*ArrowFunc); !ok {
-		t.Fatalf("esperado *ArrowFunc, obtido %T", decl.Init)
+	fd, ok := prog.Body[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("esperado *FuncDecl (reescrita de val = fn), obtido %T", prog.Body[0])
+	}
+	if fd.Name != "dobrar" {
+		t.Errorf("esperado nome dobrar, obtido %s", fd.Name)
+	}
+	if len(fd.Params) != 1 {
+		t.Fatalf("esperado 1 param, obtido %d", len(fd.Params))
+	}
+}
+
+func TestFuncParamDefault(t *testing.T) {
+	prog := parseSource(t, `fn greet(nome: String, prefixo: String = "Olá") -> String = prefixo`)
+	fd := prog.Body[0].(*FuncDecl)
+	if len(fd.Params) != 2 {
+		t.Fatalf("esperado 2 params, obtido %d", len(fd.Params))
+	}
+	if fd.Params[0].Default != nil {
+		t.Error("primeiro param não deveria ter default")
+	}
+	if fd.Params[1].Default == nil {
+		t.Fatal("segundo param deveria ter default")
+	}
+	sl, ok := fd.Params[1].Default.(*StringLiteral)
+	if !ok {
+		t.Fatalf("default esperado StringLiteral, obtido %T", fd.Params[1].Default)
+	}
+	if sl.Value != "Olá" {
+		t.Errorf("default esperado 'Olá', obtido %q", sl.Value)
+	}
+}
+
+func TestValFnRewrite(t *testing.T) {
+	prog := parseSource(t, `val somar = fn(a: Int, b: Int) => a`)
+	fd, ok := prog.Body[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("esperado *FuncDecl, obtido %T", prog.Body[0])
+	}
+	if fd.Name != "somar" {
+		t.Errorf("esperado nome somar, obtido %s", fd.Name)
+	}
+	if !fd.IsExprBody {
+		t.Error("esperado IsExprBody = true")
 	}
 }
 

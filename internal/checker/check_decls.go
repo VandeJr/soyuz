@@ -18,6 +18,7 @@ func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl)
 	}
 
 	var paramTypes []Type
+	var defaults []parser.Node
 	oldScope := c.scope
 	c.scope = funcScope
 	for _, p := range first.Params {
@@ -26,15 +27,35 @@ func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl)
 			pt = c.inferTypeFromPattern(p.Pattern)
 		}
 		paramTypes = append(paramTypes, pt)
+		defaults = append(defaults, p.Default)
+		if p.Default != nil {
+			defaultType := c.checkNode(p.Default)
+			if !c.isAssignable(pt, defaultType) {
+				c.errorf(p.Default.Pos(), "valor padrão incompatível: esperado %s, encontrado %s", pt, defaultType)
+			}
+		}
 	}
 
 	var retType Type = UnitType
 	if first.ReturnType != nil {
 		retType = c.resolveTypeExpr(first.ReturnType)
+	} else if first.IsExprBody && first.Body != nil {
+		// Eager return-type inference for expression-body functions without explicit annotation.
+		// We check the body with params in scope so that block-body callers (like main) already
+		// see the correct return type when they are checked in Pass 5.
+		bodyScope := NewScope(funcScope)
+		for i, p := range first.Params {
+			if bp, ok := p.Pattern.(*parser.BindingPattern); ok && i < len(paramTypes) {
+				bodyScope.Define(bp.Name, paramTypes[i], true)
+			}
+		}
+		c.scope = bodyScope
+		retType = c.checkNode(first.Body)
+		c.inferredBodies[first] = true
 	}
 	c.scope = oldScope
 
-	ft := &FuncType{Params: paramTypes, Return: retType, Generics: genericNames}
+	ft := &FuncType{Params: paramTypes, Return: retType, Generics: genericNames, Defaults: defaults}
 	parentScope.Define(name, ft, true)
 
 	for _, v := range variants {
@@ -103,9 +124,19 @@ func (c *Checker) checkFuncDeclBody(n *parser.FuncDecl, expectedFt *FuncType) {
 	currentContext.returnType = expectedFt.Return
 	defer func() { currentContext.returnType = oldRet }()
 
+	if c.inferredBodies[n] {
+		// Body was already checked during eager inference in registerFuncVariants.
+		// Return type is already correct — no need to re-check to avoid duplicate errors.
+		return
+	}
 	bodyType := c.checkNode(n.Body)
-	if n.IsExprBody && !c.isAssignable(expectedFt.Return, bodyType) {
-		c.errorf(n.Body.Pos(), "incompatible return type: expected %s, got %s", expectedFt.Return, bodyType)
+	if n.IsExprBody {
+		if n.ReturnType == nil {
+			// Sem anotação de retorno explícita: inferir do corpo da expressão.
+			expectedFt.Return = bodyType
+		} else if !c.isAssignable(expectedFt.Return, bodyType) {
+			c.errorf(n.Body.Pos(), "incompatible return type: expected %s, got %s", expectedFt.Return, bodyType)
+		}
 	}
 }
 

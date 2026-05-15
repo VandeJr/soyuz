@@ -11,7 +11,27 @@ func (p *Parser) parseTopLevel() Node {
 
 	switch p.peek().Type {
 	case lexer.WEAK, lexer.VAL, lexer.VAR, lexer.CONST:
-		return p.parseVarDecl(pub)
+		vd := p.parseVarDecl(pub)
+		// Rewrite: val name = fn(...) => body → FuncDecl (only when no type annotation)
+		if vd.Kind == KindVal && vd.Pattern == nil && vd.Name != "" && vd.Type == nil {
+			if af, ok := vd.Init.(*ArrowFunc); ok {
+				isExprBody := true
+				if _, isBlock := af.Body.(*BlockStmt); isBlock {
+					isExprBody = false
+				}
+				return &FuncDecl{
+					pos:        vd.Pos(),
+					NamePos:    vd.NamePos,
+					Pub:        vd.Pub,
+					Name:       vd.Name,
+					Params:     af.Params,
+					ReturnType: af.ReturnType,
+					Body:       af.Body,
+					IsExprBody: isExprBody,
+				}
+			}
+		}
+		return vd
 	case lexer.FN:
 		return p.parseFuncDecl(pub)
 	case lexer.RECORD:
@@ -155,7 +175,11 @@ func (p *Parser) parseFuncParam() FuncParam {
 	if p.consume(lexer.COLON) {
 		typeExpr = p.parseTypeExpr()
 	}
-	return FuncParam{Pos: pos, Pattern: pat, Type: typeExpr}
+	var defaultExpr Node
+	if p.consume(lexer.ASSIGN) {
+		defaultExpr = p.parseExpression(0)
+	}
+	return FuncParam{Pos: pos, Pattern: pat, Type: typeExpr, Default: defaultExpr}
 }
 
 func (p *Parser) parseRecordDecl(pub bool) *RecordDecl {

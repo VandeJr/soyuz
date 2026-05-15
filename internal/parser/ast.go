@@ -70,6 +70,7 @@ type FuncParam struct {
 	Pos     lexer.Position
 	Pattern Pattern
 	Type    TypeExpr // nil = inferred from pattern
+	Default Node     // nil = required parameter; non-nil = default value expression
 }
 
 type RecordDecl struct {

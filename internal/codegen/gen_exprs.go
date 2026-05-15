@@ -613,7 +613,11 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 		}
 	}
 
-	args, err := g.generateCallArgs(n.Args)
+	callArgs := n.Args
+	if synth, ok := g.check.SynthCallArgs[n]; ok {
+		callArgs = append(callArgs, synth...)
+	}
+	args, err := g.generateCallArgs(callArgs)
 	if err != nil {
 		return nil, err
 	}

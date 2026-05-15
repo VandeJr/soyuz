@@ -315,3 +315,57 @@ func TestNodeTypesPopulated(t *testing.T) {
 		t.Error("IntLiteral 42 not found in NodeTypes")
 	}
 }
+
+func TestFuncDefaultArgs(t *testing.T) {
+	src := `
+fn greet(nome: String, prefixo: String = "Olá") -> String = prefixo
+val r = greet("Vand")
+`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Fatalf("erros inesperados: %v", result.Errors)
+	}
+	if len(result.SynthCallArgs) == 0 {
+		t.Error("esperado SynthCallArgs não vazio para chamada com default")
+	}
+}
+
+func TestFuncDefaultArgsMissing(t *testing.T) {
+	src := `
+fn soma(a: Int, b: Int) -> Int = a
+val r = soma(1)
+`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) == 0 {
+		t.Fatal("esperado erro por argumento faltando sem default")
+	}
+}
+
+func TestValFnRewriteChecker(t *testing.T) {
+	src := `
+val somar = fn(a: Int, b: Int) => a + b
+val r = somar(1, 2)
+`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Fatalf("erros inesperados: %v", result.Errors)
+	}
+}

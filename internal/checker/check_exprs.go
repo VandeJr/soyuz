@@ -385,9 +385,27 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 
 	c.specializations[n] = ft
 
-	if len(n.Args) != len(ft.Params) {
-		c.errorf(n.Pos(), "incorrect number of arguments: expected %d, got %d", len(ft.Params), len(n.Args))
+	if len(n.Args) > len(ft.Params) {
+		c.errorf(n.Pos(), "argumentos em excesso: esperado %d, encontrado %d", len(ft.Params), len(n.Args))
 		return ft.Return
+	}
+	if len(n.Args) < len(ft.Params) {
+		// Allow short call only when all missing params have defaults.
+		missingFrom := len(n.Args)
+		hasAllDefaults := len(ft.Defaults) >= len(ft.Params)
+		if hasAllDefaults {
+			for i := missingFrom; i < len(ft.Params); i++ {
+				if ft.Defaults[i] == nil {
+					hasAllDefaults = false
+					break
+				}
+			}
+		}
+		if !hasAllDefaults {
+			c.errorf(n.Pos(), "argumentos insuficientes: esperado %d, encontrado %d", len(ft.Params), len(n.Args))
+			return ft.Return
+		}
+		c.synthCallArgs[n] = ft.Defaults[missingFrom:]
 	}
 	for i, arg := range n.Args {
 		at := c.checkNode(arg)

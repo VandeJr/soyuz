@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"soyuz/internal/lexer"
+	"soyuz/internal/parser"
 )
 
 type Type interface {
@@ -20,6 +21,7 @@ type FuncType struct {
 	Params   []Type
 	Return   Type
 	Generics []string
+	Defaults []parser.Node // parallel to Params; nil entry = required parameter
 }
 
 func (f *FuncType) String() string {

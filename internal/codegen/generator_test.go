@@ -309,3 +309,51 @@ func TestGeneratorMilestone7(t *testing.T) {
 		t.Errorf("expected GEP for tuple indices 0 and 1, got IR:\n%s", irStr)
 	}
 }
+
+func TestFuncDefaultArgsCodegen(t *testing.T) {
+	src := `
+fn greet(nome: String, prefixo: String = "Olá") -> String = prefixo
+fn main() -> String = greet("Vand")
+`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := checker.New()
+	res := c.Check(prog)
+	if len(res.Errors) > 0 {
+		t.Fatalf("checker errors: %v", res.Errors)
+	}
+
+	g := New(res)
+	_, err := g.Generate(prog)
+	if err != nil {
+		t.Fatalf("codegen error: %v", err)
+	}
+}
+
+func TestValFnRewriteCodegen(t *testing.T) {
+	src := `
+val dobrar = fn(x: Int) => x * 2
+fn main() -> Int = dobrar(5)
+`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := checker.New()
+	res := c.Check(prog)
+	if len(res.Errors) > 0 {
+		t.Fatalf("checker errors: %v", res.Errors)
+	}
+
+	g := New(res)
+	mod, err := g.Generate(prog)
+	if err != nil {
+		t.Fatalf("codegen error: %v", err)
+	}
+	irStr := mod.String()
+	if !strings.Contains(irStr, "define") {
+		t.Errorf("expected define in IR, got:\n%s", irStr)
+	}
+}
