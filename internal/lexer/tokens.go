@@ -94,6 +94,7 @@ const (
 	VAR
 	CONST
 	FN
+	EXTERN
 	RETURN
 	WEAK
 
@@ -106,6 +107,7 @@ const (
 	// Keywords — control flow
 	IF
 	ELSE
+	WHEN
 	MATCH
 	FOR
 	WHILE
@@ -193,6 +195,7 @@ func (t TokenType) String() string {
 		VAR:            "VAR",
 		CONST:          "CONST",
 		FN:             "FN",
+		EXTERN:         "EXTERN",
 		RETURN:         "RETURN",
 		WEAK:           "WEAK",
 		RECORD:         "RECORD",
@@ -201,6 +204,7 @@ func (t TokenType) String() string {
 		ENUM:           "ENUM",
 		IF:             "IF",
 		ELSE:           "ELSE",
+		WHEN:           "WHEN",
 		MATCH:          "MATCH",
 		FOR:            "FOR",
 		WHILE:          "WHILE",

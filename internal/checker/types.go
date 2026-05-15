@@ -18,10 +18,11 @@ type BasicType struct {
 func (b *BasicType) String() string { return b.Name }
 
 type FuncType struct {
-	Params   []Type
-	Return   Type
-	Generics []string
-	Defaults []parser.Node // parallel to Params; nil entry = required parameter
+	Params     []Type
+	Return     Type
+	Generics   []string
+	Defaults   []parser.Node // parallel to Params; nil entry = required parameter
+	IsOptional []bool        // parallel to Params; true = T? (auto-wrap/None injection)
 }
 
 func (f *FuncType) String() string {
@@ -31,7 +32,15 @@ func (f *FuncType) String() string {
 	}
 	paramStrs := make([]string, len(f.Params))
 	for i, p := range f.Params {
-		paramStrs[i] = p.String()
+		if i < len(f.IsOptional) && f.IsOptional[i] {
+			if st, ok := p.(*SpecializedType); ok && len(st.Params) == 1 {
+				paramStrs[i] = st.Params[0].String() + "?"
+			} else {
+				paramStrs[i] = p.String() + "?"
+			}
+		} else {
+			paramStrs[i] = p.String()
+		}
 	}
 	return gen + "(" + strings.Join(paramStrs, ", ") + ") -> " + f.Return.String()
 }
@@ -62,12 +71,32 @@ func (i *InterfaceType) String() string { return i.Name }
 type ClassType struct {
 	Name       string
 	Fields     map[string]Type
-	Methods    map[string]*FuncType
+	FieldPub   map[string]bool        // true = accessible outside the class
+	FieldInit  map[string]parser.Node // default init expression (nil = required)
+	Methods    map[string][]*FuncType // may have multiple variants (overloaded by arity)
+	MethodPub  map[string]bool        // true = accessible outside the class
 	Implements []*InterfaceType
 	Generics   []string
 }
 
 func (c *ClassType) String() string { return c.Name }
+
+// FindMethod returns the FuncType variant matching the given arity (-1 = return first).
+func (c *ClassType) FindMethod(name string, arity int) *FuncType {
+	variants, ok := c.Methods[name]
+	if !ok || len(variants) == 0 {
+		return nil
+	}
+	if arity < 0 || len(variants) == 1 {
+		return variants[0]
+	}
+	for _, ft := range variants {
+		if len(ft.Params) == arity {
+			return ft
+		}
+	}
+	return variants[0]
+}
 
 type TupleType struct {
 	Elements []Type

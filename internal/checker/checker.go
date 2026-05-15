@@ -2,6 +2,7 @@ package checker
 
 import (
 	"fmt"
+	"path/filepath"
 	"soyuz/internal/lexer"
 	"soyuz/internal/parser"
 )
@@ -15,7 +16,15 @@ type Checker struct {
 	captures        map[*parser.ArrowFunc][]string
 	currentClass    *ClassType
 	synthCallArgs   map[*parser.CallExpr][]parser.Node
-	inferredBodies  map[*parser.FuncDecl]bool // expr-body bodies already inferred during registration
+	inferredBodies  map[*parser.FuncDecl]bool
+	arrowFuncHints  map[*parser.ArrowFunc][]Type
+	curriedCalls    map[*parser.CallExpr]*parser.ArrowFunc
+	// M8.1: cross-file pub enforcement
+	nodeFile     map[parser.Node]string // nil = single-file mode (pub not enforced)
+	symbolOrigin map[string]string      // global name → defining file
+	symbolPub    map[string]bool        // global name → pub status
+	currentFile  string                 // file currently being checked
+	inTopLevel   bool                   // true while checking a top-level value node (Pass 4)
 }
 
 type CheckResult struct {
@@ -26,6 +35,7 @@ type CheckResult struct {
 	Captures            map[*parser.ArrowFunc][]string
 	ImplicitWeakFields  map[string]map[string]bool // typeName → fieldName → true
 	SynthCallArgs       map[*parser.CallExpr][]parser.Node
+	CurriedCalls        map[*parser.CallExpr]*parser.ArrowFunc // M4b: curried call sites
 }
 
 type context struct {
@@ -47,9 +57,10 @@ func New() *Checker {
 	scope.Define("Error", errorIface, true)
 
 	optionEnum := &EnumType{
-		Name: "Option",
+		Name:     "Option",
+		Generics: []string{"T"},
 		Variants: map[string][]Type{
-			"Some": {Unknown},
+			"Some": {&TypeParameter{Name: "T"}},
 			"None": {},
 		},
 	}
@@ -58,9 +69,10 @@ func New() *Checker {
 	scope.Define("None", optionEnum, true)
 
 	resultEnum := &EnumType{
-		Name: "Result",
+		Name:     "Result",
+		Generics: []string{"T"},
 		Variants: map[string][]Type{
-			"Ok":  {Unknown},
+			"Ok":  {&TypeParameter{Name: "T"}},
 			"Err": {errorIface},
 		},
 	}
@@ -71,10 +83,10 @@ func New() *Checker {
 	listType := &ClassType{
 		Name:     "List",
 		Generics: []string{"T"},
-		Methods: map[string]*FuncType{
-			"size":   {Params: []Type{}, Return: IntType},
-			"get":    {Params: []Type{IntType}, Return: &TypeParameter{Name: "T"}},
-			"append": {Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType},
+		Methods: map[string][]*FuncType{
+			"size":   {{Params: []Type{}, Return: IntType}},
+			"get":    {{Params: []Type{IntType}, Return: &TypeParameter{Name: "T"}}},
+			"append": {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
 		},
 	}
 	scope.Define("List", listType, true)
@@ -82,10 +94,10 @@ func New() *Checker {
 	mapType := &ClassType{
 		Name:     "Map",
 		Generics: []string{"K", "V"},
-		Methods: map[string]*FuncType{
-			"size": {Params: []Type{}, Return: IntType},
-			"get":  {Params: []Type{&TypeParameter{Name: "K"}}, Return: &TypeParameter{Name: "V"}},
-			"set":  {Params: []Type{&TypeParameter{Name: "K"}, &TypeParameter{Name: "V"}}, Return: UnitType},
+		Methods: map[string][]*FuncType{
+			"size": {{Params: []Type{}, Return: IntType}},
+			"get":  {{Params: []Type{&TypeParameter{Name: "K"}}, Return: &TypeParameter{Name: "V"}}},
+			"set":  {{Params: []Type{&TypeParameter{Name: "K"}, &TypeParameter{Name: "V"}}, Return: UnitType}},
 		},
 	}
 	scope.Define("Map", mapType, true)
@@ -101,7 +113,17 @@ func New() *Checker {
 		captures:        make(map[*parser.ArrowFunc][]string),
 		synthCallArgs:   make(map[*parser.CallExpr][]parser.Node),
 		inferredBodies:  make(map[*parser.FuncDecl]bool),
+		arrowFuncHints:  make(map[*parser.ArrowFunc][]Type),
+		curriedCalls:    make(map[*parser.CallExpr]*parser.ArrowFunc),
+		symbolOrigin:    make(map[string]string),
+		symbolPub:       make(map[string]bool),
 	}
+}
+
+// SetNodeFiles enables M8.1 cross-file pub enforcement.
+// nodeFile maps each top-level AST node to the source file it was parsed from.
+func (c *Checker) SetNodeFiles(nf map[parser.Node]string) {
+	c.nodeFile = nf
 }
 
 func (c *Checker) Check(prog *parser.Program) *CheckResult {
@@ -114,7 +136,7 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 			continue
 		}
 		switch node.(type) {
-		case *parser.RecordDecl, *parser.EnumDecl, *parser.InterfaceDecl, *parser.ClassDecl:
+		case *parser.RecordDecl, *parser.EnumDecl, *parser.InterfaceDecl, *parser.ClassDecl, *parser.ExternDecl:
 			typeNodes = append(typeNodes, node)
 		default:
 			valueNodes = append(valueNodes, node)
@@ -123,6 +145,9 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 
 	// Pass 2: register type declarations (records, enums, interfaces, classes).
 	for _, node := range typeNodes {
+		if c.nodeFile != nil {
+			c.currentFile = c.nodeFile[node]
+		}
 		c.checkNode(node)
 	}
 
@@ -131,16 +156,35 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 
 	// Pass 3: register all function signatures so calls can resolve them.
 	for name, variants := range c.funcVariants {
+		if c.nodeFile != nil && len(variants) > 0 {
+			c.currentFile = c.nodeFile[variants[0]]
+		}
 		c.registerFuncVariants(name, variants)
+	}
+
+	// Pass 3.5: create module namespaces for bare stdlib imports (import @soyuz.mock).
+	// Must run after Pass 3 so all function signatures are registered in scope.
+	for _, node := range prog.Body {
+		if imp, ok := node.(*parser.ImportDecl); ok && imp.IsStdlib && len(imp.Names) == 0 && !imp.Wildcard {
+			c.registerModuleNamespace(prog, imp)
+		}
 	}
 
 	// Pass 4: check value nodes (var decls, expressions) that may call functions.
 	for _, node := range valueNodes {
+		if c.nodeFile != nil {
+			c.currentFile = c.nodeFile[node]
+		}
+		c.inTopLevel = true
 		c.checkNode(node)
+		c.inTopLevel = false
 	}
 
 	// Pass 5: type-check all function bodies.
 	for name, variants := range c.funcVariants {
+		if c.nodeFile != nil && len(variants) > 0 {
+			c.currentFile = c.nodeFile[variants[0]]
+		}
 		c.checkFuncVariantsBody(name, variants)
 	}
 
@@ -152,6 +196,7 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 		Captures:           c.captures,
 		ImplicitWeakFields: implicitWeak,
 		SynthCallArgs:      c.synthCallArgs,
+		CurriedCalls:       c.curriedCalls,
 	}
 }
 
@@ -177,6 +222,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkInterfaceDecl(n)
 	case *parser.ClassDecl:
 		return c.checkClassDecl(n)
+	case *parser.ExternDecl:
+		return c.checkExternDecl(n)
 	case *parser.ReturnStmt:
 		return c.checkReturnStmt(n)
 	case *parser.IntLiteral:
@@ -201,6 +248,9 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		valType := c.checkNode(n.Value)
 		base := c.resolveTypeExpr(&parser.NamedType{Name: "Option"})
 		return &SpecializedType{Base: base, Params: []Type{valType}}
+	case *parser.NoneLiteral:
+		base := c.resolveTypeExpr(&parser.NamedType{Name: "Option"})
+		return &SpecializedType{Base: base, Params: []Type{Unknown}}
 	case *parser.RecordLiteral:
 		return c.checkRecordLiteral(n)
 	case *parser.BinaryExpr:
@@ -221,6 +271,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkArrowFunc(n)
 	case *parser.PipeExpr:
 		return c.checkPipeExpr(n)
+	case *parser.ElvisExpr:
+		return c.checkElvisExpr(n)
 	case *parser.TupleExpr:
 		return c.checkTupleExpr(n)
 	case *parser.ListExpr:
@@ -231,6 +283,24 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkMemberExpr(n)
 	case *parser.SelfExpr:
 		return c.checkSelfExpr(n)
+	case *parser.ForStmt:
+		return c.checkForStmt(n)
+	case *parser.WhileStmt:
+		c.checkNode(n.Condition)
+		c.checkBlock(n.Body)
+		return UnitType
+	case *parser.LoopStmt:
+		c.checkBlock(n.Body)
+		return UnitType
+	case *parser.BreakStmt, *parser.ContinueStmt:
+		return UnitType
+	case *parser.IfStmt:
+		c.checkNode(n.Condition)
+		c.checkBlock(n.Consequent)
+		if n.Alternate != nil {
+			c.checkNode(n.Alternate)
+		}
+		return UnitType
 	case *parser.ExprStmt:
 		return c.checkNode(n.Expr)
 	case *parser.BlockStmt:
@@ -245,6 +315,30 @@ func (c *Checker) errorf(pos lexer.Position, format string, args ...any) {
 		Pos:     pos,
 		Message: fmt.Sprintf(format, args...),
 	})
+}
+
+// registerGlobalSymbol records the origin and pub status of a top-level symbol for M8.1.
+func (c *Checker) registerGlobalSymbol(name string, node parser.Node, pub bool) {
+	if c.nodeFile == nil {
+		return
+	}
+	c.symbolOrigin[name] = c.nodeFile[node]
+	c.symbolPub[name] = pub
+}
+
+// checkGlobalAccess emits an error if name is a global symbol from a different file
+// than currentFile and is not marked pub.
+func (c *Checker) checkGlobalAccess(name string, pos lexer.Position) {
+	if c.nodeFile == nil {
+		return
+	}
+	origin, isGlobal := c.symbolOrigin[name]
+	if !isGlobal || origin == "" || origin == c.currentFile {
+		return
+	}
+	if !c.symbolPub[name] {
+		c.errorf(pos, "símbolo '%s' não é público (defina com 'pub' em %s)", name, filepath.Base(origin))
+	}
 }
 
 func (c *Checker) isHeapType(t Type) bool {

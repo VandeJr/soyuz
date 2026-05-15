@@ -40,14 +40,7 @@ func (c *Checker) checkPattern(pat parser.Pattern, subjectType Type) {
 }
 
 func (c *Checker) checkConstructorPattern(p *parser.ConstructorPattern, subjectType Type) {
-	if p.Name == "Some" || p.Name == "None" || p.Name == "Ok" || p.Name == "Err" {
-		for _, arg := range p.Args {
-			c.checkPattern(arg, Unknown)
-		}
-		return
-	}
-
-	// Build type-param substitution when subject is a SpecializedType (e.g. Maybe[Int]).
+	// Build type-param substitution when subject is a SpecializedType (e.g. Option[Int], Result[T]).
 	var typeSub map[string]Type
 	unwrapped := subjectType
 	if st, ok := subjectType.(*SpecializedType); ok {

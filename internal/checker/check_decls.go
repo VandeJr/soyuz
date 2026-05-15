@@ -19,6 +19,7 @@ func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl)
 
 	var paramTypes []Type
 	var defaults []parser.Node
+	var isOptional []bool
 	oldScope := c.scope
 	c.scope = funcScope
 	for _, p := range first.Params {
@@ -27,7 +28,21 @@ func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl)
 			pt = c.inferTypeFromPattern(p.Pattern)
 		}
 		paramTypes = append(paramTypes, pt)
-		defaults = append(defaults, p.Default)
+
+		optional := false
+		if p.Type != nil {
+			if _, ok := p.Type.(*parser.OptionalType); ok {
+				optional = true
+			}
+		}
+		isOptional = append(isOptional, optional)
+
+		def := p.Default
+		if optional && def == nil {
+			def = &parser.NoneLiteral{}
+		}
+		defaults = append(defaults, def)
+
 		if p.Default != nil {
 			defaultType := c.checkNode(p.Default)
 			if !c.isAssignable(pt, defaultType) {
@@ -55,8 +70,11 @@ func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl)
 	}
 	c.scope = oldScope
 
-	ft := &FuncType{Params: paramTypes, Return: retType, Generics: genericNames, Defaults: defaults}
+	ft := &FuncType{Params: paramTypes, Return: retType, Generics: genericNames, Defaults: defaults, IsOptional: isOptional}
 	parentScope.Define(name, ft, true)
+	if len(variants) > 0 {
+		c.registerGlobalSymbol(name, variants[0], variants[0].Pub)
+	}
 
 	for _, v := range variants {
 		c.nodeTypes[v] = ft
@@ -99,9 +117,42 @@ func (c *Checker) checkFuncVariantsBody(name string, variants []*parser.FuncDecl
 	if !ok {
 		return
 	}
+
+	// BUG-01 & BUG-09 & M2: Verificação de exaustividade.
+	// Uma função com múltiplas variantes (ou mesmo uma única) deve ter pelo menos uma
+	// variante catchall: sem when guard e com todos os padrões sendo binding/wildcard.
+	hasCatchall := false
+	for _, v := range variants {
+		if v.WhenGuard == nil {
+			isParamCatchall := true
+			for _, p := range v.Params {
+				if !isCatchallPattern(p.Pattern) {
+					isParamCatchall = false
+					break
+				}
+			}
+			if isParamCatchall {
+				hasCatchall = true
+				break
+			}
+		}
+	}
+
+	if !hasCatchall {
+		c.errorf(variants[0].Pos(), "função '%s' requer uma variante catchall sem 'when' e com parâmetros genéricos", name)
+	}
+
 	for _, v := range variants {
 		c.checkFuncDeclBody(v, ft)
 	}
+}
+
+func isCatchallPattern(p parser.Pattern) bool {
+	switch p.(type) {
+	case *parser.BindingPattern, *parser.WildcardPattern:
+		return true
+	}
+	return false
 }
 
 func (c *Checker) checkFuncDeclBody(n *parser.FuncDecl, expectedFt *FuncType) {
@@ -118,6 +169,13 @@ func (c *Checker) checkFuncDeclBody(n *parser.FuncDecl, expectedFt *FuncType) {
 			break
 		}
 		c.checkPattern(p.Pattern, expectedFt.Params[i])
+	}
+
+	if n.WhenGuard != nil {
+		gt := c.checkNode(n.WhenGuard)
+		if gt != BoolType {
+			c.errorf(n.WhenGuard.Pos(), "o guard 'when' deve ser Bool, encontrado %s", gt)
+		}
 	}
 
 	oldRet := currentContext.returnType
@@ -172,6 +230,7 @@ func (c *Checker) checkRecordDecl(n *parser.RecordDecl) Type {
 
 	rt := &RecordType{Name: n.Name, Fields: fields, Generics: genericNames}
 	parentScope.Define(n.Name, rt, true)
+	c.registerGlobalSymbol(n.Name, n, n.Pub)
 	return rt
 }
 
@@ -189,6 +248,7 @@ func (c *Checker) checkEnumDecl(n *parser.EnumDecl) Type {
 	variants := make(map[string][]Type)
 	et := &EnumType{Name: n.Name, Variants: variants, Generics: genericNames}
 	parentScope.Define(n.Name, et, true)
+	c.registerGlobalSymbol(n.Name, n, n.Pub)
 
 	// For generic enums, constructor return type is SpecializedType{et, [T1, T2, ...]}
 	// so that instantiateFunc can substitute type params in the return type.
@@ -209,6 +269,8 @@ func (c *Checker) checkEnumDecl(n *parser.EnumDecl) Type {
 		variants[v.Name] = fieldTypes
 		vt := &FuncType{Params: fieldTypes, Return: constructorReturn, Generics: genericNames}
 		parentScope.Define(v.Name, vt, true)
+		// Variant constructors inherit the enum's pub status.
+		c.registerGlobalSymbol(v.Name, n, n.Pub)
 	}
 	return et
 }
@@ -232,12 +294,16 @@ func (c *Checker) checkInterfaceDecl(n *parser.InterfaceDecl) Type {
 	}
 	it := &InterfaceType{Name: n.Name, Methods: methods}
 	c.scope.Define(n.Name, it, true)
+	c.registerGlobalSymbol(n.Name, n, n.Pub)
 	return it
 }
 
 func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 	fields := make(map[string]Type)
-	methods := make(map[string]*FuncType)
+	fieldPub := make(map[string]bool)
+	fieldInit := make(map[string]parser.Node)
+	methods := make(map[string][]*FuncType)
+	methodPub := make(map[string]bool)
 	var implements []*InterfaceType
 
 	for _, itExpr := range n.Interfaces {
@@ -249,28 +315,47 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 		}
 	}
 
-	ct := &ClassType{Name: n.Name, Fields: fields, Methods: methods, Implements: implements}
+	ct := &ClassType{
+		Name:       n.Name,
+		Fields:     fields,
+		FieldPub:   fieldPub,
+		FieldInit:  fieldInit,
+		Methods:    methods,
+		MethodPub:  methodPub,
+		Implements: implements,
+	}
 	c.scope.Define(n.Name, ct, true)
+	c.registerGlobalSymbol(n.Name, n, n.Pub)
 
-	// Field pass: resolve declared field types.
+	// Field pass: resolve declared field types and collect defaults/visibility.
 	for _, member := range n.Body {
-		if v, ok := member.(*parser.VarDecl); ok {
-			var ft Type
-			if v.Type != nil {
-				ft = c.resolveTypeExpr(v.Type)
-			} else {
-				ft = Unknown
-			}
+		v, ok := member.(*parser.VarDecl)
+		if !ok {
+			continue
+		}
+		var ft Type
+		if v.Type != nil {
+			ft = c.resolveTypeExpr(v.Type)
+		} else {
+			ft = Unknown
+		}
 
-			if v.Weak {
-				if v.Kind != parser.KindVar {
-					c.errorf(v.Pos(), "weak só pode ser usado com var")
-				}
-				if !c.isHeapType(ft) {
-					c.errorf(v.Pos(), "weak só pode ser usado em tipos heap (records ou classes), encontrado %s", ft)
-				}
+		if v.Weak {
+			if v.Kind != parser.KindVar {
+				c.errorf(v.Pos(), "weak só pode ser usado com var")
 			}
-			fields[v.Name] = ft
+			if !c.isHeapType(ft) {
+				c.errorf(v.Pos(), "weak só pode ser usado em tipos heap (records ou classes), encontrado %s", ft)
+			}
+		}
+		fields[v.Name] = ft
+		fieldPub[v.Name] = v.Pub
+		if v.Init != nil {
+			fieldInit[v.Name] = v.Init
+			defaultType := c.checkNode(v.Init)
+			if !c.isAssignable(ft, defaultType) {
+				c.errorf(v.Init.Pos(), "valor padrão incompatível para campo %s: esperado %s, encontrado %s", v.Name, ft, defaultType)
+			}
 		}
 	}
 
@@ -286,18 +371,21 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 		}
 		// Build method FuncType, skipping the implicit self parameter.
 		var paramTypes []Type
+		nonSelfIdx := 0
 		for _, p := range fd.Params {
 			if bp, ok2 := p.Pattern.(*parser.BindingPattern); ok2 && bp.Name == "self" {
 				continue
 			}
 			paramTypes = append(paramTypes, c.resolveTypeExpr(p.Type))
+			nonSelfIdx++
 		}
 		var ret Type = UnitType
 		if fd.ReturnType != nil {
 			ret = c.resolveTypeExpr(fd.ReturnType)
 		}
 		ft := &FuncType{Params: paramTypes, Return: ret}
-		methods[fd.Name] = ft
+		methods[fd.Name] = append(methods[fd.Name], ft)
+		methodPub[fd.Name] = fd.Pub
 		c.nodeTypes[fd] = ft
 
 		// Check method body with self and params in scope.
@@ -305,14 +393,16 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 			parentScope := c.scope
 			c.scope = NewScope(parentScope)
 			c.scope.Define("self", ct, true)
-			for i, p := range fd.Params {
+			paramIdx := 0
+			for _, p := range fd.Params {
 				if bp, ok2 := p.Pattern.(*parser.BindingPattern); ok2 {
 					if bp.Name == "self" {
 						continue
 					}
-					if i < len(paramTypes) {
-						c.scope.Define(bp.Name, paramTypes[i], true)
+					if paramIdx < len(paramTypes) {
+						c.scope.Define(bp.Name, paramTypes[paramIdx], true)
 					}
+					paramIdx++
 				}
 			}
 			oldRet := currentContext.returnType
@@ -326,14 +416,22 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 		}
 	}
 
+	// Interface implementation check.
 	for _, it := range implements {
 		for name, expectedFt := range it.Methods {
-			actualFt, ok := methods[name]
-			if !ok {
+			variants, ok := methods[name]
+			if !ok || len(variants) == 0 {
 				c.errorf(n.Pos(), "class %s does not implement method %s required by interface %s", n.Name, name, it.Name)
 				continue
 			}
-			if !c.isCompatibleFunc(expectedFt, actualFt) {
+			found := false
+			for _, actualFt := range variants {
+				if c.isCompatibleFunc(expectedFt, actualFt) {
+					found = true
+					break
+				}
+			}
+			if !found {
 				c.errorf(n.Pos(), "method signature %s in %s incompatible with interface %s", name, n.Name, it.Name)
 			}
 		}
@@ -363,6 +461,9 @@ func (c *Checker) checkVarDecl(decl *parser.VarDecl) Type {
 		return initType
 	}
 	c.scope.Define(decl.Name, initType, decl.Kind != parser.KindVar)
+	if c.inTopLevel {
+		c.registerGlobalSymbol(decl.Name, decl, decl.Pub)
+	}
 	return initType
 }
 
@@ -375,4 +476,78 @@ func getKindName(t Type) string {
 	default:
 		return "type"
 	}
+}
+
+// registerModuleNamespace cria um ClassType sintético no scope com o nome do módulo
+// (ex: "mock") contendo todas as declarações pub do arquivo do módulo.
+// Isso permite acesso qualificado: mock.assert_true(...).
+func (c *Checker) registerModuleNamespace(prog *parser.Program, imp *parser.ImportDecl) {
+	if len(imp.Path) == 0 || len(imp.ResolvedFiles) == 0 || c.nodeFile == nil {
+		return
+	}
+	modName := imp.Path[len(imp.Path)-1]
+
+	resolvedSet := make(map[string]bool, len(imp.ResolvedFiles))
+	for _, f := range imp.ResolvedFiles {
+		resolvedSet[f] = true
+	}
+
+	ns := &ClassType{
+		Name:      modName,
+		Methods:   make(map[string][]*FuncType),
+		MethodPub: make(map[string]bool),
+		Fields:    make(map[string]Type),
+		FieldPub:  make(map[string]bool),
+		FieldInit: make(map[string]parser.Node),
+	}
+
+	for _, node := range prog.Body {
+		// Só considera nós originários dos arquivos do módulo.
+		if !resolvedSet[c.nodeFile[node]] {
+			continue
+		}
+		var name string
+		var pub bool
+		switch n := node.(type) {
+		case *parser.FuncDecl:
+			name, pub = n.Name, n.Pub
+		case *parser.ExternDecl:
+			name, pub = n.Name, n.Pub
+		}
+		if name == "" || !pub {
+			continue
+		}
+		sym, ok := c.scope.Resolve(name)
+		if !ok {
+			continue
+		}
+		ft, ok := sym.Type.(*FuncType)
+		if !ok {
+			continue
+		}
+		ns.Methods[name] = []*FuncType{ft}
+		ns.MethodPub[name] = true
+	}
+
+	if len(ns.Methods) > 0 {
+		c.scope.Define(modName, ns, true)
+	}
+}
+
+func (c *Checker) checkExternDecl(n *parser.ExternDecl) Type {
+	var paramTypes []Type
+	for _, p := range n.Params {
+		pt := c.resolveTypeExpr(p.Type)
+		paramTypes = append(paramTypes, pt)
+	}
+	var retType Type = UnitType
+	if n.ReturnType != nil {
+		retType = c.resolveTypeExpr(n.ReturnType)
+	}
+	ft := &FuncType{Params: paramTypes, Return: retType}
+	c.scope.Define(n.Name, ft, true)
+	if c.inTopLevel || c.nodeFile != nil {
+		c.registerGlobalSymbol(n.Name, n, n.Pub)
+	}
+	return ft
 }

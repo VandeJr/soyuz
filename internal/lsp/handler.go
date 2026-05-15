@@ -214,6 +214,15 @@ func formatHover(node parser.Node, t checker.Type, result *AnalysisResult) strin
 		}
 	case *parser.VarDecl:
 		return fmt.Sprintf("```soyuz\n%s %s: %s\n```", n.Kind, n.Name, t.String())
+	case *parser.ExternDecl:
+		if ft, ok := t.(*checker.FuncType); ok {
+			return fmt.Sprintf("```soyuz\nextern fn %s%s\n```", n.Name, ft.String())
+		}
+	case *parser.ImportDecl:
+		if n.IsStdlib {
+			return fmt.Sprintf("```soyuz\nimport @soyuz.%s\n```", strings.Join(n.Path, "."))
+		}
+		return fmt.Sprintf("```soyuz\nimport %s\n```", strings.Join(n.Path, "."))
 	}
 	return fmt.Sprintf("```soyuz\n%s\n```", t.String())
 }
@@ -255,6 +264,8 @@ func (h *Handler) handleDefinition(ctx *glsp.Context, params *protocol.Definitio
 
 func topLevelName(node parser.Node) (string, bool) {
 	switch n := node.(type) {
+	case *parser.FuncDecl:
+		return n.Name, true
 	case *parser.RecordDecl:
 		return n.Name, true
 	case *parser.EnumDecl:
@@ -264,6 +275,8 @@ func topLevelName(node parser.Node) (string, bool) {
 	case *parser.InterfaceDecl:
 		return n.Name, true
 	case *parser.VarDecl:
+		return n.Name, true
+	case *parser.ExternDecl:
 		return n.Name, true
 	}
 	return "", false
@@ -455,11 +468,12 @@ func identRange(pos lexer.Position, name string) protocol.Range {
 // ─── Completion ───────────────────────────────────────────────────────────────
 
 var soyuzKeywords = []string{
-	"val", "var", "const", "fn", "return", "pub", "weak", "impl",
+	"val", "var", "const", "fn", "extern", "return", "pub", "weak", "impl",
 	"record", "class", "interface", "enum",
-	"if", "else", "match", "for", "while", "loop", "break", "continue", "in",
+	"if", "else", "when", "match", "for", "while", "loop", "break", "continue", "in",
 	"import", "self",
 	"true", "false", "None",
+	"Ok", "Err", "Some",
 }
 
 func (h *Handler) handleCompletion(ctx *glsp.Context, params *protocol.CompletionParams) (any, error) {
@@ -517,8 +531,10 @@ func memberCompletions(t checker.Type) []protocol.CompletionItem {
 		for name, ft := range tt.Fields {
 			items = append(items, fieldItem(name, ft))
 		}
-		for name, ft := range tt.Methods {
-			items = append(items, methodItem(name, ft))
+		for name, variants := range tt.Methods {
+			if len(variants) > 0 {
+				items = append(items, methodItem(name, variants[0]))
+			}
 		}
 	case *checker.SpecializedType:
 		return memberCompletions(tt.Base)

@@ -54,6 +54,7 @@ type FuncDecl struct {
 	Name       string
 	Generics   []GenericParam
 	Params     []FuncParam
+	WhenGuard  Node     // when expr (nil = no guard)
 	ReturnType TypeExpr // nil = Unit
 	Body       Node     // *BlockStmt or expression (IsExprBody = true)
 	IsExprBody bool     // fn f(x) -> T = expr  (sugar for { return expr })
@@ -140,13 +141,26 @@ type EnumField struct {
 }
 
 type ImportDecl struct {
-	pos      lexer.Position
-	Path     []string // ["parser", "lexer"]
-	Names    []ImportName
-	Wildcard bool
+	pos           lexer.Position
+	Path          []string // ["parser", "lexer"]
+	Names         []ImportName
+	Wildcard      bool
+	IsStdlib      bool     // true when imported as @soyuz.modname
+	ResolvedFiles []string // populated by module.Collect at graph traversal time
 }
 
 func (i *ImportDecl) Pos() lexer.Position { return i.pos }
+
+// ExternDecl declares a C function available for FFI: extern fn name(params) -> RetType
+type ExternDecl struct {
+	pos        lexer.Position
+	Pub        bool
+	Name       string
+	Params     []FuncParam
+	ReturnType TypeExpr // nil = Unit/void
+}
+
+func (e *ExternDecl) Pos() lexer.Position { return e.pos }
 
 type ImportName struct {
 	Name  string

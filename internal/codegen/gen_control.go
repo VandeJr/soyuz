@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"soyuz/internal/checker"
 	"soyuz/internal/parser"
 
 	"github.com/llir/llvm/ir"
@@ -113,13 +114,15 @@ func (g *Generator) generateLoopStmt(n *parser.LoopStmt) (value.Value, error) {
 }
 
 // generateForStmt implements `for binding in iterable { body }`.
-// Currently supports range iteration: `for i in start..end` and `for i in start..=end`.
+// Supports range iteration (`for i in start..end`) and List[T] iteration.
 func (g *Generator) generateForStmt(n *parser.ForStmt) (value.Value, error) {
-	rangeExpr, ok := n.Iterable.(*parser.RangeExpr)
-	if !ok {
-		return nil, fmt.Errorf("for-in only supports range iteration (e.g. 0..10) for now")
+	if rangeExpr, ok := n.Iterable.(*parser.RangeExpr); ok {
+		return g.generateForRange(n.Binding, rangeExpr, n.Body)
 	}
+	return g.generateForList(n)
+}
 
+func (g *Generator) generateForRange(binding string, rangeExpr *parser.RangeExpr, body *parser.BlockStmt) (value.Value, error) {
 	start, err := g.generateExpr(rangeExpr.From)
 	if err != nil {
 		return nil, err
@@ -130,11 +133,9 @@ func (g *Generator) generateForStmt(n *parser.ForStmt) (value.Value, error) {
 	}
 
 	fn := g.current.Parent
-
-	// Allocate the loop counter in the entry block.
 	alloc := g.newAlloca(types.I64)
 	g.current.NewStore(start, alloc)
-	g.vars[n.Binding] = alloc
+	g.vars[binding] = alloc
 
 	condBlock := g.newBlock("for_cond", fn)
 	bodyBlock := g.newBlock("for_body", fn)
@@ -143,7 +144,6 @@ func (g *Generator) generateForStmt(n *parser.ForStmt) (value.Value, error) {
 
 	g.current.NewBr(condBlock)
 
-	// Condition: counter < end  (or <= for inclusive)
 	g.current = condBlock
 	counter := g.current.NewLoad(types.I64, alloc)
 	var cond value.Value
@@ -154,9 +154,99 @@ func (g *Generator) generateForStmt(n *parser.ForStmt) (value.Value, error) {
 	}
 	g.current.NewCondBr(cond, bodyBlock, afterBlock)
 
-	// Body
 	g.loops = append(g.loops, loopCtx{cond: incrBlock, after: afterBlock})
 	g.current = bodyBlock
+	if _, err = g.generateExpr(body); err != nil {
+		return nil, err
+	}
+	if g.current.Term == nil {
+		g.current.NewBr(incrBlock)
+	}
+	g.loops = g.loops[:len(g.loops)-1]
+
+	g.current = incrBlock
+	cur := g.current.NewLoad(types.I64, alloc)
+	next := g.current.NewAdd(cur, constant.NewInt(types.I64, 1))
+	g.current.NewStore(next, alloc)
+	g.current.NewBr(condBlock)
+
+	g.current = afterBlock
+	return nil, nil
+}
+
+func (g *Generator) generateForList(n *parser.ForStmt) (value.Value, error) {
+	listVal, err := g.generateExpr(n.Iterable)
+	if err != nil {
+		return nil, err
+	}
+
+	st, ok := g.check.NodeTypes[n.Iterable].(*checker.SpecializedType)
+	if !ok {
+		return nil, fmt.Errorf("for-in: tipo do iterável não é List[T]")
+	}
+	elemCheckerType := st.Params[0]
+	elemLLVMType := g.mapTypeToLLVM(elemCheckerType)
+
+	listPtr := types.NewPointer(g.structs["SoyuzList"].typ)
+	listTyped := g.current.NewBitCast(listVal, listPtr)
+
+	// size = list.fields[0]  (same GEP pattern as the "size" method)
+	sizePtr := g.current.NewGetElementPtr(g.structs["SoyuzList"].typ, listTyped,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	size := g.current.NewLoad(types.I64, sizePtr)
+
+	fn := g.current.Parent
+
+	// Loop counter i
+	iAlloc := g.newAlloca(types.I64)
+	g.current.NewStore(constant.NewInt(types.I64, 0), iAlloc)
+
+	// Element binding alloc — sized to element type (or i8* for heap types)
+	var bindAlloc value.Value
+	if elemLLVMType.Equal(types.I64) || elemLLVMType.Equal(types.Double) || elemLLVMType.Equal(types.I1) {
+		bindAlloc = g.newAlloca(elemLLVMType)
+	} else {
+		bindAlloc = g.newAlloca(types.I8Ptr)
+	}
+	g.vars[n.Binding] = bindAlloc
+
+	condBlock := g.newBlock("forl_cond", fn)
+	bodyBlock := g.newBlock("forl_body", fn)
+	incrBlock := g.newBlock("forl_incr", fn)
+	afterBlock := g.newBlock("forl_after", fn)
+
+	g.current.NewBr(condBlock)
+
+	// Condition: i < size
+	g.current = condBlock
+	i := g.current.NewLoad(types.I64, iAlloc)
+	cond := g.current.NewICmp(enum.IPredSLT, i, size)
+	g.current.NewCondBr(cond, bodyBlock, afterBlock)
+
+	// Body: load element, store in binding
+	g.current = bodyBlock
+	listAsI8 := g.current.NewBitCast(listTyped, types.I8Ptr)
+	iLoad := g.current.NewLoad(types.I64, iAlloc)
+	raw := g.current.NewCall(g.findFunc("soyuz_list_get"), listAsI8, iLoad)
+
+	var elem value.Value
+	if elemLLVMType.Equal(types.I64) {
+		elem = g.current.NewPtrToInt(raw, types.I64)
+	} else if elemLLVMType.Equal(types.Double) {
+		i64Val := g.current.NewPtrToInt(raw, types.I64)
+		elem = g.current.NewBitCast(i64Val, types.Double)
+	} else if elemLLVMType.Equal(types.I1) {
+		i64Val := g.current.NewPtrToInt(raw, types.I64)
+		elem = g.current.NewTrunc(i64Val, types.I1)
+	} else {
+		elem = g.current.NewBitCast(raw, elemLLVMType)
+		if g.isHeapType(elemLLVMType) {
+			g.emitRetain(elem)
+		}
+	}
+	g.current.NewStore(elem, bindAlloc)
+
+	g.loops = append(g.loops, loopCtx{cond: incrBlock, after: afterBlock})
 	if _, err = g.generateExpr(n.Body); err != nil {
 		return nil, err
 	}
@@ -167,9 +257,9 @@ func (g *Generator) generateForStmt(n *parser.ForStmt) (value.Value, error) {
 
 	// Increment
 	g.current = incrBlock
-	cur := g.current.NewLoad(types.I64, alloc)
+	cur := g.current.NewLoad(types.I64, iAlloc)
 	next := g.current.NewAdd(cur, constant.NewInt(types.I64, 1))
-	g.current.NewStore(next, alloc)
+	g.current.NewStore(next, iAlloc)
 	g.current.NewBr(condBlock)
 
 	g.current = afterBlock

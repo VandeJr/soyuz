@@ -387,6 +387,17 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 			g.current = matchOk
 		}
 
+		if v.WhenGuard != nil {
+			guardOk := g.newBlock(fmt.Sprintf("v%d_guard_ok", i), fn)
+			guardVal, err := g.generateExpr(v.WhenGuard)
+			if err != nil {
+				return err
+			}
+			// Se o guard for falso, pula para o próximo variant (variantNext)
+			g.current.NewCondBr(guardVal, guardOk, variantNext)
+			g.current = guardOk
+		}
+
 		if g.current.Term == nil {
 			g.current.NewBr(variantBody)
 		}

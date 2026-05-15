@@ -138,6 +138,10 @@ func (p *Parser) parsePrefix() Node {
 	case lexer.IDENT:
 		return p.parseIdentOrRecordLiteral()
 
+	case lexer.UNDERSCORE:
+		tok := p.advance()
+		return &Identifier{pos: tok.Position, Name: "_"}
+
 	default:
 		p.errorf(pos, "token inesperado na expressão: %s (%q)", p.peek().Type, p.peek().Lexeme)
 		tok := p.advance()
@@ -189,12 +193,12 @@ func (p *Parser) parseInfix(left Node) Node {
 			prop := p.advance().Lexeme
 			return &MemberExpr{pos: tok.Position, Object: left, Property: prop}
 		}
-		prop := p.expect(lexer.IDENT).Lexeme
+		prop := p.expectName().Lexeme
 		return &MemberExpr{pos: tok.Position, Object: left, Property: prop}
 
 	case lexer.SAFE_NAV:
 		p.advance()
-		prop := p.expect(lexer.IDENT).Lexeme
+		prop := p.expectName().Lexeme
 		return &SafeNavExpr{pos: tok.Position, Object: left, Property: prop}
 
 	case lexer.LPAREN:
@@ -324,7 +328,7 @@ func (p *Parser) parseMatchArm() MatchArm {
 	pat := p.parsePattern()
 
 	var guard Node
-	if p.check(lexer.IF) {
+	if p.check(lexer.WHEN) || p.check(lexer.IF) {
 		p.advance()
 		guard = p.parseExpression(0)
 	}

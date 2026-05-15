@@ -34,6 +34,8 @@ func (p *Parser) parseTopLevel() Node {
 		return vd
 	case lexer.FN:
 		return p.parseFuncDecl(pub)
+	case lexer.EXTERN:
+		return p.parseExternDecl(pub)
 	case lexer.RECORD:
 		return p.parseRecordDecl(pub)
 	case lexer.CLASS:
@@ -100,6 +102,12 @@ func (p *Parser) parseFuncDecl(pub bool) *FuncDecl {
 
 	params := p.parseFuncParams()
 
+	var whenGuard Node
+	if p.consume(lexer.WHEN) {
+		// Use a binding power that stops before '=' (ASSIGN)
+		whenGuard = p.parseExpression(2)
+	}
+
 	var returnType TypeExpr
 	if p.consume(lexer.ARROW) {
 		returnType = p.parseTypeExpr()
@@ -128,6 +136,7 @@ func (p *Parser) parseFuncDecl(pub bool) *FuncDecl {
 		Name:       name,
 		Generics:   generics,
 		Params:     params,
+		WhenGuard:  whenGuard,
 		ReturnType: returnType,
 		Body:       body,
 		IsExprBody: isExpr,
@@ -317,13 +326,13 @@ func (p *Parser) parseEnumDecl(pub bool) *EnumDecl {
 
 func (p *Parser) parseEnumVariant() EnumVariant {
 	pos := p.peek().Position
-	name := p.expect(lexer.IDENT).Lexeme
+	name := p.expectName().Lexeme
 	var fields []EnumField
 
 	if p.consume(lexer.LPAREN) {
 		for !p.check(lexer.RPAREN) && !p.check(lexer.EOF) {
 			var fieldName string
-			if p.check(lexer.IDENT) && p.peekN(1).Type == lexer.COLON {
+			if p.checkName() && p.peekN(1).Type == lexer.COLON {
 				fieldName = p.advance().Lexeme
 				p.advance() // colon
 			}
@@ -334,12 +343,86 @@ func (p *Parser) parseEnumVariant() EnumVariant {
 			}
 		}
 		p.expect(lexer.RPAREN)
+	} else if p.consume(lexer.LBRACE) {
+		for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+			var fieldName string
+			if p.checkName() && p.peekN(1).Type == lexer.COLON {
+				fieldName = p.advance().Lexeme
+				p.advance() // colon
+			}
+			fieldType := p.parseTypeExpr()
+			fields = append(fields, EnumField{Name: fieldName, Type: fieldType})
+			if !p.check(lexer.RBRACE) {
+				p.consume(lexer.COMMA)
+			}
+		}
+		p.expect(lexer.RBRACE)
 	}
 	return EnumVariant{Pos: pos, Name: name, Fields: fields}
 }
 
+func (p *Parser) parseExternDecl(pub bool) *ExternDecl {
+	pos := p.expect(lexer.EXTERN).Position
+	p.expect(lexer.FN)
+	nameTok := p.expect(lexer.IDENT)
+	params := p.parseFuncParams()
+	var returnType TypeExpr
+	if p.consume(lexer.ARROW) {
+		returnType = p.parseTypeExpr()
+	}
+	p.consume(lexer.SEMICOLON)
+	return &ExternDecl{pos: pos, Pub: pub, Name: nameTok.Lexeme, Params: params, ReturnType: returnType}
+}
+
 func (p *Parser) parseImportDecl() *ImportDecl {
 	pos := p.expect(lexer.IMPORT).Position
+
+	// Stdlib import:
+	//   import @soyuz.mock                    — bare: tudo público + namespace mock.*
+	//   import @soyuz.mock.assert_true        — símbolo único (sem chaves)
+	//   import @soyuz.mock.{assert_true, ...} — múltiplos símbolos (chaves obrigatórias)
+	if p.consume(lexer.AT) {
+		p.expect(lexer.IDENT) // "soyuz" — escopo, validado mas não armazenado
+		p.expect(lexer.DOT)
+
+		// Consome todos os segmentos de caminho até encontrar {, * ou EOF.
+		// Exemplos:
+		//   import @soyuz.mock                    → path=["mock"]
+		//   import @soyuz.collections.list        → path=["collections","list"]
+		//   import @soyuz.mock.{f1, f2}           → path=["mock"], names=[f1,f2]
+		//   import @soyuz.collections.list.{fn}   → path=["collections","list"], names=[fn]
+		var path []string
+		path = append(path, p.expect(lexer.IDENT).Lexeme)
+
+		var names []ImportName
+		wildcard := false
+
+		for p.consume(lexer.DOT) {
+			if p.check(lexer.LBRACE) {
+				p.advance()
+				for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+					n := p.expect(lexer.IDENT).Lexeme
+					names = append(names, ImportName{Name: n})
+					p.consume(lexer.COMMA)
+				}
+				p.expect(lexer.RBRACE)
+				break
+			}
+			if p.check(lexer.ASTERISK) {
+				wildcard = true
+				p.advance()
+				break
+			}
+			if p.check(lexer.IDENT) {
+				path = append(path, p.advance().Lexeme)
+			} else {
+				break
+			}
+		}
+
+		p.consume(lexer.SEMICOLON)
+		return &ImportDecl{pos: pos, Path: path, Names: names, Wildcard: wildcard, IsStdlib: true}
+	}
 
 	var path []string
 	path = append(path, p.expect(lexer.IDENT).Lexeme)

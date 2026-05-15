@@ -111,6 +111,17 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		return g.generateRecordLiteral(n)
 
 	case *parser.MemberExpr:
+		// Enum dot syntax as value: Enum.Variant (zero-arg constructor)
+		if _, ok := n.Object.(*parser.Identifier); ok {
+			if et, isEnum := g.check.NodeTypes[n.Object].(*checker.EnumType); isEnum {
+				if ei, exists := g.enums[et.Name]; exists {
+					if vi, ok2 := ei.variants[n.Property]; ok2 {
+						fakeCall := &parser.CallExpr{}
+						return g.generateEnumConstructor(ei, vi, fakeCall)
+					}
+				}
+			}
+		}
 		return g.generateMemberExpr(n)
 
 	case *parser.MatchExpr:
@@ -160,6 +171,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		}
 		g.check.Specializations[call] = g.check.Specializations[n]
 		return g.generateCallExpr(call)
+
+	case *parser.ElvisExpr:
+		return g.generateElvisExpr(n)
 
 	case *parser.AssignExpr:
 		// When assigning Some(x) to a weak field, the Option payload must NOT be retained,
@@ -535,6 +549,11 @@ func (g *Generator) generateCallArgs(args []parser.Node) ([]value.Value, error) 
 }
 
 func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
+	// M4b: curried call — generate a closure instead of a direct call
+	if af, ok := g.check.CurriedCalls[n]; ok {
+		return g.generateArrowFunc(af)
+	}
+
 	// 1. Built-in print
 	if id, ok := n.Callee.(*parser.Identifier); ok && id.Name == "print" {
 		return g.generatePrint(n)
@@ -581,9 +600,67 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 		}
 	}
 
-	// 4. Method call: obj.method(args)
+	// 4. Method call: obj.method(args) — or enum dot constructor: Enum.Variant(args)
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
 		objCheckerType := g.check.NodeTypes[me.Object]
+		// Enum dot constructor: Enum.Variant(args) — concrete or generic.
+		if et, isEnum := objCheckerType.(*checker.EnumType); isEnum {
+			if ei, exists := g.enums[et.Name]; exists {
+				if vi, ok2 := ei.variants[me.Property]; ok2 {
+					return g.generateEnumConstructor(ei, vi, n)
+				}
+			}
+			// Generic enum: specialize from the checker's Specializations entry.
+			if decl, ok2 := g.genericEnumDecls[et.Name]; ok2 {
+				if ft, ok3 := g.check.Specializations[n]; ok3 {
+					llvmRet := g.mapTypeToLLVM(ft.Return)
+					if ptr, ok4 := llvmRet.(*types.PointerType); ok4 {
+						if st, ok5 := ptr.ElemType.(*types.StructType); ok5 {
+							for _, ei2 := range g.enums {
+								if ei2.typ == st {
+									if vi2, ok6 := ei2.variants[me.Property]; ok6 {
+										return g.generateEnumConstructor(ei2, vi2, n)
+									}
+								}
+							}
+						}
+					}
+					// Fallback: build substitution from the specialization return type.
+					if st2, ok4 := ft.Return.(*checker.SpecializedType); ok4 {
+						sub := make(map[string]types.Type)
+						for i, gp := range decl.Generics {
+							if i < len(st2.Params) {
+								sub[gp.Name] = g.mapTypeToLLVM(st2.Params[i])
+							}
+						}
+						ei3, err := g.getOrCreateSpecializedEnum(decl, sub)
+						if err == nil {
+							if vi3, ok5 := ei3.variants[me.Property]; ok5 {
+								return g.generateEnumConstructor(ei3, vi3, n)
+							}
+						}
+					}
+				}
+				// Last resort: infer from argument types.
+				if len(n.Args) > 0 {
+					arg0, err := g.generateExpr(n.Args[0])
+					if err == nil {
+						sub := make(map[string]types.Type)
+						if len(decl.Generics) > 0 {
+							sub[decl.Generics[0].Name] = arg0.Type()
+						}
+						ei4, err2 := g.getOrCreateSpecializedEnum(decl, sub)
+						if err2 == nil {
+							if vi4, ok5 := ei4.variants[me.Property]; ok5 {
+								fakeCall := &parser.CallExpr{Args: []parser.Node{n.Args[0]}}
+								_ = fakeCall
+								return g.generateEnumConstructorWithValues(ei4, vi4, []value.Value{arg0})
+							}
+						}
+					}
+				}
+			}
+		}
 		isMethod := false
 		switch t := objCheckerType.(type) {
 		case *checker.ClassType, *checker.InterfaceType:
@@ -666,6 +743,32 @@ func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
 	ptr := g.current.NewGetElementPtr(cs.Type(), glob,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I64, 0))
 	return g.current.NewCall(printf, append([]value.Value{ptr}, printArgs...)...), nil
+}
+
+// generateEnumConstructorWithValues is like generateEnumConstructor but takes pre-evaluated arg values.
+func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInfo, args []value.Value) (value.Value, error) {
+	var dtorArg value.Value
+	if dtor, ok := g.destructors[ei.typ.TypeName]; ok {
+		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
+	} else {
+		dtorArg = constant.NewNull(types.I8Ptr)
+	}
+	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"), constant.NewInt(types.I64, 72), dtorArg)
+	structPtr := g.current.NewBitCast(raw, types.NewPointer(ei.typ))
+	tagPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	g.current.NewStore(constant.NewInt(types.I64, int64(vi.tag)), tagPtr)
+	if len(args) > 0 {
+		val := args[0]
+		if g.isHeapType(val.Type()) {
+			g.emitRetain(val)
+		}
+		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(val.Type()))
+		g.current.NewStore(val, castPtr)
+	}
+	return structPtr, nil
 }
 
 func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *parser.CallExpr) (value.Value, error) {
@@ -844,10 +947,13 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 	if ptrType, ok := obj.Type().(*types.PointerType); ok {
 		if st, ok2 := ptrType.ElemType.(*types.StructType); ok2 {
 			if ci, ok3 := g.classes[st.TypeName]; ok3 {
-				if fn, ok4 := ci.methods[me.Property]; ok4 {
-					objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
-					allArgs := append([]value.Value{objAsI8}, args...)
-					return g.current.NewCall(fn, allArgs...), nil
+				if variants, ok4 := ci.methods[me.Property]; ok4 {
+					fn := classMethodByArity(variants, len(args))
+					if fn != nil {
+						objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+						allArgs := append([]value.Value{objAsI8}, args...)
+						return g.current.NewCall(fn, allArgs...), nil
+					}
 				}
 			}
 		}
@@ -1011,6 +1117,68 @@ func (g *Generator) generateMapExpr(n *parser.MapExpr) (value.Value, error) {
 	}
 
 	return mapPtr, nil
+}
+
+// generateElvisExpr emits `x ?: default`: if x is Some(v) return v, else return default.
+func (g *Generator) generateElvisExpr(n *parser.ElvisExpr) (value.Value, error) {
+	optVal, err := g.generateExpr(n.Left)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine the inner payload LLVM type from the checker.
+	var payloadType types.Type = types.I64
+	if st, ok := g.check.NodeTypes[n].(*checker.SpecializedType); ok && len(st.Params) > 0 {
+		payloadType = g.mapTypeToLLVM(st.Params[0])
+	}
+
+	ei := g.enums["Option"]
+
+	// Ensure optVal is stored at a pointer so we can GEP into it.
+	var optPtr value.Value
+	if _, ok := optVal.Type().(*types.PointerType); ok {
+		optPtr = optVal
+	} else {
+		alloc := g.newAlloca(optVal.Type())
+		g.current.NewStore(optVal, alloc)
+		optPtr = alloc
+	}
+
+	tagPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	tag := g.current.NewLoad(types.I64, tagPtr)
+	isSome := g.current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, 0))
+
+	fn := g.current.Parent
+	someBlock := g.newBlock("elvis_some", fn)
+	noneBlock := g.newBlock("elvis_none", fn)
+	mergeBlock := g.newBlock("elvis_merge", fn)
+	g.current.NewCondBr(isSome, someBlock, noneBlock)
+
+	// Some branch: extract payload.
+	g.current = someBlock
+	payloadPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
+	someVal := g.current.NewLoad(payloadType, castPtr)
+	g.current.NewBr(mergeBlock)
+	someBlock = g.current
+
+	// None branch: evaluate default.
+	g.current = noneBlock
+	defaultVal, err := g.generateExpr(n.Right)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	noneBlock = g.current
+
+	g.current = mergeBlock
+	phi := mergeBlock.NewPhi(
+		ir.NewIncoming(someVal, someBlock),
+		ir.NewIncoming(defaultVal, noneBlock),
+	)
+	return phi, nil
 }
 
 func (g *Generator) generateSomeExpr(n *parser.SomeExpr) (value.Value, error) {

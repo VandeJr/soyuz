@@ -87,6 +87,10 @@ func walkNode(node parser.Node, fn func(parser.Node)) {
 	switch n := node.(type) {
 	case *parser.FuncDecl:
 		walkNode(n.Body, fn)
+	case *parser.ExternDecl:
+		// leaf node — no children to walk
+	case *parser.ImportDecl:
+		// leaf node — no children to walk
 	case *parser.VarDecl:
 		walkNode(n.Init, fn)
 	case *parser.ClassDecl:

@@ -95,6 +95,38 @@ func (p *Parser) consume(t lexer.TokenType) bool {
 	return false
 }
 
+// expectName accepts IDENT or any keyword token that can be used as a name
+// (e.g. Ok, Err, Some, None as enum variant names).
+func (p *Parser) expectName() lexer.Token {
+	tok := p.peek()
+	if tok.Type == lexer.IDENT || p.isNameLikeKeyword(tok.Type) {
+		return p.advance()
+	}
+	p.errorf(tok.Position, "esperado identificador, encontrado %s (%q)", tok.Type, tok.Lexeme)
+	return tok
+}
+
+// isNameLikeKeyword returns true for keyword tokens that are commonly used as names
+// (type constructors, variant names, field names, etc.).
+func (p *Parser) isNameLikeKeyword(t lexer.TokenType) bool {
+	switch t {
+	case lexer.OK, lexer.ERR, lexer.SOME, lexer.NONE,
+		lexer.TRUE, lexer.FALSE,
+		lexer.INT_TYPE, lexer.FLOAT_TYPE, lexer.BOOL_TYPE,
+		lexer.STRING_TYPE, lexer.UNIT_TYPE,
+		// field names that shadow declaration keywords
+		lexer.VAL, lexer.VAR, lexer.CONST, lexer.FN,
+		lexer.PUB, lexer.SELF, lexer.IN:
+		return true
+	}
+	return false
+}
+
+// checkName returns true if the current token is an IDENT or a keyword usable as a name.
+func (p *Parser) checkName() bool {
+	return p.check(lexer.IDENT) || p.isNameLikeKeyword(p.peek().Type)
+}
+
 func (p *Parser) skipSemicolons() {
 	for p.check(lexer.SEMICOLON) {
 		p.advance()

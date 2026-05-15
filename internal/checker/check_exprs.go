@@ -1,6 +1,7 @@
 package checker
 
 import (
+	"fmt"
 	"strconv"
 	"soyuz/internal/parser"
 )
@@ -60,11 +61,36 @@ func (c *Checker) checkMapExpr(n *parser.MapExpr) Type {
 func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 	objType := c.checkNode(n.Object)
 	switch t := objType.(type) {
+	case *EnumType:
+		// Enum.Variant — look up directly in the enum's own variants to avoid scope collisions
+		// when two enums share the same variant name (e.g. two enums with Ok/Err).
+		if fieldTypes, ok := t.Variants[n.Property]; ok {
+			var retType Type = t
+			if len(t.Generics) > 0 {
+				tparams := make([]Type, len(t.Generics))
+				for i, name := range t.Generics {
+					tparams[i] = &TypeParameter{Name: name}
+				}
+				retType = &SpecializedType{Base: t, Params: tparams}
+			}
+			if len(fieldTypes) == 0 {
+				return retType
+			}
+			return &FuncType{Params: fieldTypes, Return: retType, Generics: t.Generics}
+		}
+		c.errorf(n.Pos(), "enum %s não tem variante %s", t.Name, n.Property)
+		return Unknown
 	case *ClassType:
-		if ft, ok := t.Methods[n.Property]; ok {
-			return ft
+		if variants, ok := t.Methods[n.Property]; ok && len(variants) > 0 {
+			if !t.MethodPub[n.Property] && c.currentClass != t {
+				c.errorf(n.Pos(), "método '%s' de '%s' é privado", n.Property, t.Name)
+			}
+			return variants[0]
 		}
 		if ft, ok := t.Fields[n.Property]; ok {
+			if !t.FieldPub[n.Property] && c.currentClass != t {
+				c.errorf(n.Pos(), "campo '%s' de '%s' é privado", n.Property, t.Name)
+			}
 			return ft
 		}
 		c.errorf(n.Pos(), "class %s has no member %s", t.Name, n.Property)
@@ -110,10 +136,20 @@ func (c *Checker) checkArrowFunc(n *parser.ArrowFunc) Type {
 	c.scope = NewScope(parentScope)
 	defer func() { c.scope = parentScope }()
 
+	// M4a: use injected hints when a param has no type annotation
+	hints := c.arrowFuncHints[n]
+
 	paramNames := map[string]bool{}
 	var paramTypes []Type
-	for _, p := range n.Params {
-		pt := c.resolveTypeExpr(p.Type)
+	for i, p := range n.Params {
+		var pt Type
+		if p.Type != nil {
+			pt = c.resolveTypeExpr(p.Type)
+		} else if i < len(hints) {
+			pt = hints[i]
+		} else {
+			pt = Unknown
+		}
 		paramTypes = append(paramTypes, pt)
 		c.checkPattern(p.Pattern, pt)
 		if bp, ok := p.Pattern.(*parser.BindingPattern); ok {
@@ -344,6 +380,18 @@ func (c *Checker) checkInterpolatedString(n *parser.InterpolatedString) Type {
 	return StringType
 }
 
+// checkElvisExpr: `x ?: default` — x must be Option[T], result is T.
+func (c *Checker) checkElvisExpr(n *parser.ElvisExpr) Type {
+	leftType := c.checkNode(n.Left)
+	c.checkNode(n.Right)
+	if st, ok := leftType.(*SpecializedType); ok {
+		if et, ok := st.Base.(*EnumType); ok && et.Name == "Option" && len(st.Params) > 0 {
+			return st.Params[0]
+		}
+	}
+	return Unknown
+}
+
 func (c *Checker) checkReturnStmt(n *parser.ReturnStmt) Type {
 	var got Type = UnitType
 	if n.Value != nil {
@@ -358,6 +406,43 @@ func (c *Checker) checkReturnStmt(n *parser.ReturnStmt) Type {
 func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 	var ft *FuncType
 	var calleeType Type
+
+	// M5: overloaded method resolution — must happen before normal callee checking
+	// so that we pick the correct variant by arity instead of defaulting to variants[0].
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if ct, isCT := objType.(*ClassType); isCT {
+			if variants, hasMethod := ct.Methods[me.Property]; hasMethod && len(variants) > 1 {
+				arity := len(n.Args)
+				for _, v := range variants {
+					if len(v.Params) == arity {
+						ft = v
+						break
+					}
+				}
+				if ft == nil {
+					c.errorf(n.Pos(), "nenhuma sobrecarga de '%s' aceita %d argumento(s)", me.Property, arity)
+					return Unknown
+				}
+				c.specializations[n] = ft
+				for i, arg := range n.Args {
+					if af, ok2 := arg.(*parser.ArrowFunc); ok2 && i < len(ft.Params) {
+						if expectedFT, ok3 := ft.Params[i].(*FuncType); ok3 {
+							c.arrowFuncHints[af] = expectedFT.Params
+						}
+					}
+					at := c.checkNode(arg)
+					if !c.isAssignable(ft.Params[i], at) {
+						c.errorf(arg.Pos(), "incompatible argument %d: expected %s, got %s", i+1, ft.Params[i], at)
+					}
+				}
+				return ft.Return
+			}
+		}
+	}
 
 	if genericCall, ok := n.Callee.(*parser.IndexExpr); ok {
 		calleeType = c.checkNode(genericCall.Object)
@@ -385,6 +470,34 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 
 	c.specializations[n] = ft
 
+	// M3: For each arg at an optional param position, apply auto-wrap rules:
+	//   _ → NoneLiteral (explicit None placeholder)
+	//   SomeExpr / NoneLiteral → leave as-is (already wrapped)
+	//   anything else → wrap with SomeExpr automatically
+	if len(ft.IsOptional) > 0 {
+		for i := range n.Args {
+			if i >= len(ft.IsOptional) || !ft.IsOptional[i] {
+				continue
+			}
+			arg := n.Args[i]
+			if id, ok := arg.(*parser.Identifier); ok && id.Name == "_" {
+				n.Args[i] = &parser.NoneLiteral{}
+			} else {
+				switch arg.(type) {
+				case *parser.SomeExpr, *parser.NoneLiteral:
+					// already explicitly wrapped
+				default:
+					n.Args[i] = &parser.SomeExpr{Value: arg}
+				}
+			}
+		}
+	}
+
+	// M4b: currying — detect _ placeholder in non-optional positions
+	if c.hasCurryPlaceholder(n, ft) {
+		return c.checkCurryCall(n, ft)
+	}
+
 	if len(n.Args) > len(ft.Params) {
 		c.errorf(n.Pos(), "argumentos em excesso: esperado %d, encontrado %d", len(ft.Params), len(n.Args))
 		return ft.Return
@@ -408,12 +521,68 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 		c.synthCallArgs[n] = ft.Defaults[missingFrom:]
 	}
 	for i, arg := range n.Args {
+		// M4a: inject param type hints for ArrowFunc args when expected type is a FuncType
+		if af, ok2 := arg.(*parser.ArrowFunc); ok2 && i < len(ft.Params) {
+			if expectedFT, ok3 := ft.Params[i].(*FuncType); ok3 {
+				c.arrowFuncHints[af] = expectedFT.Params
+			}
+		}
 		at := c.checkNode(arg)
 		if !c.isAssignable(ft.Params[i], at) {
 			c.errorf(arg.Pos(), "incompatible argument %d: expected %s, got %s", i+1, ft.Params[i], at)
 		}
 	}
 	return ft.Return
+}
+
+// hasCurryPlaceholder reports whether any non-optional arg position holds a bare _ identifier.
+func (c *Checker) hasCurryPlaceholder(n *parser.CallExpr, ft *FuncType) bool {
+	for i, arg := range n.Args {
+		if id, ok := arg.(*parser.Identifier); ok && id.Name == "_" {
+			if i >= len(ft.IsOptional) || !ft.IsOptional[i] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkCurryCall rewrites call(a, _, c) into fn(__curry_0) => call(a, __curry_0, c)
+// and checks the resulting closure, storing the mapping for codegen.
+func (c *Checker) checkCurryCall(n *parser.CallExpr, ft *FuncType) Type {
+	var curryParams []parser.FuncParam
+	var curryParamHints []Type
+	newArgs := make([]parser.Node, len(n.Args))
+	curryIdx := 0
+
+	for i, arg := range n.Args {
+		isPlaceholder := false
+		if id, ok := arg.(*parser.Identifier); ok && id.Name == "_" {
+			if i >= len(ft.IsOptional) || !ft.IsOptional[i] {
+				isPlaceholder = true
+			}
+		}
+		if isPlaceholder && i < len(ft.Params) {
+			paramName := fmt.Sprintf("__curry_%d", curryIdx)
+			curryIdx++
+			curryParams = append(curryParams, parser.FuncParam{
+				Pattern: &parser.BindingPattern{Name: paramName},
+			})
+			curryParamHints = append(curryParamHints, ft.Params[i])
+			newArgs[i] = &parser.Identifier{Name: paramName}
+		} else {
+			newArgs[i] = arg
+		}
+	}
+
+	innerCall := &parser.CallExpr{Callee: n.Callee, Args: newArgs}
+	af := &parser.ArrowFunc{Params: curryParams, Body: innerCall}
+	c.arrowFuncHints[af] = curryParamHints
+	c.curriedCalls[n] = af
+
+	afType := c.checkArrowFunc(af)
+	c.nodeTypes[af] = afType
+	return afType
 }
 
 func (c *Checker) checkSpecialization(n *parser.IndexExpr) Type {
@@ -445,6 +614,7 @@ func (c *Checker) checkIdentifier(n *parser.Identifier) Type {
 		c.errorf(n.Pos(), "undefined identifier: %s", n.Name)
 		return Unknown
 	}
+	c.checkGlobalAccess(n.Name, n.Pos())
 	// Auto-specialize zero-arg generic enum constructors used as values
 	// (e.g. `Nothing` of type `[T]() -> Maybe[T]` becomes `Maybe[Unknown]`).
 	if ft, ok := sym.Type.(*FuncType); ok && len(ft.Params) == 0 && len(ft.Generics) > 0 {
@@ -534,6 +704,30 @@ func (c *Checker) checkAssignExpr(n *parser.AssignExpr) Type {
 	return rightType
 }
 
+func (c *Checker) checkForStmt(n *parser.ForStmt) Type {
+	parent := c.scope
+	c.scope = NewScope(parent)
+	defer func() { c.scope = parent }()
+
+	var bindingType Type = IntType
+	if _, ok := n.Iterable.(*parser.RangeExpr); !ok {
+		iterType := c.checkNode(n.Iterable)
+		if st, ok := iterType.(*SpecializedType); ok {
+			if ct, ok2 := st.Base.(*ClassType); ok2 && ct.Name == "List" && len(st.Params) > 0 {
+				bindingType = st.Params[0]
+			} else {
+				c.errorf(n.Iterable.Pos(), "for-in: tipo '%s' não é iterável", iterType)
+			}
+		} else {
+			c.errorf(n.Iterable.Pos(), "for-in: tipo '%s' não é iterável", iterType)
+		}
+	}
+
+	c.scope.Define(n.Binding, bindingType, false)
+	c.checkBlock(n.Body)
+	return UnitType
+}
+
 func (c *Checker) checkBlock(n *parser.BlockStmt) Type {
 	parent := c.scope
 	c.scope = NewScope(parent)
@@ -552,6 +746,7 @@ func (c *Checker) checkRecordLiteral(n *parser.RecordLiteral) Type {
 		c.errorf(n.Pos(), "undefined type: %s", n.Name)
 		return Unknown
 	}
+	c.checkGlobalAccess(n.Name, n.Pos())
 
 	var fields map[string]Type
 	var typeName string
@@ -591,6 +786,18 @@ func (c *Checker) checkRecordLiteral(n *parser.RecordLiteral) Type {
 
 	for name := range fields {
 		if !provided[name] {
+			// M5: class fields with default init are optional — inject synthetic field.
+			if ct, ok2 := resultType.(*ClassType); ok2 {
+				if initNode, hasDefault := ct.FieldInit[name]; hasDefault {
+					c.checkNode(initNode) // register node type for codegen
+					n.Fields = append(n.Fields, parser.RecordLiteralField{
+						Pos:   n.Pos(),
+						Name:  name,
+						Value: initNode,
+					})
+					continue
+				}
+			}
 			c.errorf(n.Pos(), "missing field in initialization of %s: %s", typeName, name)
 		}
 	}
@@ -636,6 +843,7 @@ func (c *Checker) resolveTypeExpr(e parser.TypeExpr) Type {
 			return UnitType
 		}
 		if sym, ok := c.scope.Resolve(t.Name); ok {
+			c.checkGlobalAccess(t.Name, t.TypePos())
 			return sym.Type
 		}
 		c.errorf(t.TypePos(), "unknown type: %s", t.Name)

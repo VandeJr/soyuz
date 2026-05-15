@@ -47,6 +47,10 @@ func (p *printer) printProgram(prog *parser.Program) {
 
 func (p *printer) printTopLevel(node parser.Node) {
 	switch n := node.(type) {
+	case *parser.ImportDecl:
+		p.printImportDecl(n)
+	case *parser.ExternDecl:
+		p.printExternDecl(n)
 	case *parser.FuncDecl:
 		p.printFuncDecl(n)
 	case *parser.VarDecl:
@@ -64,6 +68,52 @@ func (p *printer) printTopLevel(node parser.Node) {
 	default:
 		p.writeln(p.expr(node))
 	}
+}
+
+func (p *printer) printImportDecl(n *parser.ImportDecl) {
+	if n.IsStdlib {
+		mod := strings.Join(n.Path, ".")
+		switch {
+		case len(n.Names) == 0 && !n.Wildcard:
+			p.writeln("import @soyuz." + mod)
+		case n.Wildcard:
+			p.writeln("import @soyuz." + mod + ".*")
+		default:
+			parts := make([]string, len(n.Names))
+			for i, nm := range n.Names {
+				parts[i] = nm.Name
+			}
+			p.writeln("import @soyuz." + mod + ".{" + strings.Join(parts, ", ") + "}")
+		}
+		return
+	}
+	// Regular import: import path.to.mod.{names}
+	path := strings.Join(n.Path, ".")
+	switch {
+	case n.Wildcard:
+		p.writeln("import " + path + ".*")
+	case len(n.Names) == 0:
+		p.writeln("import " + path)
+	default:
+		parts := make([]string, len(n.Names))
+		for i, nm := range n.Names {
+			parts[i] = nm.Name
+		}
+		p.writeln("import " + path + ".{" + strings.Join(parts, ", ") + "}")
+	}
+}
+
+func (p *printer) printExternDecl(n *parser.ExternDecl) {
+	prefix := ""
+	if n.Pub {
+		prefix = "pub "
+	}
+	params := p.funcParams(n.Params)
+	ret := ""
+	if n.ReturnType != nil {
+		ret = " -> " + p.typeExpr(n.ReturnType)
+	}
+	p.writeln(fmt.Sprintf("%sextern fn %s(%s)%s", prefix, n.Name, params, ret))
 }
 
 // ─── Declarations ─────────────────────────────────────────────────────────────

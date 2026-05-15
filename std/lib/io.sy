@@ -1,0 +1,3 @@
+pub fn io_mock() -> String {
+    return "io_mock"
+}

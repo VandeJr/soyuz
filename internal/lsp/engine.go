@@ -1,12 +1,17 @@
 package lsp
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"soyuz/internal/checker"
 	"soyuz/internal/lexer"
+	"soyuz/internal/module"
 	"soyuz/internal/parser"
+	soyuzstdlib "soyuz/std"
 )
 
 type AnalysisResult struct {
@@ -18,17 +23,18 @@ type AnalysisResult struct {
 // Engine re-analyzes documents on change with a 300 ms debounce and maintains
 // a cross-file SymbolIndex for workspace-wide navigation.
 type Engine struct {
-	mu      sync.RWMutex
-	results map[string]*AnalysisResult
-	texts   map[string]string
-	timers  map[string]*time.Timer
-	open    map[string]bool // files currently open in the editor
-	notify  func(uri string, result *AnalysisResult)
-	index   *SymbolIndex
+	mu        sync.RWMutex
+	results   map[string]*AnalysisResult
+	texts     map[string]string
+	timers    map[string]*time.Timer
+	open      map[string]bool // files currently open in the editor
+	notify    func(uri string, result *AnalysisResult)
+	index     *SymbolIndex
+	stdlibDir string // temp dir with extracted stdlib; empty = no stdlib
 }
 
 func NewEngine(notify func(uri string, result *AnalysisResult)) *Engine {
-	return &Engine{
+	e := &Engine{
 		results: make(map[string]*AnalysisResult),
 		texts:   make(map[string]string),
 		timers:  make(map[string]*time.Timer),
@@ -36,6 +42,23 @@ func NewEngine(notify func(uri string, result *AnalysisResult)) *Engine {
 		notify:  notify,
 		index:   NewSymbolIndex(),
 	}
+	e.stdlibDir = extractStdlibToTemp()
+	return e
+}
+
+func extractStdlibToTemp() string {
+	dir, err := os.MkdirTemp("", "soyuz-lsp-stdlib-")
+	if err != nil {
+		return ""
+	}
+	for name, data := range soyuzstdlib.Files {
+		dest := filepath.Join(dir, strings.TrimSuffix(name, ".sy")+".soyuz")
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			continue
+		}
+		os.WriteFile(dest, data, 0644)
+	}
+	return dir
 }
 
 // Open records the editor-provided text and triggers immediate analysis.
@@ -109,7 +132,14 @@ func (e *Engine) analyze(uri string) {
 	tokens := lexer.Tokenize(text)
 	p := parser.New(tokens)
 	prog := p.Parse()
-	result := checker.New().Check(prog)
+
+	var result *checker.CheckResult
+	if e.stdlibDir != "" {
+		result = e.analyzeWithStdlib(uriToPath(uri), text, prog)
+	}
+	if result == nil {
+		result = checker.New().Check(prog)
+	}
 
 	ar := &AnalysisResult{
 		AST:   prog,
@@ -129,4 +159,56 @@ func (e *Engine) analyze(uri string) {
 	if isOpen && e.notify != nil {
 		e.notify(uri, ar)
 	}
+}
+
+// analyzeWithStdlib runs stdlib-aware type checking for the file at filePath.
+// prog is the already-parsed AST of the in-memory buffer. For each stdlib import
+// found, the stdlib file is resolved from stdlibDir and its nodes are merged in.
+func (e *Engine) analyzeWithStdlib(filePath, text string, prog *parser.Program) *checker.CheckResult {
+	resolver := module.NewResolverWithStdlib(filePath, e.stdlibDir)
+
+	var allNodes []parser.Node
+	nodeFile := make(map[parser.Node]string)
+
+	for _, node := range prog.Body {
+		imp, isImp := node.(*parser.ImportDecl)
+		if !isImp || !imp.IsStdlib {
+			nodeFile[node] = filePath
+			allNodes = append(allNodes, node)
+			continue
+		}
+
+		// Resolve and load stdlib module nodes.
+		resolved, err := resolver.Resolve(imp)
+		if err != nil {
+			// Unresolved import: keep node so the checker can emit an error if needed.
+			nodeFile[node] = filePath
+			allNodes = append(allNodes, node)
+			continue
+		}
+		imp.ResolvedFiles = resolved
+
+		for _, stdFile := range resolved {
+			data, rerr := os.ReadFile(stdFile)
+			if rerr != nil {
+				continue
+			}
+			stdProg := parser.New(lexer.Tokenize(string(data))).Parse()
+			for _, sn := range stdProg.Body {
+				nodeFile[sn] = stdFile
+				allNodes = append(allNodes, sn)
+			}
+		}
+
+		// Bare imports (no Names) create a namespace; include the import decl.
+		if len(imp.Names) == 0 && !imp.Wildcard {
+			nodeFile[node] = filePath
+			allNodes = append(allNodes, node)
+		}
+	}
+
+	merged := &parser.Program{Body: allNodes}
+	c := checker.New()
+	c.SetNodeFiles(nodeFile)
+	return c.Check(merged)
 }

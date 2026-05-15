@@ -35,8 +35,8 @@ type variantInfo struct {
 type classInfo struct {
 	typ          *types.StructType
 	fieldIndices map[string]int
-	methods      map[string]*ir.Func
-	vtables      map[string]*ir.Global // interface name → vtable global
+	methods      map[string][]*ir.Func  // may have multiple variants (overloaded by arity)
+	vtables      map[string]*ir.Global  // interface name → vtable global
 	weakFields   map[string]bool
 }
 

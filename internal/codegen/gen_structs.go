@@ -27,9 +27,34 @@ func (g *Generator) generateTopLevel(node parser.Node) error {
 	case *parser.InterfaceDecl:
 		g.interfaceDecls[n.Name] = n
 		return nil
+	case *parser.ExternDecl:
+		return g.generateExternDecl(n)
 	default:
 		return nil
 	}
+}
+
+func (g *Generator) generateExternDecl(n *parser.ExternDecl) error {
+	// Skip if already declared (e.g. by declareBuiltins or a previous extern).
+	if g.findFunc(n.Name) != nil {
+		return nil
+	}
+	var retType types.Type = types.Void
+	if n.ReturnType != nil {
+		retType = g.mapSoyuzTypeToLLVM(n.ReturnType)
+	}
+	var params []*ir.Param
+	for _, p := range n.Params {
+		pt := g.mapSoyuzTypeToLLVM(p.Type)
+		name := ""
+		if bp, ok := p.Pattern.(*parser.BindingPattern); ok {
+			name = bp.Name
+		}
+		params = append(params, ir.NewParam(name, pt))
+	}
+	// Emit declaration-only (no body) — the C implementation is linked separately.
+	g.module.NewFunc(n.Name, retType, params...)
+	return nil
 }
 
 func (g *Generator) generateRecordDecl(n *parser.RecordDecl) error {
@@ -183,20 +208,33 @@ func (g *Generator) generateClassDtor(n *parser.ClassDecl, si structInfo) *ir.Fu
 		if !ok {
 			continue
 		}
-		if v.Type != nil {
-			ft := g.mapSoyuzTypeToLLVM(v.Type)
-			if g.isHeapType(ft) && !g.isEffectivelyWeak(n.Name, v.Name) {
-				gep := entry.NewGetElementPtr(si.typ, typedPtr,
-					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(fieldIdx)))
-				fieldVal := entry.NewLoad(ft, gep)
-				cast := entry.NewBitCast(fieldVal, types.I8Ptr)
-				entry.NewCall(release, cast)
-			}
+		ft := g.classFieldLLVMType(v)
+		if g.isHeapType(ft) && !g.isEffectivelyWeak(n.Name, v.Name) {
+			gep := entry.NewGetElementPtr(si.typ, typedPtr,
+				constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(fieldIdx)))
+			fieldVal := entry.NewLoad(ft, gep)
+			cast := entry.NewBitCast(fieldVal, types.I8Ptr)
+			entry.NewCall(release, cast)
 		}
 		fieldIdx++
 	}
 	entry.NewRet(nil)
 	return dtor
+}
+
+// classFieldLLVMType returns the LLVM type for a class field.
+// When the field has no explicit type annotation, the type is inferred from the
+// checker's result for the init expression.
+func (g *Generator) classFieldLLVMType(v *parser.VarDecl) types.Type {
+	if v.Type != nil {
+		return g.mapSoyuzTypeToLLVM(v.Type)
+	}
+	if v.Init != nil {
+		if ct, ok := g.check.NodeTypes[v.Init]; ok && ct != checker.Unknown {
+			return g.mapTypeToLLVM(ct)
+		}
+	}
+	return types.I64
 }
 
 func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
@@ -211,7 +249,7 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 			if v.Weak {
 				weakFields[v.Name] = true
 			}
-			fields = append(fields, g.mapSoyuzTypeToLLVM(v.Type))
+			fields = append(fields, g.classFieldLLVMType(v))
 			fieldIdx++
 		}
 	}
@@ -224,27 +262,47 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 	ci := classInfo{
 		typ:          td.(*types.StructType),
 		fieldIndices: indices,
-		methods:      make(map[string]*ir.Func),
+		methods:      make(map[string][]*ir.Func),
 		vtables:      make(map[string]*ir.Global),
 		weakFields:   weakFields,
 	}
 
-	// 2. Generate method functions: ClassName_method(i8* __self, params...) -> retType
+	// 2. Count how many variants each method name has (needed for name mangling).
+	methodCounts := make(map[string]int)
+	for _, member := range n.Body {
+		if fd, ok := member.(*parser.FuncDecl); ok {
+			methodCounts[fd.Name]++
+		}
+	}
+
+	// 3. Generate method functions: ClassName_method(i8* __self, params...) -> retType
+	// Overloaded methods get mangled: ClassName_method_N where N = non-self arity.
 	for _, member := range n.Body {
 		fd, ok := member.(*parser.FuncDecl)
 		if !ok {
 			continue
 		}
-		fn, err := g.generateClassMethod(n.Name, si, fd)
+		nonSelfArity := 0
+		for _, p := range fd.Params {
+			if bp, ok2 := p.Pattern.(*parser.BindingPattern); ok2 && bp.Name == "self" {
+				continue
+			}
+			nonSelfArity++
+		}
+		methodName := fd.Name
+		if methodCounts[fd.Name] > 1 {
+			methodName = fmt.Sprintf("%s_%d", fd.Name, nonSelfArity)
+		}
+		fn, err := g.generateClassMethod(n.Name, si, fd, methodName)
 		if err != nil {
 			return err
 		}
-		ci.methods[fd.Name] = fn
+		ci.methods[fd.Name] = append(ci.methods[fd.Name], fn)
 	}
 
 	g.classes[n.Name] = ci
 
-	// 3. Generate vtable globals for each implemented interface.
+	// 4. Generate vtable globals for each implemented interface.
 	for _, ifaceExpr := range n.Interfaces {
 		nt, ok := ifaceExpr.(*parser.NamedType)
 		if !ok {
@@ -263,7 +321,8 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 
 // generateClassMethod emits the LLVM function for a class method.
 // Signature: ClassName_methodName(i8* __self, non-self-params...) -> retType
-func (g *Generator) generateClassMethod(className string, si structInfo, fd *parser.FuncDecl) (*ir.Func, error) {
+// methodName may differ from fd.Name when the method is overloaded (mangled with arity suffix).
+func (g *Generator) generateClassMethod(className string, si structInfo, fd *parser.FuncDecl, methodName string) (*ir.Func, error) {
 	ft, _ := g.check.NodeTypes[fd].(*checker.FuncType)
 
 	var retType types.Type = types.Void
@@ -300,7 +359,7 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 		params = append(params, ir.NewParam(paramName, pt))
 	}
 
-	fn := g.module.NewFunc(className+"_"+fd.Name, retType, params...)
+	fn := g.module.NewFunc(className+"_"+methodName, retType, params...)
 
 	if fd.Body == nil {
 		entry := fn.NewBlock("entry")
@@ -375,7 +434,17 @@ func (g *Generator) generateVtable(className, ifaceName string, ifaceDecl *parse
 
 	var slots []constant.Constant
 	for _, m := range ifaceDecl.Methods {
-		if fn, ok := ci.methods[m.Name]; ok {
+		variants := ci.methods[m.Name]
+		// Count non-self params in the interface method AST to find the matching variant.
+		ifaceArity := 0
+		for _, p := range m.Params {
+			if bp, ok := p.Pattern.(*parser.BindingPattern); ok && bp.Name == "self" {
+				continue
+			}
+			ifaceArity++
+		}
+		fn := classMethodByArity(variants, ifaceArity)
+		if fn != nil {
 			slots = append(slots, constant.NewBitCast(fn, types.I8Ptr))
 		} else {
 			slots = append(slots, constant.NewNull(types.I8Ptr))
@@ -387,6 +456,21 @@ func (g *Generator) generateVtable(className, ifaceName string, ifaceDecl *parse
 	global := g.module.NewGlobalDef(vtableName, arr)
 	global.Immutable = true
 	return global
+}
+
+// classMethodByArity returns the LLVM function variant whose non-self parameter count
+// matches nonSelfArity. Falls back to the first variant when no exact match is found.
+func classMethodByArity(variants []*ir.Func, nonSelfArity int) *ir.Func {
+	for _, fn := range variants {
+		// fn.Params[0] is always __self; the rest are non-self params.
+		if len(fn.Params)-1 == nonSelfArity {
+			return fn
+		}
+	}
+	if len(variants) > 0 {
+		return variants[0]
+	}
+	return nil
 }
 
 func (g *Generator) generateEnumDecl(n *parser.EnumDecl) error {
@@ -483,17 +567,26 @@ func (g *Generator) getOrCreateSpecializedEnum(decl *parser.EnumDecl, sub map[st
 		return ei, nil
 	}
 
-	variants := make(map[string]variantInfo)
+	// Pre-register with empty variants to break recursive self-referential cycles
+	// (e.g. Tree[T] whose Node variant contains Tree[T] fields).
+	st := g.module.NewTypeDef(mangled, types.NewStruct(types.I64, types.NewArray(64, types.I8)))
+	ei := enumInfo{typ: st.(*types.StructType), variants: make(map[string]variantInfo)}
+	g.enums[mangled] = ei
+
 	for i, v := range decl.Variants {
 		var fields []types.Type
 		for _, f := range v.Fields {
-			fields = append(fields, g.mapSoyuzTypeExprWithSub(f.Type, sub))
+			ft := g.mapSoyuzTypeExprWithSub(f.Type, sub)
+			// Recursive reference: treat as i8* to avoid infinite recursion in layout.
+			if ptr, ok := ft.(*types.PointerType); ok {
+				if ptr.ElemType == st {
+					ft = types.I8Ptr
+				}
+			}
+			fields = append(fields, ft)
 		}
-		variants[v.Name] = variantInfo{tag: i, fields: fields}
+		ei.variants[v.Name] = variantInfo{tag: i, fields: fields}
 	}
-
-	st := g.module.NewTypeDef(mangled, types.NewStruct(types.I64, types.NewArray(64, types.I8)))
-	ei := enumInfo{typ: st.(*types.StructType), variants: variants}
 	g.enums[mangled] = ei
 	g.destructors[mangled] = g.generateSpecializedEnumDtor(mangled, decl, ei)
 	return ei, nil

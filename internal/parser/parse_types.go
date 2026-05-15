@@ -59,6 +59,7 @@ func (p *Parser) parseTypeExpr() TypeExpr {
 
 	default:
 		p.errorf(pos, "tipo inválido: %s (%q)", p.peek().Type, p.peek().Lexeme)
+		p.advance() // evita loop infinito: sempre avança em caso de erro
 		t = &NamedType{pos: pos, Name: "Unknown"}
 	}
 

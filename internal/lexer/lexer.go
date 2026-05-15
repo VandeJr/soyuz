@@ -217,6 +217,38 @@ func (l *Lexer) readString(pos Position, isContinuation bool) Token {
 	return first
 }
 
+func (l *Lexer) isNextToken(s string) bool {
+	idx := l.position
+	if l.ch == '\n' {
+		idx = l.readPosition
+	}
+	// Skip spaces and tabs
+	for idx < len(l.input) && (l.input[idx] == ' ' || l.input[idx] == '\t' || l.input[idx] == '\r') {
+		idx++
+	}
+	for i := 0; i < len(s); i++ {
+		if idx+i >= len(l.input) || l.input[idx+i] != rune(s[i]) {
+			return false
+		}
+	}
+	// Se for uma keyword, o próximo char não pode ser letra/dígito
+	if isLetter(rune(s[0])) {
+		nextIdx := idx + len(s)
+		if nextIdx < len(l.input) && (isLetter(l.input[nextIdx]) || isDigit(l.input[nextIdx])) {
+			return false
+		}
+	}
+	return true
+}
+
+func (l *Lexer) isNextRelevantTokenPipe() bool {
+	return l.isNextToken("|>")
+}
+
+func (l *Lexer) isNextRelevantTokenWhen() bool {
+	return l.isNextToken("when")
+}
+
 // --- NextToken ---
 
 func (l *Lexer) NextToken() Token {
@@ -232,6 +264,14 @@ func (l *Lexer) NextToken() Token {
 
 	// Tratamento de newline — insere SEMICOLON virtual se necessário
 	if l.ch == '\n' {
+		// BUG-05 & M2: Suprimir SEMICOLON se o próximo token for |> ou when
+		if CanInsertSemicolon(l.lastToken) && (l.isNextRelevantTokenPipe() || l.isNextRelevantTokenWhen()) {
+			l.line++
+			l.column = 0
+			l.readChar()
+			return l.NextToken()
+		}
+
 		l.line++
 		l.column = 0
 		l.readChar()

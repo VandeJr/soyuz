@@ -6,6 +6,7 @@ var keywords = map[string]TokenType{
 	"var":    VAR,
 	"const":  CONST,
 	"fn":     FN,
+	"extern": EXTERN,
 	"return": RETURN,
 	"weak":   WEAK,
 	"pub":    PUB,
@@ -20,6 +21,7 @@ var keywords = map[string]TokenType{
 	// Controle de fluxo
 	"if":       IF,
 	"else":     ELSE,
+	"when":     WHEN,
 	"match":    MATCH,
 	"for":      FOR,
 	"while":    WHILE,
