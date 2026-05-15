@@ -1,0 +1,200 @@
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef void (*SoyuzDtor)(void *);
+
+typedef struct {
+    int64_t  refcount;
+    SoyuzDtor dtor;
+} SoyuzHeader;
+
+/* Allocates size bytes preceded by a SoyuzHeader.
+   Returns a pointer to the data area (after the header).
+   refcount starts at 1 — the caller is the initial owner. */
+void *soyuz_alloc(int64_t size, SoyuzDtor dtor) {
+    SoyuzHeader *h = malloc(sizeof(SoyuzHeader) + (size_t)size);
+    if (!h) return NULL;
+    h->refcount = 1;
+    h->dtor = dtor;
+    return h + 1;
+}
+
+void soyuz_retain(void *ptr) {
+    if (!ptr) return;
+    ((SoyuzHeader *)ptr - 1)->refcount++;
+}
+
+void soyuz_release(void *ptr) {
+    if (!ptr) return;
+    SoyuzHeader *h = (SoyuzHeader *)ptr - 1;
+    if (--h->refcount == 0) {
+        if (h->dtor) h->dtor(ptr);
+        free(h);
+    }
+}
+
+typedef struct {
+    int64_t size;
+    int64_t capacity;
+    void **data;
+} SoyuzList;
+
+void *soyuz_list_new(int64_t initial_capacity, SoyuzDtor dtor) {
+    SoyuzList *list = (SoyuzList *)soyuz_alloc(sizeof(SoyuzList), dtor);
+    list->size = 0;
+    list->capacity = initial_capacity;
+    if (initial_capacity > 0) {
+        list->data = (void **)malloc(sizeof(void *) * (size_t)initial_capacity);
+    } else {
+        list->data = NULL;
+    }
+    return list;
+}
+
+void soyuz_list_append(void *list_ptr, void *value) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (list->size >= list->capacity) {
+        list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
+        list->data = (void **)realloc(list->data, sizeof(void *) * (size_t)list->capacity);
+    }
+    list->data[list->size++] = value;
+}
+
+void *soyuz_list_get(void *list_ptr, int64_t index) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (index < 0 || index >= list->size) return NULL;
+    return list->data[index];
+}
+
+void soyuz_list_dtor_rc(void *ptr) {
+    SoyuzList *list = (SoyuzList *)ptr;
+    for (int64_t i = 0; i < list->size; i++) {
+        soyuz_release(list->data[i]);
+    }
+    free(list->data);
+}
+
+void soyuz_list_dtor_primitive(void *ptr) {
+    SoyuzList *list = (SoyuzList *)ptr;
+    free(list->data);
+}
+
+typedef struct {
+    void *key;
+    void *value;
+    int64_t occupied;
+} SoyuzMapEntry;
+
+typedef struct {
+    int64_t size;
+    int64_t capacity;
+    SoyuzMapEntry *entries;
+    int64_t is_string_key;
+} SoyuzMap;
+
+static uint64_t soyuz_hash(void *key, int64_t is_string) {
+    if (is_string) {
+        uint64_t hash = 5381;
+        char *str = (char *)key;
+        int c;
+        while ((c = *str++)) hash = ((hash << 5) + hash) + c;
+        return hash;
+    }
+    return (uint64_t)key;
+}
+
+static int soyuz_key_eq(void *k1, void *k2, int64_t is_string) {
+    if (is_string) return strcmp((char *)k1, (char *)k2) == 0;
+    return k1 == k2;
+}
+
+void *soyuz_map_new(int64_t is_string_key, SoyuzDtor dtor) {
+    SoyuzMap *map = (SoyuzMap *)soyuz_alloc(sizeof(SoyuzMap), dtor);
+    map->size = 0;
+    map->capacity = 16;
+    map->entries = (SoyuzMapEntry *)calloc(map->capacity, sizeof(SoyuzMapEntry));
+    map->is_string_key = is_string_key;
+    return map;
+}
+
+void soyuz_map_set(void *map_ptr, void *key, void *value) {
+    SoyuzMap *map = (SoyuzMap *)map_ptr;
+    if (map->size * 2 >= map->capacity) {
+        // Resize
+        int64_t old_cap = map->capacity;
+        SoyuzMapEntry *old_entries = map->entries;
+        map->capacity *= 2;
+        map->entries = (SoyuzMapEntry *)calloc(map->capacity, sizeof(SoyuzMapEntry));
+        map->size = 0;
+        for (int64_t i = 0; i < old_cap; i++) {
+            if (old_entries[i].occupied) {
+                soyuz_map_set(map, old_entries[i].key, old_entries[i].value);
+            }
+        }
+        free(old_entries);
+    }
+
+    uint64_t h = soyuz_hash(key, map->is_string_key);
+    int64_t idx = h % map->capacity;
+    while (map->entries[idx].occupied) {
+        if (soyuz_key_eq(map->entries[idx].key, key, map->is_string_key)) {
+            map->entries[idx].value = value;
+            return;
+        }
+        idx = (idx + 1) % map->capacity;
+    }
+    map->entries[idx].key = key;
+    map->entries[idx].value = value;
+    map->entries[idx].occupied = 1;
+    map->size++;
+}
+
+void *soyuz_map_get(void *map_ptr, void *key) {
+    SoyuzMap *map = (SoyuzMap *)map_ptr;
+    uint64_t h = soyuz_hash(key, map->is_string_key);
+    int64_t idx = h % map->capacity;
+    while (map->entries[idx].occupied) {
+        if (soyuz_key_eq(map->entries[idx].key, key, map->is_string_key)) {
+            return map->entries[idx].value;
+        }
+        idx = (idx + 1) % map->capacity;
+    }
+    return NULL;
+}
+
+void soyuz_map_dtor_primitive(void *ptr) {
+    SoyuzMap *map = (SoyuzMap *)ptr;
+    free(map->entries);
+}
+
+void soyuz_map_dtor_rc_key(void *ptr) {
+    SoyuzMap *map = (SoyuzMap *)ptr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->entries[i].occupied) {
+            soyuz_release(map->entries[i].key);
+        }
+    }
+    free(map->entries);
+}
+
+void soyuz_map_dtor_rc_val(void *ptr) {
+    SoyuzMap *map = (SoyuzMap *)ptr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->entries[i].occupied) {
+            soyuz_release(map->entries[i].value);
+        }
+    }
+    free(map->entries);
+}
+
+void soyuz_map_dtor_rc_both(void *ptr) {
+    SoyuzMap *map = (SoyuzMap *)ptr;
+    for (int64_t i = 0; i < map->capacity; i++) {
+        if (map->entries[i].occupied) {
+            soyuz_release(map->entries[i].key);
+            soyuz_release(map->entries[i].value);
+        }
+    }
+    free(map->entries);
+}

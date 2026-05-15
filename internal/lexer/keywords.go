@@ -1,0 +1,60 @@
+package lexer
+
+var keywords = map[string]TokenType{
+	// Declarações
+	"val":    VAL,
+	"var":    VAR,
+	"const":  CONST,
+	"fn":     FN,
+	"return": RETURN,
+	"weak":   WEAK,
+	"pub":    PUB,
+	"impl":   IMPL,
+
+	// Tipos compostos
+	"record":    RECORD,
+	"class":     CLASS,
+	"interface": INTERFACE,
+	"enum":      ENUM,
+
+	// Controle de fluxo
+	"if":       IF,
+	"else":     ELSE,
+	"match":    MATCH,
+	"for":      FOR,
+	"while":    WHILE,
+	"loop":     LOOP,
+	"break":    BREAK,
+	"continue": CONTINUE,
+	"in":       IN,
+
+	// Módulos
+	"import": IMPORT,
+
+	// OOP
+	"self": SELF,
+
+	// Tipos primitivos built-in
+	"Int":    INT_TYPE,
+	"Float":  FLOAT_TYPE,
+	"Bool":   BOOL_TYPE,
+	"String": STRING_TYPE,
+	"Unit":   UNIT_TYPE,
+
+	// Valores literais
+	"true":  TRUE,
+	"false": FALSE,
+	"None":  NONE,
+
+	// Construtores de Result / Option
+	"Ok":   OK,
+	"Err":  ERR,
+	"Some": SOME,
+}
+
+func LookupIdent(ident string) TokenType {
+	if tok, ok := keywords[ident]; ok {
+		return tok
+	}
+	return IDENT
+}

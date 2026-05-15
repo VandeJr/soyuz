@@ -1,0 +1,770 @@
+package codegen
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"soyuz/internal/checker"
+	"soyuz/internal/parser"
+
+	"github.com/llir/llvm/ir"
+	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/enum"
+	"github.com/llir/llvm/ir/types"
+	"github.com/llir/llvm/ir/value"
+)
+
+func (g *Generator) generateTopLevel(node parser.Node) error {
+	switch n := node.(type) {
+	case *parser.FuncDecl:
+		return nil
+	case *parser.RecordDecl:
+		return g.generateRecordDecl(n)
+	case *parser.ClassDecl:
+		return g.generateClassDecl(n)
+	case *parser.EnumDecl:
+		return g.generateEnumDecl(n)
+	case *parser.InterfaceDecl:
+		g.interfaceDecls[n.Name] = n
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (g *Generator) generateRecordDecl(n *parser.RecordDecl) error {
+	if len(n.Generics) > 0 {
+		// Generic record — no concrete LLVM type yet; specialize on first use.
+		g.genericRecordDecls[n.Name] = n
+		return nil
+	}
+	indices := make(map[string]int)
+	weakFields := make(map[string]bool)
+	var fields []types.Type
+	for i, f := range n.Fields {
+		indices[f.Name] = i
+		if f.Weak {
+			weakFields[f.Name] = true
+		}
+		fields = append(fields, g.mapSoyuzTypeToLLVM(f.Type))
+	}
+	st := types.NewStruct(fields...)
+	td := g.module.NewTypeDef(n.Name, st)
+	si := structInfo{typ: td.(*types.StructType), fieldIndices: indices, weakFields: weakFields}
+	g.structs[n.Name] = si
+	g.destructors[n.Name] = g.generateRecordDtor(n, si)
+	return nil
+}
+
+// llvmTypeName returns a short, identifier-safe name for an LLVM type.
+// Used to build mangled names for specialized generic records.
+func llvmTypeName(t types.Type) string {
+	switch {
+	case t == types.I64:
+		return "i64"
+	case t == types.I1:
+		return "i1"
+	case t == types.Double:
+		return "f64"
+	case t == types.I8Ptr:
+		return "str"
+	}
+	if ptr, ok := t.(*types.PointerType); ok {
+		if st, ok := ptr.ElemType.(*types.StructType); ok {
+			return "ptr_" + st.TypeName
+		}
+		return "ptr"
+	}
+	return strings.ReplaceAll(t.String(), " ", "_")
+}
+
+// mapSoyuzTypeExprWithSub maps a type expression to LLVM, substituting type parameters.
+func (g *Generator) mapSoyuzTypeExprWithSub(te parser.TypeExpr, sub map[string]types.Type) types.Type {
+	if nt, ok := te.(*parser.NamedType); ok {
+		if t, ok := sub[nt.Name]; ok {
+			return t
+		}
+	}
+	return g.mapSoyuzTypeToLLVM(te)
+}
+
+// getOrCreateSpecializedRecord returns (or lazily generates) the structInfo for a
+// generic record instantiated with the given type substitution.
+func (g *Generator) getOrCreateSpecializedRecord(decl *parser.RecordDecl, sub map[string]types.Type) (structInfo, error) {
+	// Build mangled name in generic-param order for determinism.
+	mangled := decl.Name
+	for _, gp := range decl.Generics {
+		if t, ok := sub[gp.Name]; ok {
+			mangled += "__" + llvmTypeName(t)
+		}
+	}
+
+	if si, ok := g.structs[mangled]; ok {
+		return si, nil
+	}
+
+	indices := make(map[string]int)
+	weakFields := make(map[string]bool)
+	var fieldTypes []types.Type
+	for i, f := range decl.Fields {
+		ft := g.mapSoyuzTypeExprWithSub(f.Type, sub)
+		indices[f.Name] = i
+		if f.Weak {
+			weakFields[f.Name] = true
+		}
+		fieldTypes = append(fieldTypes, ft)
+	}
+
+	st := types.NewStruct(fieldTypes...)
+	td := g.module.NewTypeDef(mangled, st)
+	si := structInfo{typ: td.(*types.StructType), fieldIndices: indices, weakFields: weakFields}
+	g.structs[mangled] = si
+	g.destructors[mangled] = g.generateSpecializedRecordDtor(mangled, decl, si, fieldTypes)
+	return si, nil
+}
+
+// generateSpecializedRecordDtor emits a destructor for a specialized generic record.
+func (g *Generator) generateSpecializedRecordDtor(mangled string, decl *parser.RecordDecl, si structInfo, fieldTypes []types.Type) *ir.Func {
+	dtor := g.module.NewFunc("__soyuz_dtor_"+mangled, types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(si.typ))
+	release := g.findFunc("soyuz_release")
+
+	for i, ft := range fieldTypes {
+		fname := decl.Fields[i].Name
+		if !g.isHeapType(ft) || si.weakFields[fname] {
+			continue
+		}
+		gep := entry.NewGetElementPtr(si.typ, typedPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+		fieldVal := entry.NewLoad(ft, gep)
+		cast := entry.NewBitCast(fieldVal, types.I8Ptr)
+		entry.NewCall(release, cast)
+	}
+	entry.NewRet(nil)
+	return dtor
+}
+
+// generateRecordDtor emits a destructor function for a record type.
+// The destructor releases any heap-typed fields before the RC runtime frees the header.
+func (g *Generator) generateRecordDtor(n *parser.RecordDecl, si structInfo) *ir.Func {
+	dtor := g.module.NewFunc("__soyuz_dtor_"+n.Name, types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(si.typ))
+	release := g.findFunc("soyuz_release")
+
+	for i, f := range n.Fields {
+		ft := g.mapSoyuzTypeToLLVM(f.Type)
+		if !g.isHeapType(ft) || g.isEffectivelyWeak(n.Name, f.Name) {
+			continue
+		}
+		gep := entry.NewGetElementPtr(si.typ, typedPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+		fieldVal := entry.NewLoad(ft, gep)
+		cast := entry.NewBitCast(fieldVal, types.I8Ptr)
+		entry.NewCall(release, cast)
+	}
+	entry.NewRet(nil)
+	return dtor
+}
+
+// generateClassDtor emits a destructor for a class that releases its heap fields,
+// skipping weak fields (which do not hold ownership).
+func (g *Generator) generateClassDtor(n *parser.ClassDecl, si structInfo) *ir.Func {
+	dtor := g.module.NewFunc("__soyuz_dtor_"+n.Name, types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(si.typ))
+	release := g.findFunc("soyuz_release")
+
+	fieldIdx := 0
+	for _, member := range n.Body {
+		v, ok := member.(*parser.VarDecl)
+		if !ok {
+			continue
+		}
+		if v.Type != nil {
+			ft := g.mapSoyuzTypeToLLVM(v.Type)
+			if g.isHeapType(ft) && !g.isEffectivelyWeak(n.Name, v.Name) {
+				gep := entry.NewGetElementPtr(si.typ, typedPtr,
+					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(fieldIdx)))
+				fieldVal := entry.NewLoad(ft, gep)
+				cast := entry.NewBitCast(fieldVal, types.I8Ptr)
+				entry.NewCall(release, cast)
+			}
+		}
+		fieldIdx++
+	}
+	entry.NewRet(nil)
+	return dtor
+}
+
+func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
+	// 1. Build data-only struct (no vtable pointer embedded).
+	indices := make(map[string]int)
+	weakFields := make(map[string]bool)
+	var fields []types.Type
+	fieldIdx := 0
+	for _, member := range n.Body {
+		if v, ok := member.(*parser.VarDecl); ok {
+			indices[v.Name] = fieldIdx
+			if v.Weak {
+				weakFields[v.Name] = true
+			}
+			fields = append(fields, g.mapSoyuzTypeToLLVM(v.Type))
+			fieldIdx++
+		}
+	}
+	st := types.NewStruct(fields...)
+	td := g.module.NewTypeDef(n.Name, st)
+	si := structInfo{typ: td.(*types.StructType), fieldIndices: indices, weakFields: weakFields}
+	g.structs[n.Name] = si
+	g.destructors[n.Name] = g.generateClassDtor(n, si)
+
+	ci := classInfo{
+		typ:          td.(*types.StructType),
+		fieldIndices: indices,
+		methods:      make(map[string]*ir.Func),
+		vtables:      make(map[string]*ir.Global),
+		weakFields:   weakFields,
+	}
+
+	// 2. Generate method functions: ClassName_method(i8* __self, params...) -> retType
+	for _, member := range n.Body {
+		fd, ok := member.(*parser.FuncDecl)
+		if !ok {
+			continue
+		}
+		fn, err := g.generateClassMethod(n.Name, si, fd)
+		if err != nil {
+			return err
+		}
+		ci.methods[fd.Name] = fn
+	}
+
+	g.classes[n.Name] = ci
+
+	// 3. Generate vtable globals for each implemented interface.
+	for _, ifaceExpr := range n.Interfaces {
+		nt, ok := ifaceExpr.(*parser.NamedType)
+		if !ok {
+			continue
+		}
+		ifaceDecl, ok := g.interfaceDecls[nt.Name]
+		if !ok {
+			continue
+		}
+		vtable := g.generateVtable(n.Name, nt.Name, ifaceDecl, ci)
+		ci.vtables[nt.Name] = vtable
+	}
+	g.classes[n.Name] = ci // update with vtables
+	return nil
+}
+
+// generateClassMethod emits the LLVM function for a class method.
+// Signature: ClassName_methodName(i8* __self, non-self-params...) -> retType
+func (g *Generator) generateClassMethod(className string, si structInfo, fd *parser.FuncDecl) (*ir.Func, error) {
+	ft, _ := g.check.NodeTypes[fd].(*checker.FuncType)
+
+	var retType types.Type = types.Void
+	if ft != nil && ft.Return.String() != "Unit" {
+		retType = g.mapTypeToLLVM(ft.Return)
+	} else if fd.ReturnType != nil {
+		retType = g.mapSoyuzTypeToLLVM(fd.ReturnType)
+	}
+
+	// Build non-self param list, matching against ft.Params (which excludes self).
+	var nonSelfParams []parser.FuncParam
+	for _, p := range fd.Params {
+		if bp, ok := p.Pattern.(*parser.BindingPattern); ok && bp.Name == "self" {
+			continue
+		}
+		nonSelfParams = append(nonSelfParams, p)
+	}
+
+	var params []*ir.Param
+	params = append(params, ir.NewParam("__self", types.I8Ptr))
+	for i, p := range nonSelfParams {
+		var pt types.Type
+		if ft != nil && i < len(ft.Params) {
+			pt = g.mapTypeToLLVM(ft.Params[i])
+		} else if p.Type != nil {
+			pt = g.mapSoyuzTypeToLLVM(p.Type)
+		} else {
+			pt = types.I64
+		}
+		paramName := ""
+		if bp, ok := p.Pattern.(*parser.BindingPattern); ok {
+			paramName = bp.Name
+		}
+		params = append(params, ir.NewParam(paramName, pt))
+	}
+
+	fn := g.module.NewFunc(className+"_"+fd.Name, retType, params...)
+
+	if fd.Body == nil {
+		entry := fn.NewBlock("entry")
+		if retType.Equal(types.Void) {
+			entry.NewRet(nil)
+		} else {
+			entry.NewRet(g.defaultReturnValue(retType))
+		}
+		return fn, nil
+	}
+
+	// Save/restore outer codegen state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldBlockNames := g.blockNames
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.blockNames = make(map[string]int)
+	defer func() {
+		g.current = oldCurrent
+		g.vars = oldVars
+		g.heapVars = oldHeapVars
+		g.scopeStack = oldScopeStack
+		g.blockNames = oldBlockNames
+	}()
+
+	g.current = g.newBlock("entry", fn)
+
+	// Expose self as ClassName* in the method scope.
+	selfTyped := g.current.NewBitCast(fn.Params[0], types.NewPointer(si.typ))
+	selfAlloc := g.newAlloca(types.NewPointer(si.typ))
+	g.current.NewStore(selfTyped, selfAlloc)
+	g.vars["self"] = selfAlloc
+
+	// Store non-self parameters.
+	for _, p := range fn.Params[1:] {
+		if p.LocalName != "" {
+			alloc := g.newAlloca(p.Typ)
+			g.current.NewStore(p, alloc)
+			g.vars[p.LocalName] = alloc
+		}
+	}
+
+	val, err := g.generateExpr(fd.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if retType.Equal(types.Void) {
+		if g.current.Term == nil {
+			g.current.NewRet(nil)
+		}
+	} else if g.current.Term == nil {
+		if val != nil {
+			g.current.NewRet(val)
+		} else {
+			g.current.NewRet(g.defaultReturnValue(retType))
+		}
+	}
+
+	return fn, nil
+}
+
+// generateVtable emits a global constant [N x i8*] vtable for a (class, interface) pair.
+// Slots are filled in interface method declaration order.
+func (g *Generator) generateVtable(className, ifaceName string, ifaceDecl *parser.InterfaceDecl, ci classInfo) *ir.Global {
+	n := uint64(len(ifaceDecl.Methods))
+	arrType := types.NewArray(n, types.I8Ptr)
+
+	var slots []constant.Constant
+	for _, m := range ifaceDecl.Methods {
+		if fn, ok := ci.methods[m.Name]; ok {
+			slots = append(slots, constant.NewBitCast(fn, types.I8Ptr))
+		} else {
+			slots = append(slots, constant.NewNull(types.I8Ptr))
+		}
+	}
+
+	arr := constant.NewArray(arrType, slots...)
+	vtableName := "__vtable_" + className + "_" + ifaceName
+	global := g.module.NewGlobalDef(vtableName, arr)
+	global.Immutable = true
+	return global
+}
+
+func (g *Generator) generateEnumDecl(n *parser.EnumDecl) error {
+	if len(n.Generics) > 0 {
+		g.genericEnumDecls[n.Name] = n
+		return nil
+	}
+	variants := make(map[string]variantInfo)
+	for i, v := range n.Variants {
+		var fields []types.Type
+		for _, f := range v.Fields {
+			fields = append(fields, g.mapSoyuzTypeToLLVM(f.Type))
+		}
+		variants[v.Name] = variantInfo{tag: i, fields: fields}
+	}
+	// Enum layout: { i64 tag, [64 x i8] payload }
+	st := g.module.NewTypeDef(n.Name, types.NewStruct(types.I64, types.NewArray(64, types.I8)))
+	ei := enumInfo{typ: st.(*types.StructType), variants: variants}
+	g.enums[n.Name] = ei
+	g.destructors[n.Name] = g.generateEnumDtor(n, ei)
+	return nil
+}
+
+// generateEnumDtor emits a destructor for an enum type.
+// For each variant whose primary payload field is heap-managed, the destructor
+// checks the tag, loads the payload pointer, and calls soyuz_release on it.
+func (g *Generator) generateEnumDtor(n *parser.EnumDecl, ei enumInfo) *ir.Func {
+	dtor := g.module.NewFunc("__soyuz_dtor_"+n.Name, types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+
+	// Determine which variants have heap-typed payload (first field only).
+	type heapVariant struct {
+		name      string
+		tag       int
+		fieldType types.Type
+	}
+	var heapVariants []heapVariant
+	for i, v := range n.Variants {
+		vi := ei.variants[v.Name]
+		if len(vi.fields) > 0 && g.isHeapType(vi.fields[0]) {
+			heapVariants = append(heapVariants, heapVariant{v.Name, i, vi.fields[0]})
+		}
+	}
+
+	if len(heapVariants) == 0 {
+		entry.NewRet(nil)
+		return dtor
+	}
+
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(ei.typ))
+	tagPtr := entry.NewGetElementPtr(ei.typ, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	tag := entry.NewLoad(types.I64, tagPtr)
+	payloadPtr := entry.NewGetElementPtr(ei.typ, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+
+	release := g.findFunc("soyuz_release")
+	doneBlock := dtor.NewBlock("dtor_done")
+
+	// Chain of tag checks, one per heap-carrying variant.
+	current := entry
+	for _, hv := range heapVariants {
+		releaseBlock := dtor.NewBlock("dtor_" + hv.name)
+		skipBlock := dtor.NewBlock("dtor_" + hv.name + "_skip")
+
+		cond := current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, int64(hv.tag)))
+		current.NewCondBr(cond, releaseBlock, skipBlock)
+
+		castPtr := releaseBlock.NewBitCast(payloadPtr, types.NewPointer(hv.fieldType))
+		fieldVal := releaseBlock.NewLoad(hv.fieldType, castPtr)
+		rawPtr := releaseBlock.NewBitCast(fieldVal, types.I8Ptr)
+		releaseBlock.NewCall(release, rawPtr)
+		releaseBlock.NewBr(skipBlock)
+
+		current = skipBlock
+	}
+	current.NewBr(doneBlock)
+	doneBlock.NewRet(nil)
+	return dtor
+}
+
+// getOrCreateSpecializedEnum lazily generates a concrete LLVM type for a generic enum
+// instantiated with the given type substitution. All enums share the layout
+// { i64 tag, [64 x i8] payload } regardless of type parameters.
+func (g *Generator) getOrCreateSpecializedEnum(decl *parser.EnumDecl, sub map[string]types.Type) (enumInfo, error) {
+	mangled := decl.Name
+	for _, gp := range decl.Generics {
+		if t, ok := sub[gp.Name]; ok {
+			mangled += "__" + llvmTypeName(t)
+		}
+	}
+
+	if ei, ok := g.enums[mangled]; ok {
+		return ei, nil
+	}
+
+	variants := make(map[string]variantInfo)
+	for i, v := range decl.Variants {
+		var fields []types.Type
+		for _, f := range v.Fields {
+			fields = append(fields, g.mapSoyuzTypeExprWithSub(f.Type, sub))
+		}
+		variants[v.Name] = variantInfo{tag: i, fields: fields}
+	}
+
+	st := g.module.NewTypeDef(mangled, types.NewStruct(types.I64, types.NewArray(64, types.I8)))
+	ei := enumInfo{typ: st.(*types.StructType), variants: variants}
+	g.enums[mangled] = ei
+	g.destructors[mangled] = g.generateSpecializedEnumDtor(mangled, decl, ei)
+	return ei, nil
+}
+
+// generateSpecializedEnumDtor is like generateEnumDtor but uses a mangled name.
+func (g *Generator) generateSpecializedEnumDtor(mangledName string, decl *parser.EnumDecl, ei enumInfo) *ir.Func {
+	dtor := g.module.NewFunc("__soyuz_dtor_"+mangledName, types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+
+	type heapVariant struct {
+		name      string
+		tag       int
+		fieldType types.Type
+	}
+	var heapVariants []heapVariant
+	for i, v := range decl.Variants {
+		vi := ei.variants[v.Name]
+		if len(vi.fields) > 0 && g.isHeapType(vi.fields[0]) {
+			heapVariants = append(heapVariants, heapVariant{v.Name, i, vi.fields[0]})
+		}
+	}
+
+	if len(heapVariants) == 0 {
+		entry.NewRet(nil)
+		return dtor
+	}
+
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(ei.typ))
+	tagPtr := entry.NewGetElementPtr(ei.typ, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	tag := entry.NewLoad(types.I64, tagPtr)
+	payloadPtr := entry.NewGetElementPtr(ei.typ, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+
+	release := g.findFunc("soyuz_release")
+	doneBlock := dtor.NewBlock("dtor_done")
+
+	current := entry
+	for _, hv := range heapVariants {
+		releaseBlock := dtor.NewBlock("dtor_" + hv.name)
+		skipBlock := dtor.NewBlock("dtor_" + hv.name + "_skip")
+
+		cond := current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, int64(hv.tag)))
+		current.NewCondBr(cond, releaseBlock, skipBlock)
+
+		castPtr := releaseBlock.NewBitCast(payloadPtr, types.NewPointer(hv.fieldType))
+		fieldVal := releaseBlock.NewLoad(hv.fieldType, castPtr)
+		rawPtr := releaseBlock.NewBitCast(fieldVal, types.I8Ptr)
+		releaseBlock.NewCall(release, rawPtr)
+		releaseBlock.NewBr(skipBlock)
+
+		current = skipBlock
+	}
+	current.NewBr(doneBlock)
+	doneBlock.NewRet(nil)
+	return dtor
+}
+
+func (g *Generator) generateRecordLiteral(n *parser.RecordLiteral) (value.Value, error) {
+	// Generic record: specialize on first use by inferring type params from field values.
+	if decl, ok := g.genericRecordDecls[n.Name]; ok {
+		return g.generateGenericRecordLiteral(n, decl)
+	}
+
+	si, ok := g.structs[n.Name]
+	if !ok {
+		return nil, fmt.Errorf("undefined struct in codegen: %s", n.Name)
+	}
+	return g.emitRecordAlloc(n, si, n.Name)
+}
+
+// generateGenericRecordLiteral generates a record literal for a generic record type.
+// It infers the concrete type substitution from the field value types.
+func (g *Generator) generateGenericRecordLiteral(n *parser.RecordLiteral, decl *parser.RecordDecl) (value.Value, error) {
+	// Generate all field values first to determine concrete types.
+	type fieldEntry struct {
+		name string
+		val  value.Value
+	}
+	var fieldEntries []fieldEntry
+	for _, f := range n.Fields {
+		val, err := g.generateExpr(f.Value)
+		if err != nil {
+			return nil, err
+		}
+		fieldEntries = append(fieldEntries, fieldEntry{f.Name, val})
+	}
+
+	// Build substitution: generic param name → LLVM type, derived from field value types.
+	sub := make(map[string]types.Type)
+	fieldValByName := make(map[string]value.Value)
+	for _, fe := range fieldEntries {
+		fieldValByName[fe.name] = fe.val
+	}
+	for _, f := range decl.Fields {
+		if nt, ok := f.Type.(*parser.NamedType); ok {
+			for _, gp := range decl.Generics {
+				if gp.Name == nt.Name {
+					if v, ok := fieldValByName[f.Name]; ok {
+						if _, already := sub[gp.Name]; !already {
+							sub[gp.Name] = v.Type()
+						}
+					}
+				}
+			}
+		}
+	}
+
+	si, err := g.getOrCreateSpecializedRecord(decl, sub)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine mangled name for destructor lookup.
+	mangled := decl.Name
+	for _, gp := range decl.Generics {
+		if t, ok := sub[gp.Name]; ok {
+			mangled += "__" + llvmTypeName(t)
+		}
+	}
+
+	size := int64(len(si.typ.Fields)) * 8
+	if size == 0 {
+		size = 8
+	}
+	var dtorArg value.Value
+	if dtor, ok := g.destructors[mangled]; ok {
+		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
+	} else {
+		dtorArg = constant.NewNull(types.I8Ptr)
+	}
+
+	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
+		constant.NewInt(types.I64, size), dtorArg)
+	structPtr := g.current.NewBitCast(raw, types.NewPointer(si.typ))
+
+	for _, fe := range fieldEntries {
+		idx, ok := si.fieldIndices[fe.name]
+		if !ok {
+			return nil, fmt.Errorf("field %s not found in generic struct %s", fe.name, n.Name)
+		}
+		if g.isHeapType(fe.val.Type()) && !g.isEffectivelyWeak(decl.Name, fe.name) {
+			g.emitRetain(fe.val)
+		}
+		ptr := g.current.NewGetElementPtr(si.typ, structPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(idx)))
+		g.current.NewStore(fe.val, ptr)
+	}
+	return structPtr, nil
+}
+
+// emitRecordAlloc allocates a non-generic record and stores field values.
+func (g *Generator) emitRecordAlloc(n *parser.RecordLiteral, si structInfo, dtorKey string) (value.Value, error) {
+	size := int64(len(si.typ.Fields)) * 8
+	if size == 0 {
+		size = 8
+	}
+	var dtorArg value.Value
+	if dtor, ok := g.destructors[dtorKey]; ok {
+		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
+	} else {
+		dtorArg = constant.NewNull(types.I8Ptr)
+	}
+
+	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
+		constant.NewInt(types.I64, size), dtorArg)
+	structPtr := g.current.NewBitCast(raw, types.NewPointer(si.typ))
+
+	for _, f := range n.Fields {
+		idx, ok := si.fieldIndices[f.Name]
+		if !ok {
+			return nil, fmt.Errorf("field %s not found in struct %s", f.Name, n.Name)
+		}
+		val, err := g.generateExpr(f.Value)
+		if err != nil {
+			return nil, err
+		}
+		if g.isHeapType(val.Type()) && !g.isEffectivelyWeak(n.Name, f.Name) {
+			g.emitRetain(val)
+		}
+		ptr := g.current.NewGetElementPtr(si.typ, structPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(idx)))
+		g.current.NewStore(val, ptr)
+	}
+	return structPtr, nil
+}
+
+func (g *Generator) generateMemberExpr(n *parser.MemberExpr) (value.Value, error) {
+	ptr, err := g.generateMemberPtr(n)
+	if err != nil {
+		return nil, err
+	}
+	ptrType := ptr.Type().(*types.PointerType)
+	return g.current.NewLoad(ptrType.ElemType, ptr), nil
+}
+
+func (g *Generator) generateMemberPtr(n *parser.MemberExpr) (value.Value, error) {
+	obj, err := g.generateExpr(n.Object)
+	if err != nil {
+		return nil, err
+	}
+	ptrType, ok := obj.Type().(*types.PointerType)
+	if !ok {
+		alloc := g.newAlloca(obj.Type())
+		g.current.NewStore(obj, alloc)
+		ptrType = types.NewPointer(obj.Type())
+		obj = alloc
+	}
+	st, ok := ptrType.ElemType.(*types.StructType)
+	if !ok {
+		return nil, fmt.Errorf("member access on non-struct type: %s", ptrType.ElemType)
+	}
+
+	// 1. Tuple indexing (numeric property)
+	if idx, err := strconv.Atoi(n.Property); err == nil {
+		if idx >= 0 && idx < len(st.Fields) {
+			return g.current.NewGetElementPtr(st, obj,
+				constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(idx))), nil
+		}
+	}
+
+	// 2. Record field access
+	si, ok := g.structs[st.TypeName]
+	if !ok {
+		return nil, fmt.Errorf("unknown struct type in codegen: %s", st.TypeName)
+	}
+	idx, ok := si.fieldIndices[n.Property]
+	if !ok {
+		return nil, fmt.Errorf("field %s not found in struct %s", n.Property, st.TypeName)
+	}
+	return g.current.NewGetElementPtr(st, obj,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(idx))), nil
+}
+
+func (g *Generator) isWeakMember(n *parser.MemberExpr) bool {
+	objType := g.check.NodeTypes[n.Object]
+	// Handle specialized types (Generic[T])
+	if st, ok := objType.(*checker.SpecializedType); ok {
+		objType = st.Base
+	}
+
+	var typeName string
+	switch t := objType.(type) {
+	case *checker.RecordType:
+		typeName = t.Name
+	case *checker.ClassType:
+		typeName = t.Name
+	default:
+		return false
+	}
+
+	return g.isEffectivelyWeak(typeName, n.Property)
+}
+
+// findBuiltin looks up a declared function by name.
+func (g *Generator) findBuiltin(name string) value.Value {
+	for _, f := range g.module.Funcs {
+		if f.Name() == name {
+			return f
+		}
+	}
+	panic("builtin not found: " + name)
+}
+
+// findFunc looks up a declared function (returns nil if not found).
+func (g *Generator) findFunc(name string) *ir.Func {
+	for _, f := range g.module.Funcs {
+		if f.Name() == name {
+			return f
+		}
+	}
+	return nil
+}

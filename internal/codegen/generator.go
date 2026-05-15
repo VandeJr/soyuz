@@ -1,0 +1,388 @@
+package codegen
+
+import (
+	"fmt"
+	"soyuz/internal/checker"
+	"soyuz/internal/parser"
+
+	"github.com/llir/llvm/ir"
+	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/types"
+	"github.com/llir/llvm/ir/value"
+)
+
+type loopCtx struct {
+	cond  *ir.Block
+	after *ir.Block
+}
+
+type structInfo struct {
+	typ          *types.StructType
+	fieldIndices map[string]int
+	weakFields   map[string]bool
+}
+
+type enumInfo struct {
+	typ      *types.StructType
+	variants map[string]variantInfo
+}
+
+type variantInfo struct {
+	tag    int
+	fields []types.Type
+}
+
+type classInfo struct {
+	typ          *types.StructType
+	fieldIndices map[string]int
+	methods      map[string]*ir.Func
+	vtables      map[string]*ir.Global // interface name → vtable global
+	weakFields   map[string]bool
+}
+
+// Generator takes a parsed Program and emits an LLVM IR Module.
+type Generator struct {
+	module       *ir.Module
+	current      *ir.Block
+	vars         map[string]value.Value
+	loops        []loopCtx
+	structs      map[string]structInfo
+	enums        map[string]enumInfo
+	classes      map[string]classInfo
+	interfaceDecls map[string]*parser.InterfaceDecl
+	check        *checker.CheckResult
+	specialized        map[string]*ir.Func
+	genericDecls       map[string]*parser.FuncDecl
+	genericRecordDecls map[string]*parser.RecordDecl
+	genericEnumDecls   map[string]*parser.EnumDecl
+	// RC fields
+	destructors map[string]*ir.Func // record name → generated destructor function
+	heapVars    map[string]bool     // which in-scope named vars hold RC-managed pointers
+	scopeStack  [][]string          // stack of owned heap var names, one slice per scope level
+	// block name deduplication within the current function
+	blockNames  map[string]int
+	closureType *types.StructType // { i8*, i8* } — shared closure fat-pointer layout
+}
+
+// New returns a new Generator.
+func New(check *checker.CheckResult) *Generator {
+	return &Generator{
+		module:         ir.NewModule(),
+		vars:           make(map[string]value.Value),
+		structs:        make(map[string]structInfo),
+		enums:          make(map[string]enumInfo),
+		classes:        make(map[string]classInfo),
+		interfaceDecls: make(map[string]*parser.InterfaceDecl),
+		specialized:        make(map[string]*ir.Func),
+		genericDecls:       make(map[string]*parser.FuncDecl),
+		genericRecordDecls: make(map[string]*parser.RecordDecl),
+		genericEnumDecls:   make(map[string]*parser.EnumDecl),
+		destructors:  make(map[string]*ir.Func),
+		heapVars:     make(map[string]bool),
+		blockNames:   make(map[string]int),
+		check:        check,
+	}
+}
+
+// isEffectivelyWeak returns true if fieldName on typeName is weak — either explicitly
+// declared with `weak var` or inferred by the cycle detector (M11).
+func (g *Generator) isEffectivelyWeak(typeName, fieldName string) bool {
+	if si, ok := g.structs[typeName]; ok && si.weakFields[fieldName] {
+		return true
+	}
+	if ci, ok := g.classes[typeName]; ok && ci.weakFields[fieldName] {
+		return true
+	}
+	if fields, ok := g.check.ImplicitWeakFields[typeName]; ok {
+		return fields[fieldName]
+	}
+	return false
+}
+
+// isHeapType returns true for pointer-to-struct types (records, enums) managed by RC.
+// Primitive types (Int, Float, Bool) and i8* string literals are not RC-managed.
+func (g *Generator) isHeapType(t types.Type) bool {
+	ptr, ok := t.(*types.PointerType)
+	if !ok {
+		return false
+	}
+	_, isStruct := ptr.ElemType.(*types.StructType)
+	return isStruct
+}
+
+// emitRetain emits a call to soyuz_retain for a heap pointer.
+func (g *Generator) emitRetain(v value.Value) {
+	cast := g.current.NewBitCast(v, types.I8Ptr)
+	g.current.NewCall(g.findFunc("soyuz_retain"), cast)
+}
+
+// emitRelease emits a call to soyuz_release for a heap pointer.
+func (g *Generator) emitRelease(v value.Value) {
+	cast := g.current.NewBitCast(v, types.I8Ptr)
+	g.current.NewCall(g.findFunc("soyuz_release"), cast)
+}
+
+// pushScope begins a new ownership scope.
+func (g *Generator) pushScope() {
+	g.scopeStack = append(g.scopeStack, nil)
+}
+
+// ownVar records that the current scope owns a heap variable by name.
+func (g *Generator) ownVar(name string) {
+	n := len(g.scopeStack)
+	if n > 0 {
+		g.scopeStack[n-1] = append(g.scopeStack[n-1], name)
+	}
+}
+
+// popScopeAndRelease emits release calls for all heap vars owned by the current scope,
+// then pops the scope. Safe to call even if the current block is already terminated.
+func (g *Generator) popScopeAndRelease() {
+	n := len(g.scopeStack)
+	if n == 0 {
+		return
+	}
+	owned := g.scopeStack[n-1]
+	g.scopeStack = g.scopeStack[:n-1]
+
+	// Skip instruction emission if the block is already terminated (e.g. after break/return).
+	blocked := g.current == nil || g.current.Term != nil
+	for _, name := range owned {
+		if !blocked {
+			if alloc, ok := g.vars[name]; ok {
+				if ptr, ok2 := alloc.Type().(*types.PointerType); ok2 {
+					loaded := g.current.NewLoad(ptr.ElemType, alloc)
+					g.emitRelease(loaded)
+				}
+			}
+		}
+		delete(g.heapVars, name)
+	}
+}
+
+// releaseAllScopes emits release calls for ALL heap vars in the current scope stack.
+// Used for early returns to ensure everything is cleaned up before exiting the function.
+func (g *Generator) releaseAllScopes() {
+	if g.current == nil || g.current.Term != nil {
+		return
+	}
+	// We iterate backwards through the stack to release inner scopes first.
+	for i := len(g.scopeStack) - 1; i >= 0; i-- {
+		owned := g.scopeStack[i]
+		for _, name := range owned {
+			if alloc, ok := g.vars[name]; ok {
+				if ptr, ok2 := alloc.Type().(*types.PointerType); ok2 {
+					loaded := g.current.NewLoad(ptr.ElemType, alloc)
+					g.emitRelease(loaded)
+				}
+			}
+		}
+	}
+}
+
+func (g *Generator) newBlock(name string, fn *ir.Func) *ir.Block {
+	count := g.blockNames[name]
+	g.blockNames[name]++
+	if count == 0 {
+		return fn.NewBlock(name)
+	}
+	return fn.NewBlock(fmt.Sprintf("%s_%d", name, count))
+}
+
+// newAlloca inserts an alloca in the function's entry block so it dominates all uses.
+func (g *Generator) newAlloca(t types.Type) *ir.InstAlloca {
+	entry := g.current.Parent.Blocks[0]
+	alloc := ir.NewAlloca(t)
+	entry.Insts = append([]ir.Instruction{alloc}, entry.Insts...)
+	return alloc
+}
+
+// Generate translates the AST Program into an LLVM Module.
+func (g *Generator) Generate(prog *parser.Program) (*ir.Module, error) {
+	g.declareBuiltins()
+
+	// 1. Generate non-function top-level nodes (records, enums, classes)
+	for _, node := range prog.Body {
+		if _, ok := node.(*parser.FuncDecl); ok {
+			continue
+		}
+		if err := g.generateTopLevel(node); err != nil {
+			return nil, err
+		}
+	}
+
+	// 2. Declare all function signatures
+	for name, variants := range g.check.FuncVariants {
+		g.declareFuncVariants(name, variants)
+	}
+
+	// 3. Generate function bodies
+	for name, variants := range g.check.FuncVariants {
+		if err := g.generateFuncVariantsBody(name, variants); err != nil {
+			return nil, err
+		}
+	}
+
+	return g.module, nil
+}
+
+func (g *Generator) declareBuiltins() {
+	printf := g.module.NewFunc("printf", types.I32, ir.NewParam("", types.I8Ptr))
+	printf.Sig.Variadic = true
+
+	sprintf := g.module.NewFunc("sprintf", types.I32, ir.NewParam("", types.I8Ptr), ir.NewParam("", types.I8Ptr))
+	sprintf.Sig.Variadic = true
+
+	g.module.NewFunc("malloc", types.I8Ptr, ir.NewParam("", types.I64))
+
+	// RC runtime — implemented in runtime/rc.c, linked alongside the compiled output.
+	g.module.NewFunc("soyuz_alloc", types.I8Ptr,
+		ir.NewParam("size", types.I64),
+		ir.NewParam("dtor", types.I8Ptr))
+	g.module.NewFunc("soyuz_retain", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_release", types.Void, ir.NewParam("ptr", types.I8Ptr))
+
+	// List primitives
+	g.module.NewFunc("soyuz_list_new", types.I8Ptr,
+		ir.NewParam("capacity", types.I64),
+		ir.NewParam("dtor", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_append", types.Void,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("value", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_get", types.I8Ptr,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("index", types.I64))
+	g.module.NewFunc("soyuz_list_dtor_rc", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_dtor_primitive", types.Void, ir.NewParam("ptr", types.I8Ptr))
+
+	// Map primitives
+	g.module.NewFunc("soyuz_map_new", types.I8Ptr,
+		ir.NewParam("is_string_key", types.I64),
+		ir.NewParam("dtor", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_set", types.Void,
+		ir.NewParam("map", types.I8Ptr),
+		ir.NewParam("key", types.I8Ptr),
+		ir.NewParam("value", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_get", types.I8Ptr,
+		ir.NewParam("map", types.I8Ptr),
+		ir.NewParam("key", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_dtor_primitive", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_dtor_rc_key", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_dtor_rc_val", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_dtor_rc_both", types.Void, ir.NewParam("ptr", types.I8Ptr))
+
+	// Shared closure fat-pointer layout: { fn_ptr: i8*, env_ptr: i8* }
+	g.closureType = g.module.NewTypeDef("SoyuzClosure",
+		types.NewStruct(types.I8Ptr, types.I8Ptr)).(*types.StructType)
+
+	// List struct layout: { size: i64, cap: i64, data: i8** }
+	listStruct := g.module.NewTypeDef("SoyuzList",
+		types.NewStruct(types.I64, types.I64, types.NewPointer(types.I8Ptr))).(*types.StructType)
+	g.structs["SoyuzList"] = structInfo{
+		typ: listStruct,
+		fieldIndices: map[string]int{
+			"size":     0,
+			"capacity": 1,
+			"data":     2,
+		},
+	}
+
+	// Map struct layout: { size: i64, cap: i64, entries: i8*, is_string_key: i64 }
+	mapStruct := g.module.NewTypeDef("SoyuzMap",
+		types.NewStruct(types.I64, types.I64, types.I8Ptr, types.I64)).(*types.StructType)
+	g.structs["SoyuzMap"] = structInfo{
+		typ: mapStruct,
+		fieldIndices: map[string]int{
+			"size":          0,
+			"capacity":      1,
+			"entries":       2,
+			"is_string_key": 3,
+		},
+	}
+
+	// Pre-register builtin Option and Result enum types so mapSoyuzTypeToLLVM can use them
+	// before any user source generates a Some/None/Ok/Err expression.
+	optionTyp := g.module.NewTypeDef("Option", types.NewStruct(types.I64, types.NewArray(64, types.I8))).(*types.StructType)
+	g.enums["Option"] = enumInfo{
+		typ: optionTyp,
+		variants: map[string]variantInfo{
+			"Some": {tag: 0},
+			"None": {tag: 1},
+		},
+	}
+	resultTyp := g.module.NewTypeDef("Result", types.NewStruct(types.I64, types.NewArray(64, types.I8))).(*types.StructType)
+	g.enums["Result"] = enumInfo{
+		typ: resultTyp,
+		variants: map[string]variantInfo{
+			"Ok":  {tag: 0},
+			"Err": {tag: 1},
+		},
+	}
+}
+
+// callClosureI8Ptr calls a Soyuz closure value (i8* pointing to SoyuzClosure{ fn, env }).
+// The underlying function expects (i8* env, original_args...).
+func (g *Generator) callClosureI8Ptr(n *parser.CallExpr, closureI8 value.Value, args []value.Value) (value.Value, error) {
+	// Return type from checker.
+	retType := types.Type(types.I64)
+	if ft, ok := g.check.Specializations[n]; ok && ft != nil {
+		retType = g.mapTypeToLLVM(ft.Return)
+	}
+
+	// Bitcast i8* → SoyuzClosure*
+	closurePtr := g.current.NewBitCast(closureI8, types.NewPointer(g.closureType))
+
+	// Load fn_ptr (i8*)
+	fnField := g.current.NewGetElementPtr(g.closureType, closurePtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	fnRaw := g.current.NewLoad(types.I8Ptr, fnField)
+
+	// Load env_ptr (i8*)
+	envField := g.current.NewGetElementPtr(g.closureType, closurePtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	env := g.current.NewLoad(types.I8Ptr, envField)
+
+	// Build concrete function type: (i8* env, arg_types...) → retType
+	paramTypes := []types.Type{types.I8Ptr}
+	for _, a := range args {
+		paramTypes = append(paramTypes, a.Type())
+	}
+	fnType := types.NewFunc(retType, paramTypes...)
+	fnPtr := g.current.NewBitCast(fnRaw, types.NewPointer(fnType))
+
+	allArgs := append([]value.Value{env}, args...)
+	return g.current.NewCall(fnPtr, allArgs...), nil
+}
+
+func (g *Generator) defaultReturnValue(t types.Type) value.Value {
+	switch typ := t.(type) {
+	case *types.IntType:
+		return constant.NewInt(typ, 0)
+	case *types.FloatType:
+		return constant.NewFloat(typ, 0)
+	case *types.PointerType:
+		return constant.NewNull(typ)
+	default:
+		return nil
+	}
+}
+
+func (g *Generator) castToI8Ptr(v value.Value) value.Value {
+	if v.Type().Equal(types.I64) {
+		return g.current.NewIntToPtr(v, types.I8Ptr)
+	}
+	if _, ok := v.Type().(*types.PointerType); ok {
+		return g.current.NewBitCast(v, types.I8Ptr)
+	}
+	return g.current.NewBitCast(v, types.I8Ptr)
+}
+
+func (g *Generator) castFromI8Ptr(v value.Value, target types.Type) value.Value {
+	if target.Equal(types.I64) {
+		return g.current.NewPtrToInt(v, types.I64)
+	}
+	if _, ok := target.(*types.PointerType); ok {
+		return g.current.NewBitCast(v, target)
+	}
+	return g.current.NewBitCast(v, target)
+}
