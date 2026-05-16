@@ -1,0 +1,9 @@
+// Soyuz Standard Library — Error
+//
+// Define a interface base para tratamento de erros no sistema.
+// O tipo Result[T] utiliza esta interface para sua variante Err.
+
+pub interface Error {
+  fn message() -> String
+  fn code() -> Int
+}

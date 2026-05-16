@@ -1,0 +1,142 @@
+import @soyuz.error.{Error}
+
+extern fn soyuz_str_len(s: String) -> Int
+
+extern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String
+
+extern fn soyuz_str_last_index_of(s: String, sub: String) -> Int
+
+extern fn soyuz_str_byte_at(s: String, index: Int) -> Int
+
+extern fn soyuz_str_unicode_at(s: String, index: Int) -> Int
+
+extern fn soyuz_int_to_char(i: Int) -> Char
+
+extern fn soyuz_str_concat(s1: String, s2: String) -> String
+
+extern fn soyuz_str_trim(s: String) -> String
+
+extern fn soyuz_str_to_upper(s: String) -> String
+
+extern fn soyuz_str_to_lower(s: String) -> String
+
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+
+extern fn soyuz_str_starts_with(s: String, prefix: String) -> Bool
+
+extern fn soyuz_str_ends_with(s: String, suffix: String) -> Bool
+
+extern fn soyuz_str_index_of(s: String, sub: String) -> Int
+
+extern fn soyuz_str_replace(s: String, from: String, to: String) -> String
+
+extern fn soyuz_str_split(s: String, delimiter: String) -> List[String]
+
+extern fn soyuz_str_to_int(s: String) -> Int
+
+extern fn soyuz_str_to_float(s: String) -> Float
+
+extern fn soyuz_str_parse_has_error() -> Bool
+
+pub class ParseError : Error {
+    pub val msg: String
+
+    pub fn message(self) -> String = self.msg
+
+    pub fn code(self) -> Int = 400
+}
+
+pub class StringExtensions {
+    pub fn len(self) -> Int = soyuz_str_len(self)
+
+    pub fn substring(self, start: Int, end: Int) -> String = soyuz_str_substring(self, start, end)
+
+    pub fn byteAt(self, index: Int) -> Option[Int] {
+        val b = soyuz_str_byte_at(self, index)
+        if b == -1 {
+            return None
+        }
+        return Some(b)
+    }
+
+    pub fn unicodeAt(self, index: Int) -> Option[Char] {
+        val c = soyuz_str_unicode_at(self, index)
+        if c == -1 {
+            return None
+        }
+        return Some(soyuz_int_to_char(c))
+    }
+
+    pub fn concat(self, other: String) -> String = soyuz_str_concat(self, other)
+
+    pub fn trim(self) -> String = soyuz_str_trim(self)
+
+    pub fn toUpper(self) -> String = soyuz_str_to_upper(self)
+
+    pub fn toLower(self) -> String = soyuz_str_to_lower(self)
+
+    pub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub)
+
+    pub fn startsWith(self, prefix: String) -> Bool = soyuz_str_starts_with(self, prefix)
+
+    pub fn endsWith(self, suffix: String) -> Bool = soyuz_str_ends_with(self, suffix)
+
+    pub fn indexOf(self, sub: String) -> Option[Int] {
+        val idx = soyuz_str_index_of(self, sub)
+        if idx == -1 {
+            return None
+        }
+        return Some(idx)
+    }
+
+    pub fn replace(self, from: String, to: String) -> String = soyuz_str_replace(self, from, to)
+
+    pub fn split(self, delimiter: String) -> List[String] = soyuz_str_split(self, delimiter)
+
+    pub fn lastIndexOf(self, sub: String) -> Option[Int] {
+        val idx = soyuz_str_last_index_of(self, sub)
+        if idx == -1 {
+            return None
+        }
+        return Some(idx)
+    }
+
+    pub fn toInt(self) -> Result[Int] {
+        val n = soyuz_str_to_int(self)
+        if soyuz_str_parse_has_error() {
+            return Err(ParseError { msg: "Falha ao processar literal inteiro." })
+        }
+        return Ok(n)
+    }
+
+    pub fn toFloat(self) -> Result[Float] {
+        val f = soyuz_str_to_float(self)
+        if soyuz_str_parse_has_error() {
+            return Err(ParseError { msg: "Falha ao processar literal flutuante." })
+        }
+        return Ok(f)
+    }
+}
+
+pub class StringBuilder {
+    pub var _data: String = ""
+
+    pub fn append(self, s: String) {
+        self._data = soyuz_str_concat(self._data, s)
+    }
+
+    pub fn appendLine(self, s: String) {
+        self._data = soyuz_str_concat(soyuz_str_concat(self._data, s), "
+")
+    }
+
+    pub fn build(self) -> String = self._data
+
+    pub fn len(self) -> Int = soyuz_str_len(self._data)
+
+    pub fn isEmpty(self) -> Bool = soyuz_str_len(self._data) == 0
+
+    pub fn clear(self) {
+        self._data = ""
+    }
+}

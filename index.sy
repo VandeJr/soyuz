@@ -1,0 +1,184 @@
+import @soyuz.collections.{range, Iteravel, List, Map}
+
+import @soyuz.string.{StringExtensions}
+
+import @soyuz.os.{getenv, args}
+
+import @soyuz.fs.{readFile}
+
+import @soyuz.error.{Error}
+
+extern fn soyuz_print_str(s: String)
+
+pub record Ponto {
+    x: Float,
+    y: Float
+}
+
+pub interface Identificavel {
+    fn id() -> Int
+}
+
+pub class Usuario : Identificavel {
+    pub val nome: String
+
+    val _id: Int
+
+    pub var superior: Usuario?
+
+    pub fn id(self) -> Int = self._id
+
+    pub fn saudar(self) {
+        print("Olá, eu sou $(self.nome) (ID: $(self.id()))")
+    }
+
+    pub fn promover(self) {
+        print("$(self.nome) promovido para o nível padrão.")
+    }
+
+    pub fn promover(self, nivel: Int) {
+        print("$(self.nome) promovido para o nível $(nivel).")
+    }
+}
+
+pub record Retangulo {
+    l: Float,
+    a: Float
+}
+
+pub enum Forma {
+    Circulo(Float),
+    Retangulo(Retangulo),
+    PontoFixo(Ponto),
+    Invisivel
+}
+
+pub fn area(f: Forma) -> Float = match f {
+    Circulo(r) => 3.14 * r * r
+    Retangulo(rect) => rect.l * rect.a
+    PontoFixo(_) => 0.0
+    Invisivel => 0.0
+}
+
+fn processar(n: Int) when n > 0 {
+    print("Número positivo: $(n)")
+}
+
+fn processar(n: Int) {
+    print("Número não positivo ou zero: $(n)")
+}
+
+fn processarComDefault(n: Int = 42) {
+    print("Valor processado com default: $(n)")
+}
+
+fn registrar(nome: String, cargo: String?) {
+    match cargo {
+        Some(c) => print("Registrando $(nome) com cargo: $(c)")
+        None => print("Registrando $(nome) sem cargo definido.")
+    }
+}
+
+record Caixa[T] {
+    item: T
+}
+
+fn identidade[T](valor: T) -> T = valor
+
+fn buscarNome(id: Int) -> String? {
+    if id == 1 {
+        return Some("Alice")
+    }
+    return None
+}
+
+fn demonstrarColecoes() {
+    val lista: List[Int] = [1, 2, 3, 4, 5]
+    val mapa: Map[String, Int] = ["um": 1, "dois": 2]
+    print("Tamanho da lista: $(lista.size()) - Mapa 'um': $(mapa.get("um"))")
+    for x in lista {
+        if x % 2 == 0 {
+            print("Par: $(x)")
+        }
+    }
+    for k in mapa.keys() {
+        print("Chave no mapa: $(k)")
+    }
+}
+
+fn demonstrarPipes() {
+    val multiplicar = fn(x: Int, y: Int) => x * y
+    val dobrar = multiplicar(2, _)
+    val resultado = 10 |> dobrar |> identidade
+    print("Resultado do pipe: $(resultado)")
+}
+
+fn demonstrarStringsEChar() {
+    val pinyinChar: Char = 'ǎ'
+    val texto = "Pīnyīn ǎ e ě"
+    match texto.byteAt(0) {
+        Some(b) => print("Primeiro byte: $(b)")
+        None => print("String vazia")
+    }
+    match texto.unicodeAt(7) {
+        Some(c) => print("Unicode lógico no índice 7: $(c)")
+        None => print("Fora dos limites")
+    }
+    val partes = texto.split(" ")
+    print("A string foi dividida em $(partes.size()) partes.")
+}
+
+fn demonstrarBitwise() {
+    val a = 5
+    val b = 3
+    print("Bitwise AND: $(a & b)")
+    print("Bitwise OR:  $(a | b)")
+    print("Bitwise XOR: $(a ^ b)")
+    print("Bitwise SHL: $(a << 1)")
+    print("Bitwise SHR: $(a >> 1)")
+}
+
+fn demonstrarOsFs() {
+    match getenv("PATH") {
+        Ok(sysPath) => print("Variável PATH carregada, tam: $(sysPath.len())")
+        Err(e) => print("PATH não definido: $(e.message())")
+    }
+    match readFile("index.sy") {
+        Ok(content) => print("Arquivo lido, tamanho: $(content.len()) bytes.")
+        Err(e) => print("Falha ao ler arquivo: $(e.message())")
+    }
+    match readFile("index.soyuz") {
+        Ok(content) => print("Arquivo lido, tamanho: $(content.len()) bytes.")
+        Err(e) => print("Falha ao ler arquivo: $(e.message())")
+    }
+}
+
+pub fn main() {
+    print("Iniciando Soyuz Showcase Expandido")
+    val u = Usuario { nome: "Vand", _id: 42, superior: None }
+    u.saudar()
+    u.promover()
+    u.promover(3)
+    val nomeSuperior = match u.superior {
+        Some(s) => s.nome
+        None => "Ninguém"
+    }
+    print("Superior: $(nomeSuperior)")
+    val forma = Circulo(5.0)
+    print("Área do círculo: $(area(forma))")
+    for i in 1..=3 {
+        print("Contagem: $(i)")
+    }
+    demonstrarPipes()
+    processar(10)
+    processar(-5)
+    processarComDefault()
+    processarComDefault(99)
+    registrar("Lucas")
+    registrar("Ana", Some("Engenheira"))
+    demonstrarColecoes()
+    demonstrarStringsEChar()
+    demonstrarBitwise()
+    demonstrarOsFs()
+    print("Showcase finalizado com sucesso!")
+}
