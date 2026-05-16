@@ -86,6 +86,14 @@ func walkNode(node parser.Node, fn func(parser.Node)) {
 	fn(node)
 	switch n := node.(type) {
 	case *parser.FuncDecl:
+		if n.WhenGuard != nil {
+			walkNode(n.WhenGuard, fn)
+		}
+		for _, param := range n.Params {
+			if param.Default != nil {
+				walkNode(param.Default, fn)
+			}
+		}
 		walkNode(n.Body, fn)
 	case *parser.ExternDecl:
 		// leaf node — no children to walk

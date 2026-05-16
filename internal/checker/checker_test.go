@@ -245,6 +245,10 @@ func TestCheckOptionBuiltin(t *testing.T) {
 
 func TestCheckResultBuiltin(t *testing.T) {
 	src := `
+	interface Error {
+		fn message() -> String
+		fn code() -> Int
+	}
 	class MyError : Error {
 		fn message(self) -> String = "failed"
 		fn code(self) -> Int = 500

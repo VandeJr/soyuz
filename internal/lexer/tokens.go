@@ -34,6 +34,7 @@ const (
 	INT_LITERAL
 	FLOAT_LITERAL
 	STRING_LITERAL
+	CHAR_LITERAL // 'a'
 	STRING_PART  // parte de string interpolada: "olá "
 	INTERP_START // $(
 	INTERP_END   // ) fechando interpolação
@@ -88,6 +89,10 @@ const (
 	RANGE_INCL // ..=
 	SAFE_NAV   // ?.
 	ELVIS      // ?:
+	SHL        // <<
+	SHR        // >>
+	CARET      // ^
+	TILDE      // ~
 
 	// Keywords — declarations
 	VAL
@@ -129,6 +134,7 @@ const (
 	FLOAT_TYPE
 	BOOL_TYPE
 	STRING_TYPE
+	CHAR_TYPE
 	UNIT_TYPE
 
 	// Keywords — values
@@ -151,6 +157,7 @@ func (t TokenType) String() string {
 		INT_LITERAL:    "INT_LITERAL",
 		FLOAT_LITERAL:  "FLOAT_LITERAL",
 		STRING_LITERAL: "STRING_LITERAL",
+		CHAR_LITERAL:   "CHAR_LITERAL",
 		STRING_PART:    "STRING_PART",
 		INTERP_START:   "INTERP_START",
 		INTERP_END:     "INTERP_END",
@@ -191,6 +198,10 @@ func (t TokenType) String() string {
 		RANGE_INCL:     "RANGE_INCL",
 		SAFE_NAV:       "SAFE_NAV",
 		ELVIS:          "ELVIS",
+		SHL:            "SHL",
+		SHR:            "SHR",
+		CARET:          "CARET",
+		TILDE:          "TILDE",
 		VAL:            "VAL",
 		VAR:            "VAR",
 		CONST:          "CONST",
@@ -220,6 +231,7 @@ func (t TokenType) String() string {
 		FLOAT_TYPE:     "FLOAT_TYPE",
 		BOOL_TYPE:      "BOOL_TYPE",
 		STRING_TYPE:    "STRING_TYPE",
+		CHAR_TYPE:      "CHAR_TYPE",
 		UNIT_TYPE:      "UNIT_TYPE",
 		TRUE:           "TRUE",
 		FALSE:          "FALSE",
@@ -237,11 +249,11 @@ func (t TokenType) String() string {
 func CanInsertSemicolon(t TokenType) bool {
 	switch t {
 	case IDENT,
-		INT_LITERAL, FLOAT_LITERAL, STRING_LITERAL, INTERP_END,
+		INT_LITERAL, FLOAT_LITERAL, STRING_LITERAL, CHAR_LITERAL, INTERP_END,
 		TRUE, FALSE, NONE, OK, ERR, SOME, SELF,
 		RPAREN, RBRACE, RBRACKET,
 		RETURN, BREAK, CONTINUE,
-		INT_TYPE, FLOAT_TYPE, BOOL_TYPE, STRING_TYPE, UNIT_TYPE:
+		INT_TYPE, FLOAT_TYPE, BOOL_TYPE, STRING_TYPE, CHAR_TYPE, UNIT_TYPE:
 		return true
 	}
 	return false

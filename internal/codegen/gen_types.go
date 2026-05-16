@@ -24,7 +24,9 @@ func (g *Generator) mapSoyuzTypeToLLVM(te parser.TypeExpr) types.Type {
 		case "Bool":
 			return types.I1
 		case "String":
-			return types.I8Ptr
+			return g.soyuzStringPtrType
+		case "Char":
+			return types.I32
 		default:
 			if si, ok := g.structs[t.Name]; ok {
 				return types.NewPointer(si.typ)
@@ -98,7 +100,9 @@ func (g *Generator) mapTypeToLLVM(t checker.Type) types.Type {
 	case "Bool":
 		return types.I1
 	case "String":
-		return types.I8Ptr
+		return g.soyuzStringPtrType
+	case "Char":
+		return types.I32
 	case "Unit":
 		return types.Void
 	default:

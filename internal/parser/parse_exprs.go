@@ -3,32 +3,43 @@ package parser
 import "soyuz/internal/lexer"
 
 // bindingPower returns the left binding power of an infix/postfix token.
+// Precedence (lowest → highest, following C conventions for bitwise):
+//   PIPE(|>) < ASSIGN < ELVIS < OR(||) < PIPE_SINGLE(|) < CARET(^) < AND(&&) < AMPERSAND(&)
+//   < EQUALS/NE < LT/GT/… < RANGE < SHL/SHR < PLUS/MINUS < MUL/DIV/MOD < DOT < CALL/INDEX
 func bindingPower(t lexer.TokenType) int {
 	switch t {
 	case lexer.PIPE:
-		return 1
-	case lexer.ASSIGN:
 		return 2
-	case lexer.ELVIS:
-		return 3
-	case lexer.OR:
+	case lexer.ASSIGN:
 		return 4
-	case lexer.AND:
-		return 5
-	case lexer.EQUALS, lexer.NOT_EQUALS:
+	case lexer.ELVIS:
 		return 6
-	case lexer.LT, lexer.GT, lexer.LTE, lexer.GTE:
-		return 7
-	case lexer.RANGE, lexer.RANGE_INCL:
+	case lexer.OR:
 		return 8
-	case lexer.PLUS, lexer.MINUS:
-		return 9
-	case lexer.ASTERISK, lexer.SLASH, lexer.PERCENT:
+	case lexer.PIPE_SINGLE:
 		return 10
-	case lexer.DOT, lexer.SAFE_NAV:
-		return 11
-	case lexer.LPAREN, lexer.LBRACKET:
+	case lexer.CARET:
 		return 12
+	case lexer.AND:
+		return 14
+	case lexer.AMPERSAND:
+		return 16
+	case lexer.EQUALS, lexer.NOT_EQUALS:
+		return 18
+	case lexer.LT, lexer.GT, lexer.LTE, lexer.GTE:
+		return 20
+	case lexer.RANGE, lexer.RANGE_INCL:
+		return 22
+	case lexer.SHL, lexer.SHR:
+		return 24
+	case lexer.PLUS, lexer.MINUS:
+		return 26
+	case lexer.ASTERISK, lexer.SLASH, lexer.PERCENT:
+		return 28
+	case lexer.DOT, lexer.SAFE_NAV:
+		return 30
+	case lexer.LPAREN, lexer.LBRACKET:
+		return 32
 	default:
 		return 0
 	}
@@ -57,6 +68,15 @@ func (p *Parser) parsePrefix() Node {
 	case lexer.STRING_LITERAL:
 		tok := p.advance()
 		return &StringLiteral{pos: tok.Position, Value: tok.Lexeme}
+
+	case lexer.CHAR_LITERAL:
+		tok := p.advance()
+		r := []rune(tok.Lexeme)
+		var ch rune
+		if len(r) > 0 {
+			ch = r[0]
+		}
+		return &CharLiteral{pos: tok.Position, Value: ch}
 
 	case lexer.STRING_PART, lexer.INTERP_START:
 		return p.parseInterpolatedString()
@@ -100,13 +120,18 @@ func (p *Parser) parsePrefix() Node {
 
 	case lexer.MINUS:
 		p.advance()
-		operand := p.parseExpression(10)
+		operand := p.parseExpression(28)
 		return &UnaryExpr{pos: pos, Operator: "-", Operand: operand}
 
 	case lexer.BANG:
 		p.advance()
-		operand := p.parseExpression(10)
+		operand := p.parseExpression(28)
 		return &UnaryExpr{pos: pos, Operator: "!", Operand: operand}
+
+	case lexer.TILDE:
+		p.advance()
+		operand := p.parseExpression(28)
+		return &UnaryExpr{pos: pos, Operator: "~", Operand: operand}
 
 	case lexer.LPAREN:
 		return p.parseParenOrTuple()
@@ -157,7 +182,9 @@ func (p *Parser) parseInfix(left Node) Node {
 	case lexer.PLUS, lexer.MINUS, lexer.ASTERISK, lexer.SLASH, lexer.PERCENT,
 		lexer.EQUALS, lexer.NOT_EQUALS,
 		lexer.LT, lexer.GT, lexer.LTE, lexer.GTE,
-		lexer.AND, lexer.OR:
+		lexer.AND, lexer.OR,
+		lexer.PIPE_SINGLE, lexer.AMPERSAND, lexer.CARET,
+		lexer.SHL, lexer.SHR:
 		p.advance()
 		right := p.parseExpression(bp)
 		return &BinaryExpr{pos: tok.Position, Operator: tok.Lexeme, Left: left, Right: right}

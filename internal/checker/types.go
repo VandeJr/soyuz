@@ -137,6 +137,7 @@ var (
 	FloatType  = &BasicType{Name: "Float"}
 	BoolType   = &BasicType{Name: "Bool"}
 	StringType = &BasicType{Name: "String"}
+	CharType   = &BasicType{Name: "Char"}
 	UnitType   = &BasicType{Name: "Unit"}
 	Unknown    = &BasicType{Name: "Unknown"}
 )

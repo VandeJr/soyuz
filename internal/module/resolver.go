@@ -9,7 +9,7 @@ import (
 	"soyuz/internal/parser"
 )
 
-// Resolver mapeia declarações de import Soyuz para caminhos de arquivo .soyuz.
+// Resolver mapeia declarações de import Soyuz para caminhos de arquivo .sy.
 type Resolver struct {
 	Root      string // caminho absoluto do diretório raiz do projeto
 	StdlibDir string // diretório onde a stdlib embutida foi extraída; vazio = sem stdlib
@@ -28,12 +28,12 @@ func NewResolverWithStdlib(entryFile, stdlibDir string) *Resolver {
 	return r
 }
 
-// Resolve retorna os arquivo(s) .soyuz que satisfazem imp.
+// Resolve retorna os arquivo(s) .sy que satisfazem imp.
 //
 // Regras de resolução (verificadas em ordem):
-//  1. Import stdlib (@soyuz/X): busca em StdlibDir/X.soyuz ou StdlibDir/X/
-//  2. <root>/<seg0>/.../<segN>.soyuz — módulo de arquivo único
-//  3. <root>/<seg0>/.../<segN>/      — diretório: todos os *.soyuz dentro
+//  1. Import stdlib (@soyuz/X): busca em StdlibDir/X.sy ou StdlibDir/X/
+//  2. <root>/<seg0>/.../<segN>.sy — módulo de arquivo único
+//  3. <root>/<seg0>/.../<segN>/      — diretório: todos os *.sy dentro
 func (r *Resolver) Resolve(imp *parser.ImportDecl) ([]string, error) {
 	if len(imp.Path) == 0 {
 		return nil, fmt.Errorf("declaração de import vazia")
@@ -53,8 +53,8 @@ func (r *Resolver) resolveIn(base string, path []string) ([]string, error) {
 	parts := append([]string{base}, path...)
 	basePath := filepath.Join(parts...)
 
-	// Módulo de arquivo único: <base>.soyuz
-	singleFile := basePath + ".soyuz"
+	// Módulo de arquivo único: <base>.sy
+	singleFile := basePath + ".sy"
 	if _, err := os.Stat(singleFile); err == nil {
 		return []string{singleFile}, nil
 	}
@@ -67,7 +67,7 @@ func (r *Resolver) resolveIn(base string, path []string) ([]string, error) {
 		}
 		var files []string
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".soyuz") {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".sy") {
 				files = append(files, filepath.Join(basePath, e.Name()))
 			}
 		}
@@ -76,6 +76,6 @@ func (r *Resolver) resolveIn(base string, path []string) ([]string, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("import não resolvido: %q — nenhum arquivo .soyuz encontrado em %s",
+	return nil, fmt.Errorf("import não resolvido: %q — nenhum arquivo .sy encontrado em %s",
 		strings.Join(path, "."), basePath)
 }

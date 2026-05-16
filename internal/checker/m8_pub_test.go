@@ -54,8 +54,8 @@ func TestM8PubFuncAccessible(t *testing.T) {
 	libSrc := `pub fn dobrar(x: Int) -> Int = x * 2`
 	mainSrc := `val r = dobrar(5)`
 
-	libNodes, libNF := parseFileNodes(libSrc, "/lib.soyuz")
-	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.soyuz")
+	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
+	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
 
 	prog, nf := mergeProgram(
 		struct{ nodes []parser.Node; nf map[parser.Node]string }{libNodes, libNF},
@@ -76,8 +76,8 @@ func TestM8PrivateFuncBlocked(t *testing.T) {
 	libSrc := `fn dobrar(x: Int) -> Int = x * 2`
 	mainSrc := `val r = dobrar(5)`
 
-	libNodes, libNF := parseFileNodes(libSrc, "/lib.soyuz")
-	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.soyuz")
+	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
+	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
 
 	prog, nf := mergeProgram(
 		struct{ nodes []parser.Node; nf map[parser.Node]string }{libNodes, libNF},
@@ -98,8 +98,8 @@ func TestM8PubRecordAccessible(t *testing.T) {
 	libSrc := `pub record Ponto { x: Int, y: Int }`
 	mainSrc := `val p = Ponto { x: 1, y: 2 }`
 
-	libNodes, libNF := parseFileNodes(libSrc, "/lib.soyuz")
-	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.soyuz")
+	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
+	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
 
 	prog, nf := mergeProgram(
 		struct{ nodes []parser.Node; nf map[parser.Node]string }{libNodes, libNF},
@@ -120,8 +120,8 @@ func TestM8PrivateRecordBlocked(t *testing.T) {
 	libSrc := `record Ponto { x: Int, y: Int }`
 	mainSrc := `val p = Ponto { x: 1, y: 2 }`
 
-	libNodes, libNF := parseFileNodes(libSrc, "/lib.soyuz")
-	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.soyuz")
+	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
+	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
 
 	prog, nf := mergeProgram(
 		struct{ nodes []parser.Node; nf map[parser.Node]string }{libNodes, libNF},
@@ -143,7 +143,7 @@ func TestM8SameFileNoEnforcement(t *testing.T) {
 fn dobrar(x: Int) -> Int = x * 2
 val r = dobrar(5)
 `
-	nodes, nf := parseFileNodes(src, "/main.soyuz")
+	nodes, nf := parseFileNodes(src, "/main.sy")
 	prog := &parser.Program{}
 	prog.Body = nodes
 
@@ -161,8 +161,8 @@ func TestM8ValPubAccessible(t *testing.T) {
 	libSrc := `pub val PI = 3`
 	mainSrc := `val r = PI`
 
-	libNodes, libNF := parseFileNodes(libSrc, "/lib.soyuz")
-	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.soyuz")
+	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
+	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
 
 	prog, nf := mergeProgram(
 		struct{ nodes []parser.Node; nf map[parser.Node]string }{libNodes, libNF},
@@ -183,8 +183,8 @@ func TestM8PrivateValBlocked(t *testing.T) {
 	libSrc := `val PI = 3`
 	mainSrc := `val r = PI`
 
-	libNodes, libNF := parseFileNodes(libSrc, "/lib.soyuz")
-	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.soyuz")
+	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
+	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
 
 	prog, nf := mergeProgram(
 		struct{ nodes []parser.Node; nf map[parser.Node]string }{libNodes, libNF},

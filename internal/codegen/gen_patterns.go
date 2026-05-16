@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"maps"
+	"soyuz/internal/checker"
 	"soyuz/internal/parser"
 
 	"github.com/llir/llvm/ir"
@@ -23,6 +24,8 @@ func (g *Generator) generateMatchExpr(n *parser.MatchExpr) (value.Value, error) 
 
 	var phiIncomings []*ir.Incoming
 
+	subjectCheckerType := g.check.NodeTypes[n.Subject]
+
 	for i, arm := range n.Arms {
 		variantNext := g.newBlock(fmt.Sprintf("match_arm_%d_next", i), fn)
 		variantBody := g.newBlock(fmt.Sprintf("match_arm_%d_body", i), fn)
@@ -30,7 +33,7 @@ func (g *Generator) generateMatchExpr(n *parser.MatchExpr) (value.Value, error) 
 		oldVars := maps.Clone(g.vars)
 
 		matchOk := g.newBlock(fmt.Sprintf("match_arm_%d_pattern_ok", i), fn)
-		if err := g.matchPattern(subject, arm.Pattern, matchOk, variantNext); err != nil {
+		if err := g.matchPattern(subject, subjectCheckerType, arm.Pattern, matchOk, variantNext); err != nil {
 			return nil, err
 		}
 
@@ -80,7 +83,7 @@ func (g *Generator) generateMatchExpr(n *parser.MatchExpr) (value.Value, error) 
 	return nil, nil
 }
 
-func (g *Generator) matchPattern(val value.Value, pat parser.Pattern, thenBlock *ir.Block, nextBlock *ir.Block) error {
+func (g *Generator) matchPattern(val value.Value, subjectCheckerType checker.Type, pat parser.Pattern, thenBlock *ir.Block, nextBlock *ir.Block) error {
 	switch p := pat.(type) {
 	case *parser.WildcardPattern:
 		g.current.NewBr(thenBlock)
@@ -168,13 +171,10 @@ func (g *Generator) matchPattern(val value.Value, pat parser.Pattern, thenBlock 
 		g.current = matchOk
 
 		if len(p.Args) > 0 {
-			var fieldType types.Type = types.I64
-			if len(vi.fields) > 0 {
-				fieldType = vi.fields[0]
-			}
+			fieldType := g.resolveEnumPayloadType(vi, p.Name, subjectCheckerType)
 			castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(fieldType))
 			innerVal := g.current.NewLoad(fieldType, castPtr)
-			return g.matchPattern(innerVal, p.Args[0], thenBlock, nextBlock)
+			return g.matchPattern(innerVal, nil, p.Args[0], thenBlock, nextBlock)
 		}
 		g.current.NewBr(thenBlock)
 
@@ -198,7 +198,7 @@ func (g *Generator) matchPattern(val value.Value, pat parser.Pattern, thenBlock 
 
 			if f.Pattern != nil {
 				fieldNext := g.newBlock("field_match_ok", g.current.Parent)
-				if err := g.matchPattern(fieldVal, f.Pattern, fieldNext, nextBlock); err != nil {
+				if err := g.matchPattern(fieldVal, nil, f.Pattern, fieldNext, nextBlock); err != nil {
 					return err
 				}
 				g.current = fieldNext
@@ -233,7 +233,7 @@ func (g *Generator) matchPattern(val value.Value, pat parser.Pattern, thenBlock 
 			} else {
 				elemThen = g.newBlock(fmt.Sprintf("tuple_elem_%d_ok", i), g.current.Parent)
 			}
-			if err := g.matchPattern(fieldVal, elem, elemThen, nextBlock); err != nil {
+			if err := g.matchPattern(fieldVal, nil, elem, elemThen, nextBlock); err != nil {
 				return err
 			}
 			g.current = elemThen
@@ -243,4 +243,25 @@ func (g *Generator) matchPattern(val value.Value, pat parser.Pattern, thenBlock 
 		return fmt.Errorf("unsupported pattern in codegen: %T", pat)
 	}
 	return nil
+}
+
+// resolveEnumPayloadType returns the LLVM type for the payload of an enum variant.
+// For user-defined enums, vi.fields[0] is used. For built-in generic enums (Option/Result)
+// whose variants have no pre-registered fields, we derive the type from the subject's
+// checker type (the specialized type parameters).
+func (g *Generator) resolveEnumPayloadType(vi variantInfo, variantName string, subjectCheckerType checker.Type) types.Type {
+	if len(vi.fields) > 0 {
+		return vi.fields[0]
+	}
+	if subjectCheckerType != nil {
+		if ct, ok := subjectCheckerType.(*checker.SpecializedType); ok && len(ct.Params) > 0 {
+			switch variantName {
+			case "Ok", "Some":
+				return g.mapTypeToLLVM(ct.Params[0])
+			case "Err":
+				return types.I8Ptr
+			}
+		}
+	}
+	return types.I64
 }

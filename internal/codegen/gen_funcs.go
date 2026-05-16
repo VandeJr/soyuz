@@ -348,6 +348,8 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 
 	g.blockNames = make(map[string]int)
 	g.current = g.newBlock("entry", fn)
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
 	params := fn.Params
 	retType := fn.Sig.RetType
 
@@ -381,7 +383,7 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 				}
 			}
 			matchOk := g.newBlock(fmt.Sprintf("v%d_p%d_ok", i, j), fn)
-			if err := g.matchPattern(params[j], p.Pattern, matchOk, variantNext); err != nil {
+			if err := g.matchPattern(params[j], nil, p.Pattern, matchOk, variantNext); err != nil {
 				return err
 			}
 			g.current = matchOk

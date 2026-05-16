@@ -104,8 +104,8 @@ func (p *Parser) parseFuncDecl(pub bool) *FuncDecl {
 
 	var whenGuard Node
 	if p.consume(lexer.WHEN) {
-		// Use a binding power that stops before '=' (ASSIGN)
-		whenGuard = p.parseExpression(2)
+		// Stop before '=' (ASSIGN has bindingPower=4).
+		whenGuard = p.parseExpression(bindingPower(lexer.ASSIGN))
 	}
 
 	var returnType TypeExpr

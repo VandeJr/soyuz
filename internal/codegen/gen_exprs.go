@@ -39,13 +39,35 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		}
 		return constant.False, nil
 
+	case *parser.CharLiteral:
+		return constant.NewInt(types.I32, int64(n.Value)), nil
+
 	case *parser.StringLiteral:
-		s := n.Value + "\x00"
-		cs := constant.NewCharArrayFromString(s)
-		glob := g.module.NewGlobalDef("", cs)
+		data := n.Value
+		dataLen := len(data)
+
+		// Combined static type: { SoyuzHeader{ i64, i8* }, SoyuzString{ i64 }, [dataLen+1 x i8] }
+		soyuzHeaderType := types.NewStruct(types.I64, types.I8Ptr)
+		charArrType := types.NewArray(uint64(dataLen+1), types.I8)
+		combinedType := types.NewStruct(soyuzHeaderType, g.soyuzStringType, charArrType)
+
+		// SoyuzHeader with SOYUZ_STATIC_REFCOUNT sentinel (INT64_MAX = 9223372036854775807)
+		headerConst := constant.NewStruct(soyuzHeaderType,
+			constant.NewInt(types.I64, 9223372036854775807),
+			constant.NewNull(types.I8Ptr))
+		strStructConst := constant.NewStruct(g.soyuzStringType,
+			constant.NewInt(types.I64, int64(dataLen)))
+		dataConst := constant.NewCharArrayFromString(data + "\x00")
+
+		combinedConst := constant.NewStruct(combinedType, headerConst, strStructConst, dataConst)
+		glob := g.module.NewGlobalDef("", combinedConst)
 		glob.Immutable = true
-		return g.current.NewGetElementPtr(cs.Type(), glob,
-			constant.NewInt(types.I64, 0), constant.NewInt(types.I64, 0)), nil
+
+		// GEP to field [0, 1] = the SoyuzString part (after the SoyuzHeader)
+		strField := g.current.NewGetElementPtr(combinedType, glob,
+			constant.NewInt(types.I32, 0), constant.NewInt(types.I32, 1))
+		// Bitcast { i64 }* → %SoyuzString*
+		return g.current.NewBitCast(strField, g.soyuzStringPtrType), nil
 
 	case *parser.InterpolatedString:
 		return g.generateInterpolatedString(n)
@@ -248,6 +270,8 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 			return g.current.NewSub(constant.NewInt(types.I64, 0), operand), nil
 		case "!":
 			return g.current.NewXor(operand, constant.NewInt(types.I1, 1)), nil
+		case "~":
+			return g.current.NewXor(operand, constant.NewInt(types.I64, -1)), nil
 		default:
 			return nil, fmt.Errorf("unsupported unary operator in codegen: %s", n.Operator)
 		}
@@ -363,6 +387,16 @@ func (g *Generator) generateBinaryExpr(n *parser.BinaryExpr) (value.Value, error
 		return g.current.NewSDiv(left, right), nil
 	case "%":
 		return g.current.NewSRem(left, right), nil
+	case "&":
+		return g.current.NewAnd(left, right), nil
+	case "|":
+		return g.current.NewOr(left, right), nil
+	case "^":
+		return g.current.NewXor(left, right), nil
+	case "<<":
+		return g.current.NewShl(left, right), nil
+	case ">>":
+		return g.current.NewAShr(left, right), nil
 	case "==":
 		if isFloat {
 			return g.current.NewFCmp(enum.FPredOEQ, left, right), nil
@@ -669,6 +703,10 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 			if _, ok := t.Base.(*checker.ClassType); ok {
 				isMethod = true
 			}
+		case *checker.BasicType:
+			if t.Name == "String" {
+				isMethod = true
+			}
 		}
 		if isMethod {
 			return g.generateMethodCall(me, n)
@@ -721,6 +759,9 @@ func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
 	var fmtStr string
 	var printArgs []value.Value
 	switch {
+	case arg.Type().Equal(g.soyuzStringPtrType):
+		fmtStr = "%s\n\x00"
+		printArgs = []value.Value{g.strData(arg)}
 	case arg.Type().Equal(types.I8Ptr):
 		fmtStr = "%s\n\x00"
 		printArgs = []value.Value{arg}
@@ -816,19 +857,22 @@ func (g *Generator) generateInterpolatedString(n *parser.InterpolatedString) (va
 			return nil, err
 		}
 		switch {
-		case val.Type().Equal(types.I8Ptr):
+		case val.Type().Equal(g.soyuzStringPtrType):
 			b.WriteString("%s")
+			args = append(args, g.strData(val))
 		case val.Type().Equal(types.I64):
 			b.WriteString("%lld")
+			args = append(args, val)
 		case val.Type().Equal(types.Double):
 			b.WriteString("%f")
+			args = append(args, val)
 		case val.Type().Equal(types.I1):
 			b.WriteString("%d")
-			val = g.current.NewZExt(val, types.I32)
+			args = append(args, g.current.NewZExt(val, types.I32))
 		default:
 			b.WriteString("%p")
+			args = append(args, val)
 		}
-		args = append(args, val)
 	}
 
 	b.WriteByte(0)
@@ -843,7 +887,8 @@ func (g *Generator) generateInterpolatedString(n *parser.InterpolatedString) (va
 	sprintf := g.findBuiltin("sprintf")
 	buf := g.current.NewCall(malloc, constant.NewInt(types.I64, 1024))
 	g.current.NewCall(sprintf, append([]value.Value{buf, ptrFmt}, args...)...)
-	return buf, nil
+	result := g.current.NewCall(g.findFunc("soyuz_str_from_printf_buf"), buf)
+	return result, nil
 }
 
 // generateMethodCall handles obj.method(args) for both static (class) and dynamic (interface) dispatch.
@@ -899,6 +944,20 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 					g.emitRetain(result) // caller owns the returned element
 				}
 				return result, nil
+			case "isEmpty":
+				listTyped := g.current.NewBitCast(obj, types.NewPointer(g.structs["SoyuzList"].typ))
+				sizePtr := g.current.NewGetElementPtr(g.structs["SoyuzList"].typ, listTyped,
+					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+				sizeVal := g.current.NewLoad(types.I64, sizePtr)
+				return g.current.NewICmp(enum.IPredEQ, sizeVal, constant.NewInt(types.I64, 0)), nil
+			case "map":
+				return g.generateListMap(n, obj, st, args)
+			case "filter":
+				return g.generateListFilter(n, obj, st, args)
+			case "reduce":
+				return g.generateListReduce(n, obj, st, args)
+			case "join":
+				return g.generateListJoin(obj, st, args)
 			}
 		}
 	}
@@ -933,8 +992,28 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 					g.emitRetain(result) // caller owns the returned value
 				}
 				return result, nil
+			case "keys":
+				return g.generateMapKeys(obj, st)
+			case "values":
+				return g.generateMapValues(obj, st)
 			}
 		}
+	}
+
+	// String extension method dispatch: "hello".len() → StringExtensions_len("hello")
+	if bt, ok := g.check.NodeTypes[me.Object].(*checker.BasicType); ok && bt.Name == "String" {
+		if ci, exists := g.classes["StringExtensions"]; exists {
+			if variants, ok2 := ci.methods[me.Property]; ok2 {
+				fn := classMethodByArity(variants, len(args))
+				if fn != nil {
+					// obj is %SoyuzString* — __self param is i8*, so bitcast
+					objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+					allArgs := append([]value.Value{objAsI8}, args...)
+					return g.current.NewCall(fn, allArgs...), nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("String não tem método '%s' no codegen", me.Property)
 	}
 
 	// Determine return type from checker specialization.
@@ -1206,6 +1285,21 @@ func (g *Generator) generateErrExpr(n *parser.ErrExpr) (value.Value, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The Err payload must be an Error interface fat pointer {obj_ptr, vtable_ptr}
+	// so that dynamic dispatch (e.message()) works when the match extracts it.
+	// If the value is a concrete class that implements Error, wrap it now.
+	if ptrType, ok := val.Type().(*types.PointerType); ok {
+		if st, ok2 := ptrType.ElemType.(*types.StructType); ok2 {
+			if ci, ok3 := g.classes[st.TypeName]; ok3 {
+				if vtable, ok4 := ci.vtables["Error"]; ok4 {
+					val, err = g.wrapInInterfaceFatPtr(val, vtable)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+	}
 	return g.emitOptionResultAlloc("Result", 1, val)
 }
 
@@ -1252,6 +1346,276 @@ func (g *Generator) emitOptionResultAllocInner(typeName string, tag int, payload
 		g.current.NewStore(payload, castPtr)
 	}
 	return structPtr, nil
+}
+
+// listLoopSetup creates blocks and infrastructure for a loop over a List.
+// Returns: (listTyped, size, iAlloc, condBlock, bodyBlock, incrBlock, afterBlock).
+func (g *Generator) listLoopSetup(obj value.Value) (listTyped value.Value, size value.Value, iAlloc value.Value, cond, body, incr, after *ir.Block) {
+	fn := g.current.Parent
+	listTyped = g.current.NewBitCast(obj, types.NewPointer(g.structs["SoyuzList"].typ))
+	sizePtr := g.current.NewGetElementPtr(g.structs["SoyuzList"].typ, listTyped,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	size = g.current.NewLoad(types.I64, sizePtr)
+	iAlloc = g.newAlloca(types.I64)
+	g.current.NewStore(constant.NewInt(types.I64, 0), iAlloc)
+	cond = g.newBlock("hof_cond", fn)
+	body = g.newBlock("hof_body", fn)
+	incr = g.newBlock("hof_incr", fn)
+	after = g.newBlock("hof_after", fn)
+	g.current.NewBr(cond)
+	return
+}
+
+// listLoopGetElem generates a get of the element at index i (expects to be called inside bodyBlock).
+func (g *Generator) listLoopGetElem(listTyped value.Value, elemLLVMType types.Type, iAlloc value.Value) value.Value {
+	listAsI8 := g.current.NewBitCast(listTyped, types.I8Ptr)
+	i := g.current.NewLoad(types.I64, iAlloc)
+	raw := g.current.NewCall(g.findFunc("soyuz_list_get"), listAsI8, i)
+	var elem value.Value
+	if elemLLVMType.Equal(types.I64) {
+		elem = g.current.NewPtrToInt(raw, types.I64)
+	} else if elemLLVMType.Equal(types.Double) {
+		i64Val := g.current.NewPtrToInt(raw, types.I64)
+		elem = g.current.NewBitCast(i64Val, types.Double)
+	} else if elemLLVMType.Equal(types.I1) {
+		i64Val := g.current.NewPtrToInt(raw, types.I64)
+		elem = g.current.NewTrunc(i64Val, types.I1)
+	} else {
+		elem = g.current.NewBitCast(raw, elemLLVMType)
+	}
+	return elem
+}
+
+// listLoopIncr advances the loop counter and jumps back to condBlock.
+func (g *Generator) listLoopIncr(iAlloc value.Value, condBlock *ir.Block) {
+	cur := g.current.NewLoad(types.I64, iAlloc)
+	next := g.current.NewAdd(cur, constant.NewInt(types.I64, 1))
+	g.current.NewStore(next, iAlloc)
+	g.current.NewBr(condBlock)
+}
+
+func (g *Generator) generateListMap(n *parser.CallExpr, obj value.Value, st *checker.SpecializedType, args []value.Value) (value.Value, error) {
+	elemCheckerType := st.Params[0]
+	elemLLVMType := g.mapTypeToLLVM(elemCheckerType)
+
+	// Determine result element type from checker specialization.
+	var retCheckerType checker.Type = checker.Unknown
+	if ft, ok := g.check.Specializations[n]; ok && ft != nil {
+		if rst, ok2 := ft.Return.(*checker.SpecializedType); ok2 && len(rst.Params) > 0 {
+			retCheckerType = rst.Params[0]
+		}
+	}
+	retLLVMType := g.mapTypeToLLVM(retCheckerType)
+
+	closureVal := args[0]
+
+	// Create result list.
+	dtorName := "soyuz_list_dtor_primitive"
+	if g.isHeapType(retLLVMType) {
+		dtorName = "soyuz_list_dtor_rc"
+	}
+	dtor := g.findFunc(dtorName)
+	resultRaw := g.current.NewCall(g.findFunc("soyuz_list_new"),
+		constant.NewInt(types.I64, 0),
+		g.current.NewBitCast(dtor, types.I8Ptr))
+
+	listTyped, size, iAlloc, condBlock, bodyBlock, incrBlock, afterBlock := g.listLoopSetup(obj)
+
+	// Condition block.
+	g.current = condBlock
+	i := g.current.NewLoad(types.I64, iAlloc)
+	cond := g.current.NewICmp(enum.IPredSLT, i, size)
+	g.current.NewCondBr(cond, bodyBlock, afterBlock)
+
+	// Body block: get element, call closure, append to result.
+	g.current = bodyBlock
+	elem := g.listLoopGetElem(listTyped, elemLLVMType, iAlloc)
+	mappedVal := g.callClosureDirect(closureVal, retLLVMType, []value.Value{elem})
+	if g.isHeapType(retLLVMType) {
+		g.emitRetain(mappedVal)
+	}
+	valCast := g.castToI8Ptr(mappedVal)
+	resultAsI8 := g.current.NewBitCast(resultRaw, types.I8Ptr)
+	g.current.NewCall(g.findFunc("soyuz_list_append"), resultAsI8, valCast)
+	g.current.NewBr(incrBlock)
+
+	// Incr block.
+	g.current = incrBlock
+	g.listLoopIncr(iAlloc, condBlock)
+
+	g.current = afterBlock
+
+	// Cast result to the correct SpecializedType pointer.
+	if ft, ok := g.check.Specializations[n]; ok && ft != nil {
+		retListLLVMType := g.mapTypeToLLVM(ft.Return)
+		return g.current.NewBitCast(resultRaw, retListLLVMType), nil
+	}
+	return resultRaw, nil
+}
+
+func (g *Generator) generateListFilter(n *parser.CallExpr, obj value.Value, st *checker.SpecializedType, args []value.Value) (value.Value, error) {
+	elemCheckerType := st.Params[0]
+	elemLLVMType := g.mapTypeToLLVM(elemCheckerType)
+	closureVal := args[0]
+	fn := g.current.Parent
+
+	dtorName := "soyuz_list_dtor_primitive"
+	if g.isHeapType(elemLLVMType) {
+		dtorName = "soyuz_list_dtor_rc"
+	}
+	dtor := g.findFunc(dtorName)
+	resultRaw := g.current.NewCall(g.findFunc("soyuz_list_new"),
+		constant.NewInt(types.I64, 0),
+		g.current.NewBitCast(dtor, types.I8Ptr))
+
+	listTyped, size, iAlloc, condBlock, bodyBlock, incrBlock, afterBlock := g.listLoopSetup(obj)
+
+	appendBlock := g.newBlock("hof_filter_append", fn)
+
+	// Condition block.
+	g.current = condBlock
+	i := g.current.NewLoad(types.I64, iAlloc)
+	cond := g.current.NewICmp(enum.IPredSLT, i, size)
+	g.current.NewCondBr(cond, bodyBlock, afterBlock)
+
+	// Body block: get element, call predicate.
+	g.current = bodyBlock
+	elem := g.listLoopGetElem(listTyped, elemLLVMType, iAlloc)
+	predResult := g.callClosureDirect(closureVal, types.I1, []value.Value{elem})
+	g.current.NewCondBr(predResult, appendBlock, incrBlock)
+
+	// Append block.
+	g.current = appendBlock
+	if g.isHeapType(elemLLVMType) {
+		g.emitRetain(elem)
+	}
+	valCast := g.castToI8Ptr(elem)
+	resultAsI8 := g.current.NewBitCast(resultRaw, types.I8Ptr)
+	g.current.NewCall(g.findFunc("soyuz_list_append"), resultAsI8, valCast)
+	g.current.NewBr(incrBlock)
+
+	// Incr block.
+	g.current = incrBlock
+	g.listLoopIncr(iAlloc, condBlock)
+
+	g.current = afterBlock
+
+	retListLLVMType := g.mapTypeToLLVM(st)
+	return g.current.NewBitCast(resultRaw, retListLLVMType), nil
+}
+
+func (g *Generator) generateListReduce(n *parser.CallExpr, obj value.Value, st *checker.SpecializedType, args []value.Value) (value.Value, error) {
+	elemCheckerType := st.Params[0]
+	elemLLVMType := g.mapTypeToLLVM(elemCheckerType)
+	closureVal := args[0]
+	initVal := args[1]
+	accType := initVal.Type()
+
+	accAlloc := g.newAlloca(accType)
+	g.current.NewStore(initVal, accAlloc)
+
+	listTyped, size, iAlloc, condBlock, bodyBlock, incrBlock, afterBlock := g.listLoopSetup(obj)
+
+	// Condition block.
+	g.current = condBlock
+	i := g.current.NewLoad(types.I64, iAlloc)
+	cond := g.current.NewICmp(enum.IPredSLT, i, size)
+	g.current.NewCondBr(cond, bodyBlock, afterBlock)
+
+	// Body block: get element, call fn(acc, elem) -> new acc.
+	g.current = bodyBlock
+	elem := g.listLoopGetElem(listTyped, elemLLVMType, iAlloc)
+	acc := g.current.NewLoad(accType, accAlloc)
+	newAcc := g.callClosureDirect(closureVal, accType, []value.Value{acc, elem})
+	g.current.NewStore(newAcc, accAlloc)
+	g.current.NewBr(incrBlock)
+
+	// Incr block.
+	g.current = incrBlock
+	g.listLoopIncr(iAlloc, condBlock)
+
+	g.current = afterBlock
+	return g.current.NewLoad(accType, accAlloc), nil
+}
+
+func (g *Generator) generateListJoin(obj value.Value, st *checker.SpecializedType, args []value.Value) (value.Value, error) {
+	// Only valid for List[String]. Concatenates elements with a separator.
+	elemLLVMType := g.soyuzStringPtrType
+	sep := args[0]
+	fn := g.current.Parent
+
+	// acc = soyuz_str_new("", 0)
+	emptyCS := constant.NewCharArrayFromString("\x00")
+	emptyGlob := g.module.NewGlobalDef("", emptyCS)
+	emptyGlob.Immutable = true
+	emptyPtr := g.current.NewGetElementPtr(emptyCS.Type(), emptyGlob,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I64, 0))
+	accVal := g.current.NewCall(g.findFunc("soyuz_str_new"), emptyPtr, constant.NewInt(types.I64, 0))
+	accAlloc := g.newAlloca(g.soyuzStringPtrType)
+	g.current.NewStore(accVal, accAlloc)
+
+	listTyped, size, iAlloc, condBlock, bodyBlock, incrBlock, afterBlock := g.listLoopSetup(obj)
+
+	prependSepBlock := g.newBlock("hof_join_sep", fn)
+	concatElemBlock := g.newBlock("hof_join_elem", fn)
+
+	// Condition block.
+	g.current = condBlock
+	i := g.current.NewLoad(types.I64, iAlloc)
+	cond := g.current.NewICmp(enum.IPredSLT, i, size)
+	g.current.NewCondBr(cond, bodyBlock, afterBlock)
+
+	// Body block: get element, check if first.
+	g.current = bodyBlock
+	elem := g.listLoopGetElem(listTyped, elemLLVMType, iAlloc)
+	iForSep := g.current.NewLoad(types.I64, iAlloc)
+	isFirst := g.current.NewICmp(enum.IPredEQ, iForSep, constant.NewInt(types.I64, 0))
+	g.current.NewCondBr(isFirst, concatElemBlock, prependSepBlock)
+
+	// Add separator before non-first elements.
+	g.current = prependSepBlock
+	acc1 := g.current.NewLoad(g.soyuzStringPtrType, accAlloc)
+	withSep := g.current.NewCall(g.findFunc("soyuz_str_concat"), acc1, sep)
+	g.current.NewStore(withSep, accAlloc)
+	g.current.NewBr(concatElemBlock)
+
+	// Concat element.
+	g.current = concatElemBlock
+	acc2 := g.current.NewLoad(g.soyuzStringPtrType, accAlloc)
+	withElem := g.current.NewCall(g.findFunc("soyuz_str_concat"), acc2, elem)
+	g.current.NewStore(withElem, accAlloc)
+	g.current.NewBr(incrBlock)
+
+	// Incr block.
+	g.current = incrBlock
+	g.listLoopIncr(iAlloc, condBlock)
+
+	g.current = afterBlock
+	return g.current.NewLoad(g.soyuzStringPtrType, accAlloc), nil
+}
+
+func (g *Generator) generateMapKeys(obj value.Value, st *checker.SpecializedType) (value.Value, error) {
+	keyLLVMType := g.mapTypeToLLVM(st.Params[0])
+	keyIsHeap := int64(0)
+	if g.isHeapType(keyLLVMType) {
+		keyIsHeap = 1
+	}
+	objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+	raw := g.current.NewCall(g.findFunc("soyuz_map_keys"), objAsI8, constant.NewInt(types.I64, keyIsHeap))
+	listPtrType := types.NewPointer(g.structs["SoyuzList"].typ)
+	return g.current.NewBitCast(raw, listPtrType), nil
+}
+
+func (g *Generator) generateMapValues(obj value.Value, st *checker.SpecializedType) (value.Value, error) {
+	valLLVMType := g.mapTypeToLLVM(st.Params[1])
+	valIsHeap := int64(0)
+	if g.isHeapType(valLLVMType) {
+		valIsHeap = 1
+	}
+	objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+	raw := g.current.NewCall(g.findFunc("soyuz_map_values"), objAsI8, constant.NewInt(types.I64, valIsHeap))
+	listPtrType := types.NewPointer(g.structs["SoyuzList"].typ)
+	return g.current.NewBitCast(raw, listPtrType), nil
 }
 
 // Ensure checker import is used (for FuncType in generateArrowFunc and generateSpecializedFunc).

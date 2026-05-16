@@ -178,9 +178,9 @@ func (c *Checker) checkFuncDeclBody(n *parser.FuncDecl, expectedFt *FuncType) {
 		}
 	}
 
-	oldRet := currentContext.returnType
-	currentContext.returnType = expectedFt.Return
-	defer func() { currentContext.returnType = oldRet }()
+	oldRet := c.context.returnType
+	c.context.returnType = expectedFt.Return
+	defer func() { c.context.returnType = oldRet }()
 
 	if c.inferredBodies[n] {
 		// Body was already checked during eager inference in registerFuncVariants.
@@ -392,7 +392,12 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 		if fd.Body != nil {
 			parentScope := c.scope
 			c.scope = NewScope(parentScope)
-			c.scope.Define("self", ct, true)
+			// StringExtensions is an extension class: self IS the String value, not the class.
+			var selfType Type = ct
+			if ct.Name == "StringExtensions" {
+				selfType = StringType
+			}
+			c.scope.Define("self", selfType, true)
 			paramIdx := 0
 			for _, p := range fd.Params {
 				if bp, ok2 := p.Pattern.(*parser.BindingPattern); ok2 {
@@ -405,13 +410,13 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 					paramIdx++
 				}
 			}
-			oldRet := currentContext.returnType
-			currentContext.returnType = ret
+			oldRet := c.context.returnType
+			c.context.returnType = ret
 			bodyType := c.checkNode(fd.Body)
 			if fd.IsExprBody && !c.isAssignable(ret, bodyType) {
 				c.errorf(fd.Body.Pos(), "incompatible return type in method %s: expected %s, got %s", fd.Name, ret, bodyType)
 			}
-			currentContext.returnType = oldRet
+			c.context.returnType = oldRet
 			c.scope = parentScope
 		}
 	}

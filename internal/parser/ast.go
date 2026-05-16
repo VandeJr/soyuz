@@ -293,6 +293,13 @@ type BoolLiteral struct {
 
 func (b *BoolLiteral) Pos() lexer.Position { return b.pos }
 
+type CharLiteral struct {
+	pos   lexer.Position
+	Value rune
+}
+
+func (c *CharLiteral) Pos() lexer.Position { return c.pos }
+
 type NoneLiteral struct {
 	pos lexer.Position
 }

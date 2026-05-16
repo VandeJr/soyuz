@@ -266,6 +266,7 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 		vtables:      make(map[string]*ir.Global),
 		weakFields:   weakFields,
 	}
+	g.classes[n.Name] = ci
 
 	// 2. Count how many variants each method name has (needed for name mangling).
 	methodCounts := make(map[string]int)
@@ -299,8 +300,6 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 		}
 		ci.methods[fd.Name] = append(ci.methods[fd.Name], fn)
 	}
-
-	g.classes[n.Name] = ci
 
 	// 4. Generate vtable globals for each implemented interface.
 	for _, ifaceExpr := range n.Interfaces {
@@ -391,11 +390,20 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 
 	g.current = g.newBlock("entry", fn)
 
-	// Expose self as ClassName* in the method scope.
-	selfTyped := g.current.NewBitCast(fn.Params[0], types.NewPointer(si.typ))
-	selfAlloc := g.newAlloca(types.NewPointer(si.typ))
-	g.current.NewStore(selfTyped, selfAlloc)
-	g.vars["self"] = selfAlloc
+	// Expose self in the method scope.
+	// For fieldless extension classes (like StringExtensions), __self is i8* but
+	// self should be %SoyuzString* so methods can pass it directly to extern fns.
+	if len(si.typ.Fields) == 0 {
+		selfTyped := g.current.NewBitCast(fn.Params[0], g.soyuzStringPtrType)
+		selfAlloc := g.newAlloca(g.soyuzStringPtrType)
+		g.current.NewStore(selfTyped, selfAlloc)
+		g.vars["self"] = selfAlloc
+	} else {
+		selfTyped := g.current.NewBitCast(fn.Params[0], types.NewPointer(si.typ))
+		selfAlloc := g.newAlloca(types.NewPointer(si.typ))
+		g.current.NewStore(selfTyped, selfAlloc)
+		g.vars["self"] = selfAlloc
+	}
 
 	// Store non-self parameters.
 	for _, p := range fn.Params[1:] {

@@ -62,6 +62,9 @@ type Generator struct {
 	// block name deduplication within the current function
 	blockNames  map[string]int
 	closureType *types.StructType // { i8*, i8* } — shared closure fat-pointer layout
+	// SoyuzString RC-managed string type
+	soyuzStringType    *types.StructType
+	soyuzStringPtrType types.Type
 }
 
 // New returns a new Generator.
@@ -234,6 +237,7 @@ func (g *Generator) declareBuiltins() {
 	sprintf.Sig.Variadic = true
 
 	g.module.NewFunc("malloc", types.I8Ptr, ir.NewParam("", types.I64))
+	g.module.NewFunc("free", types.Void, ir.NewParam("", types.I8Ptr))
 
 	// RC runtime — implemented in runtime/rc.c, linked alongside the compiled output.
 	g.module.NewFunc("soyuz_alloc", types.I8Ptr,
@@ -241,6 +245,21 @@ func (g *Generator) declareBuiltins() {
 		ir.NewParam("dtor", types.I8Ptr))
 	g.module.NewFunc("soyuz_retain", types.Void, ir.NewParam("ptr", types.I8Ptr))
 	g.module.NewFunc("soyuz_release", types.Void, ir.NewParam("ptr", types.I8Ptr))
+
+	// SoyuzString type: %SoyuzString = { i64 len }
+	g.soyuzStringType = g.module.NewTypeDef("SoyuzString", types.NewStruct(types.I64)).(*types.StructType)
+	g.soyuzStringPtrType = types.NewPointer(g.soyuzStringType)
+
+	// String construction helpers
+	g.module.NewFunc("soyuz_str_new", g.soyuzStringPtrType,
+		ir.NewParam("data", types.I8Ptr),
+		ir.NewParam("len", types.I64))
+	g.module.NewFunc("soyuz_str_from_cstr", g.soyuzStringPtrType,
+		ir.NewParam("cstr", types.I8Ptr))
+	g.module.NewFunc("soyuz_str_from_printf_buf", g.soyuzStringPtrType,
+		ir.NewParam("buf", types.I8Ptr))
+	g.module.NewFunc("soyuz_str_len", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType))
 
 	// List primitives
 	g.module.NewFunc("soyuz_list_new", types.I8Ptr,
@@ -270,6 +289,15 @@ func (g *Generator) declareBuiltins() {
 	g.module.NewFunc("soyuz_map_dtor_rc_key", types.Void, ir.NewParam("ptr", types.I8Ptr))
 	g.module.NewFunc("soyuz_map_dtor_rc_val", types.Void, ir.NewParam("ptr", types.I8Ptr))
 	g.module.NewFunc("soyuz_map_dtor_rc_both", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_keys", types.I8Ptr,
+		ir.NewParam("map_ptr", types.I8Ptr),
+		ir.NewParam("key_is_heap", types.I64))
+	g.module.NewFunc("soyuz_map_values", types.I8Ptr,
+		ir.NewParam("map_ptr", types.I8Ptr),
+		ir.NewParam("val_is_heap", types.I64))
+	g.module.NewFunc("soyuz_str_concat", g.soyuzStringPtrType,
+		ir.NewParam("s1", g.soyuzStringPtrType),
+		ir.NewParam("s2", g.soyuzStringPtrType))
 
 	// Shared closure fat-pointer layout: { fn_ptr: i8*, env_ptr: i8* }
 	g.closureType = g.module.NewTypeDef("SoyuzClosure",
@@ -354,6 +382,25 @@ func (g *Generator) callClosureI8Ptr(n *parser.CallExpr, closureI8 value.Value, 
 	return g.current.NewCall(fnPtr, allArgs...), nil
 }
 
+// callClosureDirect calls a closure i8* with a known return type (no *parser.CallExpr needed).
+func (g *Generator) callClosureDirect(closureI8 value.Value, retType types.Type, args []value.Value) value.Value {
+	closurePtr := g.current.NewBitCast(closureI8, types.NewPointer(g.closureType))
+	fnField := g.current.NewGetElementPtr(g.closureType, closurePtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	fnRaw := g.current.NewLoad(types.I8Ptr, fnField)
+	envField := g.current.NewGetElementPtr(g.closureType, closurePtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	env := g.current.NewLoad(types.I8Ptr, envField)
+	paramTypes := []types.Type{types.I8Ptr}
+	for _, a := range args {
+		paramTypes = append(paramTypes, a.Type())
+	}
+	fnType := types.NewFunc(retType, paramTypes...)
+	fnPtr := g.current.NewBitCast(fnRaw, types.NewPointer(fnType))
+	allArgs := append([]value.Value{env}, args...)
+	return g.current.NewCall(fnPtr, allArgs...)
+}
+
 func (g *Generator) defaultReturnValue(t types.Type) value.Value {
 	switch typ := t.(type) {
 	case *types.IntType:
@@ -365,6 +412,13 @@ func (g *Generator) defaultReturnValue(t types.Type) value.Value {
 	default:
 		return nil
 	}
+}
+
+// strData extrai o char* inline de um %SoyuzString* usando GEP para o elemento após a struct.
+func (g *Generator) strData(strPtr value.Value) value.Value {
+	dataField := g.current.NewGetElementPtr(g.soyuzStringType, strPtr,
+		constant.NewInt(types.I64, 1))
+	return g.current.NewBitCast(dataField, types.I8Ptr)
 }
 
 func (g *Generator) castToI8Ptr(v value.Value) value.Value {

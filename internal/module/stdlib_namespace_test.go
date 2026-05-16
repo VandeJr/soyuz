@@ -14,7 +14,7 @@ import (
 func checkWithStdlib(t *testing.T, stdlibDir, src string) []checker.TypeError {
 	t.Helper()
 	dir := t.TempDir()
-	entry := writeFile(t, dir, "main.soyuz", src)
+	entry := writeFile(t, dir, "main.sy", src)
 	resolver := module.NewResolverWithStdlib(entry, stdlibDir)
 	files, err := module.Collect(entry, resolver)
 	if err != nil {
@@ -56,7 +56,7 @@ func checkWithStdlib(t *testing.T, stdlibDir, src string) []checker.TypeError {
 // TestStdlibBareImportNamespace verifica que import @soyuz.mock cria namespace mock.*.
 func TestStdlibBareImportNamespace(t *testing.T) {
 	stdlibDir := t.TempDir()
-	writeFile(t, stdlibDir, "mock.soyuz", `
+	writeFile(t, stdlibDir, "mock.sy", `
 extern fn soyuz_print_str(s: String)
 pub fn assert_true(cond: Bool, name: String) {
     soyuz_print_str(name)
@@ -76,7 +76,7 @@ fn main() {
 // TestStdlibSingleNameImport verifica import @soyuz.mock.{assert_true} (chaves obrigatórias).
 func TestStdlibSingleNameImport(t *testing.T) {
 	stdlibDir := t.TempDir()
-	writeFile(t, stdlibDir, "mock.soyuz", `
+	writeFile(t, stdlibDir, "mock.sy", `
 extern fn soyuz_print_str(s: String)
 pub fn assert_true(cond: Bool, name: String) {
     soyuz_print_str(name)
@@ -96,7 +96,7 @@ fn main() {
 // TestStdlibBothImportForms verifica os dois imports juntos: bare e named.
 func TestStdlibBothImportForms(t *testing.T) {
 	stdlibDir := t.TempDir()
-	writeFile(t, stdlibDir, "mock.soyuz", `
+	writeFile(t, stdlibDir, "mock.sy", `
 extern fn soyuz_print_str(s: String)
 pub fn assert_true(cond: Bool, name: String) {
     soyuz_print_str(name)
@@ -118,7 +118,7 @@ fn main() {
 // TestStdlibNestedPath verifica que std/collections/list.sy é acessível via @soyuz.collections.list.
 func TestStdlibNestedPath(t *testing.T) {
 	stdlibDir := t.TempDir()
-	writeFile(t, stdlibDir, filepath.Join("collections", "list.soyuz"), `
+	writeFile(t, stdlibDir, filepath.Join("collections", "list.sy"), `
 pub fn length() -> Int = 0
 `)
 	src := `
@@ -135,7 +135,7 @@ fn main() {
 // TestStdlibFormatterImport verifica que o formatter emite a sintaxe correta.
 func TestStdlibFormatterImport(t *testing.T) {
 	stdlibDir := t.TempDir()
-	writeFile(t, stdlibDir, "mock.soyuz", `pub fn assert_true(cond: Bool, name: String) {}`)
+	writeFile(t, stdlibDir, "mock.sy", `pub fn assert_true(cond: Bool, name: String) {}`)
 
 	cases := []struct {
 		src  string
@@ -153,7 +153,7 @@ func TestStdlibFormatterImport(t *testing.T) {
 	}
 
 	// Verify output by checking the file path resolution (stdlib dir set)
-	entry := filepath.Join(t.TempDir(), "main.soyuz")
+	entry := filepath.Join(t.TempDir(), "main.sy")
 	resolver := module.NewResolverWithStdlib(entry, stdlibDir)
 	_ = resolver // confirm it can be created
 }

@@ -25,6 +25,7 @@ type Checker struct {
 	symbolPub    map[string]bool        // global name → pub status
 	currentFile  string                 // file currently being checked
 	inTopLevel   bool                   // true while checking a top-level value node (Pass 4)
+	context      context
 }
 
 type CheckResult struct {
@@ -42,8 +43,6 @@ type context struct {
 	returnType Type
 }
 
-var currentContext context
-
 func New() *Checker {
 	scope := NewScope(nil)
 
@@ -54,7 +53,6 @@ func New() *Checker {
 			"code":    {Params: []Type{}, Return: IntType},
 		},
 	}
-	scope.Define("Error", errorIface, true)
 
 	optionEnum := &EnumType{
 		Name:     "Option",
@@ -84,9 +82,14 @@ func New() *Checker {
 		Name:     "List",
 		Generics: []string{"T"},
 		Methods: map[string][]*FuncType{
-			"size":   {{Params: []Type{}, Return: IntType}},
-			"get":    {{Params: []Type{IntType}, Return: &TypeParameter{Name: "T"}}},
-			"append": {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"size":    {{Params: []Type{}, Return: IntType}},
+			"get":     {{Params: []Type{IntType}, Return: &TypeParameter{Name: "T"}}},
+			"append":  {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"map":     {{Params: []Type{Unknown}, Return: Unknown}}, // handled specially in checkCallExpr
+			"filter":  {{Params: []Type{Unknown}, Return: Unknown}},
+			"reduce":  {{Params: []Type{Unknown, Unknown}, Return: Unknown}},
+			"join":    {{Params: []Type{StringType}, Return: StringType}},
+			"isEmpty": {{Params: []Type{}, Return: BoolType}},
 		},
 	}
 	scope.Define("List", listType, true)
@@ -95,9 +98,11 @@ func New() *Checker {
 		Name:     "Map",
 		Generics: []string{"K", "V"},
 		Methods: map[string][]*FuncType{
-			"size": {{Params: []Type{}, Return: IntType}},
-			"get":  {{Params: []Type{&TypeParameter{Name: "K"}}, Return: &TypeParameter{Name: "V"}}},
-			"set":  {{Params: []Type{&TypeParameter{Name: "K"}, &TypeParameter{Name: "V"}}, Return: UnitType}},
+			"size":   {{Params: []Type{}, Return: IntType}},
+			"get":    {{Params: []Type{&TypeParameter{Name: "K"}}, Return: &TypeParameter{Name: "V"}}},
+			"set":    {{Params: []Type{&TypeParameter{Name: "K"}, &TypeParameter{Name: "V"}}, Return: UnitType}},
+			"keys":   {{Params: []Type{}, Return: Unknown}}, // handled specially in checkCallExpr
+			"values": {{Params: []Type{}, Return: Unknown}},
 		},
 	}
 	scope.Define("Map", mapType, true)
@@ -234,6 +239,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return BoolType
 	case *parser.StringLiteral:
 		return StringType
+	case *parser.CharLiteral:
+		return CharType
 	case *parser.Identifier:
 		return c.checkIdentifier(n)
 	case *parser.OkExpr:

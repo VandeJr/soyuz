@@ -125,6 +125,36 @@ func (l *Lexer) readNumber() (string, TokenType) {
 	return string(l.input[start:l.position]), INT_LITERAL
 }
 
+// readChar2 lê um literal de char delimitado por aspas simples: 'a', '\n', '\'', etc.
+func (l *Lexer) readChar2(pos Position) Token {
+	l.readChar() // consome '
+	var ch rune
+	if l.ch == '\\' {
+		l.readChar()
+		switch l.ch {
+		case 'n':
+			ch = '\n'
+		case 't':
+			ch = '\t'
+		case '\'':
+			ch = '\''
+		case '\\':
+			ch = '\\'
+		case '0':
+			ch = 0
+		default:
+			ch = l.ch
+		}
+	} else {
+		ch = l.ch
+	}
+	l.readChar() // consome o char
+	if l.ch == '\'' {
+		l.readChar() // consome '
+	}
+	return Token{Type: CHAR_LITERAL, Lexeme: string(ch), Position: pos}
+}
+
 // readString lê uma string com suporte a interpolação $(...)
 // Pode gerar múltiplos tokens que ficam em l.pending.
 // Retorna o primeiro token.
@@ -366,6 +396,9 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			l.readChar()
 			tok = Token{Type: LTE, Lexeme: "<=", Position: pos}
+		} else if l.peekChar() == '<' {
+			l.readChar()
+			tok = Token{Type: SHL, Lexeme: "<<", Position: pos}
 		} else {
 			tok = Token{Type: LT, Lexeme: "<", Position: pos}
 		}
@@ -374,9 +407,18 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			l.readChar()
 			tok = Token{Type: GTE, Lexeme: ">=", Position: pos}
+		} else if l.peekChar() == '>' {
+			l.readChar()
+			tok = Token{Type: SHR, Lexeme: ">>", Position: pos}
 		} else {
 			tok = Token{Type: GT, Lexeme: ">", Position: pos}
 		}
+
+	case '^':
+		tok = Token{Type: CARET, Lexeme: "^", Position: pos}
+
+	case '~':
+		tok = Token{Type: TILDE, Lexeme: "~", Position: pos}
 
 	case '-':
 		if l.peekChar() == '>' {
@@ -466,6 +508,11 @@ func (l *Lexer) NextToken() Token {
 			l.lastToken = tok.Type
 			return tok
 		}
+
+	case '\'':
+		tok = l.readChar2(pos)
+		l.lastToken = tok.Type
+		return tok
 
 	case '"':
 		tok = l.readString(pos, false)

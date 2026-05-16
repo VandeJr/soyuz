@@ -8,7 +8,7 @@ import (
 	"soyuz/internal/parser"
 )
 
-// Collect retorna todos os arquivos .soyuz necessários para compilar entryFile,
+// Collect retorna todos os arquivos .sy necessários para compilar entryFile,
 // em ordem topológica (dependências antes dos arquivos que as importam).
 // Detecta ciclos de import e retorna erro quando encontrado.
 func Collect(entryFile string, resolver *Resolver) ([]string, error) {

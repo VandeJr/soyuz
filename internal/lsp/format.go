@@ -125,13 +125,17 @@ func (p *printer) printFuncDecl(n *parser.FuncDecl) {
 	}
 	generics := p.genericParams(n.Generics)
 	params := p.funcParams(n.Params)
+	whenClause := ""
+	if n.WhenGuard != nil {
+		whenClause = " when " + p.expr(n.WhenGuard)
+	}
 	ret := ""
 	if n.ReturnType != nil {
 		ret = " -> " + p.typeExpr(n.ReturnType)
 	}
-	sig := fmt.Sprintf("%sfn %s%s(%s)%s", prefix, n.Name, generics, params, ret)
+	sig := fmt.Sprintf("%sfn %s%s(%s)%s%s", prefix, n.Name, generics, params, whenClause, ret)
 	if n.IsExprBody {
-		p.writeln(sig + " => " + p.expr(n.Body))
+		p.writeln(sig + " = " + p.expr(n.Body))
 	} else {
 		p.writeln(sig + " {")
 		p.depth++
@@ -230,7 +234,7 @@ func (p *printer) printClassDecl(n *parser.ClassDecl) {
 		for i, iface := range n.Interfaces {
 			parts[i] = p.typeExpr(iface)
 		}
-		ifaces = " impl " + strings.Join(parts, " + ")
+		ifaces = " : " + strings.Join(parts, ", ")
 	}
 	p.writeln(fmt.Sprintf("%sclass %s%s%s {", prefix, n.Name, generics, ifaces))
 	p.depth++
@@ -384,6 +388,8 @@ func (p *printer) expr(node parser.Node) string {
 			return "true"
 		}
 		return "false"
+	case *parser.CharLiteral:
+		return "'" + formatCharRune(n.Value) + "'"
 	case *parser.NoneLiteral:
 		return "None"
 	case *parser.StringLiteral:
@@ -663,6 +669,23 @@ func (p *printer) funcParams(params []parser.FuncParam) string {
 		parts[i] = p.funcParamStr(param)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatCharRune(r rune) string {
+	switch r {
+	case '\n':
+		return `\n`
+	case '\t':
+		return `\t`
+	case '\'':
+		return `\'`
+	case '\\':
+		return `\\`
+	case 0:
+		return `\0`
+	default:
+		return string(r)
+	}
 }
 
 func (p *printer) funcParamStr(param parser.FuncParam) string {

@@ -152,7 +152,8 @@ func toDiagnostics(errors []checker.TypeError) []protocol.Diagnostic {
 		diags[i] = protocol.Diagnostic{
 			Range: protocol.Range{
 				Start: start,
-				End:   protocol.Position{Line: start.Line, Character: start.Character + 20},
+				// Underline one word (end-of-line marker for editors that do word expansion).
+				End: protocol.Position{Line: start.Line, Character: start.Character + 1},
 			},
 			Severity: severityPtr(protocol.DiagnosticSeverityError),
 			Message:  e.Message,

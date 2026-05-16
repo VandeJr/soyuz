@@ -41,6 +41,7 @@ var keywords = map[string]TokenType{
 	"Float":  FLOAT_TYPE,
 	"Bool":   BOOL_TYPE,
 	"String": STRING_TYPE,
+	"Char":   CHAR_TYPE,
 	"Unit":   UNIT_TYPE,
 
 	// Valores literais

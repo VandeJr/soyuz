@@ -3,7 +3,6 @@ package lsp
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -52,7 +51,7 @@ func extractStdlibToTemp() string {
 		return ""
 	}
 	for name, data := range soyuzstdlib.Files {
-		dest := filepath.Join(dir, strings.TrimSuffix(name, ".sy")+".soyuz")
+		dest := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			continue
 		}
@@ -162,50 +161,61 @@ func (e *Engine) analyze(uri string) {
 }
 
 // analyzeWithStdlib runs stdlib-aware type checking for the file at filePath.
-// prog is the already-parsed AST of the in-memory buffer. For each stdlib import
-// found, the stdlib file is resolved from stdlibDir and its nodes are merged in.
+// For each import found (stdlib or local), dependencies are resolved and merged recursively.
 func (e *Engine) analyzeWithStdlib(filePath, text string, prog *parser.Program) *checker.CheckResult {
 	resolver := module.NewResolverWithStdlib(filePath, e.stdlibDir)
 
 	var allNodes []parser.Node
 	nodeFile := make(map[parser.Node]string)
+	visited := make(map[string]bool)
+	visited[filePath] = true
 
-	for _, node := range prog.Body {
-		imp, isImp := node.(*parser.ImportDecl)
-		if !isImp || !imp.IsStdlib {
-			nodeFile[node] = filePath
-			allNodes = append(allNodes, node)
-			continue
-		}
-
-		// Resolve and load stdlib module nodes.
-		resolved, err := resolver.Resolve(imp)
-		if err != nil {
-			// Unresolved import: keep node so the checker can emit an error if needed.
-			nodeFile[node] = filePath
-			allNodes = append(allNodes, node)
-			continue
-		}
-		imp.ResolvedFiles = resolved
-
-		for _, stdFile := range resolved {
-			data, rerr := os.ReadFile(stdFile)
-			if rerr != nil {
+	var loadRecursive func(file string, p *parser.Program)
+	loadRecursive = func(file string, p *parser.Program) {
+		for _, node := range p.Body {
+			imp, isImp := node.(*parser.ImportDecl)
+			if !isImp {
+				if nodeFile[node] == "" {
+					nodeFile[node] = file
+					allNodes = append(allNodes, node)
+				}
 				continue
 			}
-			stdProg := parser.New(lexer.Tokenize(string(data))).Parse()
-			for _, sn := range stdProg.Body {
-				nodeFile[sn] = stdFile
-				allNodes = append(allNodes, sn)
+
+			// Resolve import
+			resolved, err := resolver.Resolve(imp)
+			if err != nil {
+				// Unresolved: keep for checker error
+				if nodeFile[node] == "" {
+					nodeFile[node] = file
+					allNodes = append(allNodes, node)
+				}
+				continue
+			}
+			imp.ResolvedFiles = resolved
+
+			for _, f := range resolved {
+				if visited[f] {
+					continue
+				}
+				visited[f] = true
+				data, rerr := os.ReadFile(f)
+				if rerr != nil {
+					continue
+				}
+				subProg := parser.New(lexer.Tokenize(string(data))).Parse()
+				loadRecursive(f, subProg)
+			}
+
+			// Add the import node itself for namespace/wildcard handling in checker
+			if nodeFile[node] == "" {
+				nodeFile[node] = file
+				allNodes = append(allNodes, node)
 			}
 		}
-
-		// Bare imports (no Names) create a namespace; include the import decl.
-		if len(imp.Names) == 0 && !imp.Wildcard {
-			nodeFile[node] = filePath
-			allNodes = append(allNodes, node)
-		}
 	}
+
+	loadRecursive(filePath, prog)
 
 	merged := &parser.Program{Body: allNodes}
 	c := checker.New()

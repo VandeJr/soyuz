@@ -23,7 +23,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 // TestSingleFile verifica que um projeto sem imports retorna apenas o arquivo de entrada.
 func TestSingleFile(t *testing.T) {
 	dir := t.TempDir()
-	entry := writeFile(t, dir, "main.soyuz", `fn hello() = "oi"`)
+	entry := writeFile(t, dir, "main.sy", `fn hello() = "oi"`)
 
 	resolver := module.NewResolver(entry)
 	files, err := module.Collect(entry, resolver)
@@ -38,8 +38,8 @@ func TestSingleFile(t *testing.T) {
 // TestSingleFileImport verifica import de módulo single-file.
 func TestSingleFileImport(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "math.soyuz", `pub fn dobrar(x: Int) = x * 2`)
-	entry := writeFile(t, dir, "main.soyuz", `import math.{ dobrar }
+	writeFile(t, dir, "math.sy", `pub fn dobrar(x: Int) = x * 2`)
+	entry := writeFile(t, dir, "main.sy", `import math.{ dobrar }
 fn main() = dobrar(5)`)
 
 	resolver := module.NewResolver(entry)
@@ -47,24 +47,24 @@ fn main() = dobrar(5)`)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
-	// math.soyuz deve vir antes de main.soyuz (ordem topológica)
+	// math.sy deve vir antes de main.sy (ordem topológica)
 	if len(files) != 2 {
 		t.Fatalf("esperado 2 arquivos, obtido %d: %v", len(files), files)
 	}
-	if filepath.Base(files[0]) != "math.soyuz" {
-		t.Errorf("esperado math.soyuz primeiro, obtido %s", filepath.Base(files[0]))
+	if filepath.Base(files[0]) != "math.sy" {
+		t.Errorf("esperado math.sy primeiro, obtido %s", filepath.Base(files[0]))
 	}
-	if filepath.Base(files[1]) != "main.soyuz" {
-		t.Errorf("esperado main.soyuz por último, obtido %s", filepath.Base(files[1]))
+	if filepath.Base(files[1]) != "main.sy" {
+		t.Errorf("esperado main.sy por último, obtido %s", filepath.Base(files[1]))
 	}
 }
 
 // TestDirectoryImport verifica import de módulo de diretório.
 func TestDirectoryImport(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "math/ops.soyuz", `pub fn dobrar(x: Int) = x * 2`)
-	writeFile(t, dir, "math/trig.soyuz", `pub fn cos(x: Float) = x`)
-	entry := writeFile(t, dir, "main.soyuz", `import math.{ dobrar }
+	writeFile(t, dir, "math/ops.sy", `pub fn dobrar(x: Int) = x * 2`)
+	writeFile(t, dir, "math/trig.sy", `pub fn cos(x: Float) = x`)
+	entry := writeFile(t, dir, "main.sy", `import math.{ dobrar }
 fn main() = dobrar(3)`)
 
 	resolver := module.NewResolver(entry)
@@ -72,22 +72,22 @@ fn main() = dobrar(3)`)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
-	// math/ tem 2 arquivos + main.soyuz = 3
+	// math/ tem 2 arquivos + main.sy = 3
 	if len(files) != 3 {
 		t.Fatalf("esperado 3 arquivos, obtido %d: %v", len(files), files)
 	}
-	if filepath.Base(files[len(files)-1]) != "main.soyuz" {
-		t.Errorf("esperado main.soyuz por último, obtido %s", filepath.Base(files[len(files)-1]))
+	if filepath.Base(files[len(files)-1]) != "main.sy" {
+		t.Errorf("esperado main.sy por último, obtido %s", filepath.Base(files[len(files)-1]))
 	}
 }
 
 // TestTransitiveDependencies verifica que dependências transitivas são resolvidas.
 func TestTransitiveDependencies(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "base.soyuz", `pub fn id(x: Int) = x`)
-	writeFile(t, dir, "mid.soyuz", `import base.{ id }
+	writeFile(t, dir, "base.sy", `pub fn id(x: Int) = x`)
+	writeFile(t, dir, "mid.sy", `import base.{ id }
 pub fn double(x: Int) = id(x) * 2`)
-	entry := writeFile(t, dir, "main.soyuz", `import mid.{ double }
+	entry := writeFile(t, dir, "main.sy", `import mid.{ double }
 fn main() = double(4)`)
 
 	resolver := module.NewResolver(entry)
@@ -99,20 +99,20 @@ fn main() = double(4)`)
 		t.Fatalf("esperado 3 arquivos, obtido %d: %v", len(files), files)
 	}
 	// base → mid → main
-	if filepath.Base(files[0]) != "base.soyuz" {
-		t.Errorf("esperado base.soyuz primeiro, obtido %s", filepath.Base(files[0]))
+	if filepath.Base(files[0]) != "base.sy" {
+		t.Errorf("esperado base.sy primeiro, obtido %s", filepath.Base(files[0]))
 	}
-	if filepath.Base(files[2]) != "main.soyuz" {
-		t.Errorf("esperado main.soyuz último, obtido %s", filepath.Base(files[2]))
+	if filepath.Base(files[2]) != "main.sy" {
+		t.Errorf("esperado main.sy último, obtido %s", filepath.Base(files[2]))
 	}
 }
 
 // TestCycleDetection verifica que ciclos de import geram erro.
 func TestCycleDetection(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "a.soyuz", `import b.{ foo }`)
-	writeFile(t, dir, "b.soyuz", `import a.{ bar }`)
-	entry := writeFile(t, dir, "a.soyuz", `import b.{ foo }`)
+	writeFile(t, dir, "a.sy", `import b.{ foo }`)
+	writeFile(t, dir, "b.sy", `import a.{ bar }`)
+	entry := writeFile(t, dir, "a.sy", `import b.{ foo }`)
 
 	resolver := module.NewResolver(entry)
 	_, err := module.Collect(entry, resolver)
@@ -124,7 +124,7 @@ func TestCycleDetection(t *testing.T) {
 // TestUnresolvedImport verifica que imports não encontrados retornam erro.
 func TestUnresolvedImport(t *testing.T) {
 	dir := t.TempDir()
-	entry := writeFile(t, dir, "main.soyuz", `import inexistente.{ foo }
+	entry := writeFile(t, dir, "main.sy", `import inexistente.{ foo }
 fn main() = foo()`)
 
 	resolver := module.NewResolver(entry)
@@ -140,10 +140,10 @@ func TestStdlibImport(t *testing.T) {
 	stdlibDir := t.TempDir()
 
 	// Escrever um arquivo stdlib fake no stdlibDir
-	writeFile(t, stdlibDir, "mock.soyuz", `pub fn assert_eq(a: Int, b: Int, name: String) {}`)
+	writeFile(t, stdlibDir, "mock.sy", `pub fn assert_eq(a: Int, b: Int, name: String) {}`)
 
 	// Arquivo principal importa via @soyuz.mock
-	entry := writeFile(t, dir, "main.soyuz", `import @soyuz.mock.{assert_eq}
+	entry := writeFile(t, dir, "main.sy", `import @soyuz.mock.{assert_eq}
 fn main() { assert_eq(1, 1, "ok") }`)
 
 	resolver := module.NewResolverWithStdlib(entry, stdlibDir)
@@ -151,7 +151,7 @@ fn main() { assert_eq(1, 1, "ok") }`)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
-	// Deve ter resolvido: mock.soyuz + main.soyuz
+	// Deve ter resolvido: mock.sy + main.sy
 	if len(files) != 2 {
 		t.Errorf("esperado 2 arquivos, obtido %d: %v", len(files), files)
 	}
@@ -160,7 +160,7 @@ fn main() { assert_eq(1, 1, "ok") }`)
 // TestStdlibImportSemStdlibDir verifica erro quando stdlib não está configurada.
 func TestStdlibImportSemStdlibDir(t *testing.T) {
 	dir := t.TempDir()
-	entry := writeFile(t, dir, "main.soyuz", `import @soyuz/mock.{assert_eq}`)
+	entry := writeFile(t, dir, "main.sy", `import @soyuz/mock.{assert_eq}`)
 
 	resolver := module.NewResolver(entry) // sem StdlibDir
 	_, err := module.Collect(entry, resolver)

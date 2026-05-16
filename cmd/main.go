@@ -43,7 +43,7 @@ func main() {
 func usage() {
 	fmt.Println("Uso: soyuz <comando> [argumentos]")
 	fmt.Println("Comandos:")
-	fmt.Println("  build [-o saída] <arquivo.soyuz>  Compila um arquivo Soyuz em executável")
+	fmt.Println("  build [-o saída] <arquivo.sy>  Compila um arquivo Soyuz em executável")
 }
 
 func build(inputFile, outputFile string) {
@@ -53,7 +53,7 @@ func build(inputFile, outputFile string) {
 		os.Exit(1)
 	}
 
-	// 0. Criar tmpDir cedo para extrair stdlib e runtime juntos.
+	// 0. tmpDir — tudo vai para /tmp e é apagado após o build.
 	tmpDir, err := os.MkdirTemp("", "soyuz-")
 	if err != nil {
 		fmt.Printf("Erro ao criar diretório temporário: %v\n", err)
@@ -68,9 +68,9 @@ func build(inputFile, outputFile string) {
 		os.Exit(1)
 	}
 	for name, data := range soyuzstdlib.Files {
-		// Arquivos stdlib são embutidos como .sy; o resolver procura .soyuz.
-		// Preserva estrutura de diretórios: "collections/list.sy" → stdlibDir/collections/list.soyuz
-		dest := filepath.Join(stdlibDir, strings.TrimSuffix(name, ".sy")+".soyuz")
+		// Arquivos stdlib são embutidos como .sy.
+		// Preserva estrutura de diretórios: "collections/list.sy" → stdlibDir/collections/list.sy
+		dest := filepath.Join(stdlibDir, name)
 		if err = os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			fmt.Printf("Erro ao criar diretório stdlib (%s): %v\n", name, err)
 			os.Exit(1)
@@ -154,7 +154,6 @@ func build(inputFile, outputFile string) {
 		os.Exit(1)
 	}
 
-	// Escrever IR LLVM em arquivo temporário (tmpDir já criado no passo 0).
 	llFile := filepath.Join(tmpDir, "out.ll")
 	err = os.WriteFile(llFile, []byte(mod.String()), 0644)
 	if err != nil {
@@ -167,8 +166,13 @@ func build(inputFile, outputFile string) {
 		name string
 		data []byte
 	}{
+		{"soyuz.h", soyuzruntime.SoyuzHeader},
 		{"rc.c", soyuzruntime.Source},
 		{"std_io.c", soyuzruntime.StdIOSource},
+		{"std_string.c", soyuzruntime.StdStringSource},
+		{"std_fs.c", soyuzruntime.StdFSSource},
+		{"std_os.c", soyuzruntime.StdOSSource},
+		{"std_collections.c", soyuzruntime.StdCollectionsSource},
 	}
 	clangArgs := []string{llFile}
 	for _, src := range cSources {
@@ -177,9 +181,35 @@ func build(inputFile, outputFile string) {
 			fmt.Printf("Erro ao extrair runtime (%s): %v\n", src.name, err)
 			os.Exit(1)
 		}
-		clangArgs = append(clangArgs, path)
+		// Only pass .c files to clang; headers (.h) are found via the tmp dir.
+		if strings.HasSuffix(src.name, ".c") {
+			clangArgs = append(clangArgs, path)
+		}
 	}
-	clangArgs = append(clangArgs, "-o", outputFile)
+	// 5b. Incluir arquivos C do diretório runtime/ do projeto (se existir).
+	// O soyuz.h embutido já está em tmpDir, portanto acessível via -I do clang.
+	projectRuntimeDir := filepath.Join(filepath.Dir(absInput), "runtime")
+	if entries, rerr := os.ReadDir(projectRuntimeDir); rerr == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".c") {
+				continue
+			}
+			srcPath := filepath.Join(projectRuntimeDir, entry.Name())
+			data, rerr2 := os.ReadFile(srcPath)
+			if rerr2 != nil {
+				fmt.Printf("Erro ao ler runtime do projeto (%s): %v\n", entry.Name(), rerr2)
+				os.Exit(1)
+			}
+			dst := filepath.Join(tmpDir, entry.Name())
+			if werr := os.WriteFile(dst, data, 0644); werr != nil {
+				fmt.Printf("Erro ao copiar runtime do projeto (%s): %v\n", entry.Name(), werr)
+				os.Exit(1)
+			}
+			clangArgs = append(clangArgs, dst)
+		}
+	}
+
+	clangArgs = append(clangArgs, "-I", tmpDir, "-o", outputFile)
 	cmd := exec.Command("clang", clangArgs...)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout

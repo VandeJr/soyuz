@@ -1,10 +1,10 @@
 // Soyuz Standard Library — I/O mock (FFI via extern fn)
 // Linked by the Soyuz compiler alongside rc.c.
-// GC-safe: no Soyuz heap pointers are stored.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include "soyuz.h"
 
 void soyuz_print_int(int64_t n) {
     printf("%ld\n", (long)n);
@@ -18,44 +18,48 @@ void soyuz_print_bool(int64_t b) {
     printf("%s\n", b ? "true" : "false");
 }
 
-void soyuz_print_str(const char *s) {
-    if (s) printf("%s\n", s);
+void soyuz_print_str(SoyuzString *s) {
+    if (s) printf("%s\n", soyuz_str_data(s));
 }
 
 // Print without trailing newline.
-void soyuz_print(const char *s) {
-    if (s) printf("%s", s);
+void soyuz_print(SoyuzString *s) {
+    if (s) printf("%s", soyuz_str_data(s));
 }
 
-int64_t soyuz_str_len(const char *s) {
-    return s ? (int64_t)strlen(s) : 0;
-}
-
-// Returns a heap-allocated string — caller must free (or let RC handle it via extern).
-const char *soyuz_int_to_str(int64_t n) {
+// Returns a heap-allocated SoyuzString.
+SoyuzString *soyuz_int_to_str(int64_t n) {
     char *buf = (char *)malloc(32);
-    if (buf) snprintf(buf, 32, "%ld", (long)n);
-    return buf;
+    if (!buf) return soyuz_str_new("", 0);
+    snprintf(buf, 32, "%ld", (long)n);
+    SoyuzString *s = soyuz_str_from_cstr(buf);
+    free(buf);
+    return s;
 }
 
-const char *soyuz_float_to_str(double x) {
+SoyuzString *soyuz_float_to_str(double x) {
     char *buf = (char *)malloc(32);
-    if (buf) snprintf(buf, 32, "%g", x);
-    return buf;
+    if (!buf) return soyuz_str_new("", 0);
+    snprintf(buf, 32, "%g", x);
+    SoyuzString *s = soyuz_str_from_cstr(buf);
+    free(buf);
+    return s;
 }
 
-// Reads a line from stdin (no trailing newline). Caller must free.
-const char *soyuz_read_line(void) {
+// Reads a line from stdin (no trailing newline). Returns a SoyuzString*.
+SoyuzString *soyuz_read_line(void) {
     char *buf = NULL;
     size_t cap = 0;
     ssize_t len = getline(&buf, &cap, stdin);
     if (len < 0) {
         free(buf);
-        return NULL;
+        return soyuz_str_new("", 0);
     }
     // strip trailing newline
-    if (len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
-    return buf;
+    if (len > 0 && buf[len - 1] == '\n') { buf[len - 1] = '\0'; len--; }
+    SoyuzString *s = soyuz_str_new(buf, (int64_t)len);
+    free(buf);
+    return s;
 }
 
 void soyuz_exit(int64_t code) {

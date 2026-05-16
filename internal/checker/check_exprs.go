@@ -118,6 +118,18 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 			return Unknown
 		}
 		return t.Elements[idx]
+	case *BasicType:
+		if t.Name == "String" {
+			if sym, ok := c.scope.Resolve("StringExtensions"); ok {
+				if ct, ok2 := sym.Type.(*ClassType); ok2 {
+					if variants, ok3 := ct.Methods[n.Property]; ok3 && len(variants) > 0 {
+						return variants[0]
+					}
+				}
+			}
+			c.errorf(n.Pos(), "String não tem método '%s'", n.Property)
+			return Unknown
+		}
 	}
 	// Unknown object type — allow, return Unknown
 	return Unknown
@@ -125,6 +137,10 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 
 func (c *Checker) checkSelfExpr(n *parser.SelfExpr) Type {
 	if c.currentClass != nil {
+		// StringExtensions is an extension class: self IS the String value, not the class.
+		if c.currentClass.Name == "StringExtensions" {
+			return StringType
+		}
 		return c.currentClass
 	}
 	c.errorf(n.Pos(), "self usado fora de um método de classe")
@@ -162,9 +178,9 @@ func (c *Checker) checkArrowFunc(n *parser.ArrowFunc) Type {
 		expectedRet = c.resolveTypeExpr(n.ReturnType)
 	}
 
-	oldRet := currentContext.returnType
-	currentContext.returnType = expectedRet
-	defer func() { currentContext.returnType = oldRet }()
+	oldRet := c.context.returnType
+	c.context.returnType = expectedRet
+	defer func() { c.context.returnType = oldRet }()
 
 	bodyType := c.checkNode(n.Body)
 	if expectedRet == nil {
@@ -196,7 +212,24 @@ func freeIdentifiers(node parser.Node, paramNames map[string]bool, parentScope *
 				return
 			}
 			if sym, ok := parentScope.Resolve(v.Name); ok {
-				if _, isFunc := sym.Type.(*FuncType); !isFunc {
+				// Encontra em qual escopo o símbolo está definido.
+				s := parentScope
+				isGlobal := false
+				for s != nil {
+					if _, ok := s.Symbols[v.Name]; ok {
+						if s.Parent == nil {
+							isGlobal = true
+						}
+						break
+					}
+					s = s.Parent
+				}
+
+				// Variáveis locais (mesmo que sejam funções/lambdas) devem ser capturadas.
+				// Apenas funções globais (topo do módulo) podem ser chamadas diretamente por nome no codegen.
+				// O uso de sym garante que o símbolo existe e tem um tipo.
+				if !isGlobal {
+					_ = sym // Garante uso da variável
 					seen[v.Name] = true
 					result = append(result, v.Name)
 				}
@@ -397,8 +430,8 @@ func (c *Checker) checkReturnStmt(n *parser.ReturnStmt) Type {
 	if n.Value != nil {
 		got = c.checkNode(n.Value)
 	}
-	if currentContext.returnType != nil && !c.isAssignable(currentContext.returnType, got) {
-		c.errorf(n.Pos(), "incompatible return: expected %s, got %s", currentContext.returnType, got)
+	if c.context.returnType != nil && !c.isAssignable(c.context.returnType, got) {
+		c.errorf(n.Pos(), "incompatible return: expected %s, got %s", c.context.returnType, got)
 	}
 	return got
 }
@@ -406,6 +439,80 @@ func (c *Checker) checkReturnStmt(n *parser.ReturnStmt) Type {
 func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 	var ft *FuncType
 	var calleeType Type
+
+	// M3 HOF: special-case for List[T] functional methods and Map[K,V] key/value extraction.
+	// Must run before generic overload resolution so we can return the correct concrete types.
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if st, isST := objType.(*SpecializedType); isST && len(st.Params) > 0 {
+			if ct, isCT := st.Base.(*ClassType); isCT && ct.Name == "List" {
+				elemType := st.Params[0]
+				switch me.Property {
+				case "map":
+					if len(n.Args) == 1 {
+						if af, ok2 := n.Args[0].(*parser.ArrowFunc); ok2 {
+							c.arrowFuncHints[af] = []Type{elemType}
+						}
+						lambdaType := c.checkNode(n.Args[0])
+						retElemType := Type(Unknown)
+						if ft2, ok2 := lambdaType.(*FuncType); ok2 {
+							retElemType = ft2.Return
+						}
+						resultType := &SpecializedType{Base: ct, Params: []Type{retElemType}}
+						c.specializations[n] = &FuncType{Return: resultType}
+						return resultType
+					}
+				case "filter":
+					if len(n.Args) == 1 {
+						if af, ok2 := n.Args[0].(*parser.ArrowFunc); ok2 {
+							c.arrowFuncHints[af] = []Type{elemType}
+						}
+						c.checkNode(n.Args[0])
+						c.specializations[n] = &FuncType{Return: st}
+						return st
+					}
+				case "reduce":
+					if len(n.Args) == 2 {
+						initType := c.checkNode(n.Args[1])
+						if af, ok2 := n.Args[0].(*parser.ArrowFunc); ok2 {
+							c.arrowFuncHints[af] = []Type{initType, elemType}
+						}
+						c.checkNode(n.Args[0])
+						c.specializations[n] = &FuncType{Return: initType}
+						return initType
+					}
+				case "join":
+					if len(n.Args) == 1 {
+						c.checkNode(n.Args[0])
+						c.specializations[n] = &FuncType{Return: StringType}
+						return StringType
+					}
+				case "isEmpty":
+					c.specializations[n] = &FuncType{Return: BoolType}
+					return BoolType
+				}
+			}
+			if ct, isCT := st.Base.(*ClassType); isCT && ct.Name == "Map" && len(st.Params) == 2 {
+				switch me.Property {
+				case "keys":
+					if listSym, ok2 := c.scope.Resolve("List"); ok2 {
+						resultType := &SpecializedType{Base: listSym.Type, Params: []Type{st.Params[0]}}
+						c.specializations[n] = &FuncType{Return: resultType}
+						return resultType
+					}
+				case "values":
+					if listSym, ok2 := c.scope.Resolve("List"); ok2 {
+						resultType := &SpecializedType{Base: listSym.Type, Params: []Type{st.Params[1]}}
+						c.specializations[n] = &FuncType{Return: resultType}
+						return resultType
+					}
+				}
+			}
+		}
+	}
 
 	// M5: overloaded method resolution — must happen before normal callee checking
 	// so that we pick the correct variant by arity instead of defaulting to variants[0].
@@ -659,6 +766,11 @@ func (c *Checker) checkBinaryExpr(n *parser.BinaryExpr) Type {
 			c.errorf(n.Pos(), "logical operators require Bool, got %s and %s", left, right)
 		}
 		return BoolType
+	case "&", "|", "^", "<<", ">>":
+		if left != IntType || right != IntType {
+			c.errorf(n.Pos(), "operador bitwise %s requer Int, recebeu %s e %s", n.Operator, left, right)
+		}
+		return IntType
 	}
 	return Unknown
 }
@@ -676,6 +788,11 @@ func (c *Checker) checkUnaryExpr(n *parser.UnaryExpr) Type {
 			c.errorf(n.Pos(), "unary ! requires Bool, got %s", operand)
 		}
 		return BoolType
+	case "~":
+		if operand != IntType {
+			c.errorf(n.Pos(), "operador ~ requer Int, recebeu %s", operand)
+		}
+		return IntType
 	}
 	return Unknown
 }
@@ -839,6 +956,8 @@ func (c *Checker) resolveTypeExpr(e parser.TypeExpr) Type {
 			return StringType
 		case "Bool":
 			return BoolType
+		case "Char":
+			return CharType
 		case "Unit":
 			return UnitType
 		}

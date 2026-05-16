@@ -201,13 +201,8 @@ func (g *Generator) generateForList(n *parser.ForStmt) (value.Value, error) {
 	iAlloc := g.newAlloca(types.I64)
 	g.current.NewStore(constant.NewInt(types.I64, 0), iAlloc)
 
-	// Element binding alloc — sized to element type (or i8* for heap types)
-	var bindAlloc value.Value
-	if elemLLVMType.Equal(types.I64) || elemLLVMType.Equal(types.Double) || elemLLVMType.Equal(types.I1) {
-		bindAlloc = g.newAlloca(elemLLVMType)
-	} else {
-		bindAlloc = g.newAlloca(types.I8Ptr)
-	}
+	// Element binding alloc — sized to element type
+	bindAlloc := g.newAlloca(elemLLVMType)
 	g.vars[n.Binding] = bindAlloc
 
 	condBlock := g.newBlock("forl_cond", fn)

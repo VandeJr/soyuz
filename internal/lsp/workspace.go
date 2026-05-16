@@ -142,7 +142,7 @@ func (idx *SymbolIndex) Lookup(name string) []IndexedSymbol {
 
 // ─── Workspace scanner ────────────────────────────────────────────────────────
 
-// IndexWorkspace scans root for .soyuz files and analyzes each one that is not
+// IndexWorkspace scans root for .sy files and analyzes each one that is not
 // already open in the editor. Safe to call in a goroutine.
 func (e *Engine) IndexWorkspace(root string) {
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -153,7 +153,7 @@ func (e *Engine) IndexWorkspace(root string) {
 		if d.IsDir() && strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		}
-		if d.IsDir() || filepath.Ext(path) != ".soyuz" {
+		if d.IsDir() || filepath.Ext(path) != ".sy" {
 			return nil
 		}
 

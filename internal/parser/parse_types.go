@@ -19,6 +19,9 @@ func (p *Parser) parseTypeExpr() TypeExpr {
 	case lexer.STRING_TYPE:
 		p.advance()
 		t = &NamedType{pos: pos, Name: "String"}
+	case lexer.CHAR_TYPE:
+		p.advance()
+		t = &NamedType{pos: pos, Name: "Char"}
 	case lexer.UNIT_TYPE:
 		p.advance()
 		t = &NamedType{pos: pos, Name: "Unit"}
