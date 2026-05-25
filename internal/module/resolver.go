@@ -35,18 +35,19 @@ func NewResolverWithStdlib(entryFile, stdlibDir string) *Resolver {
 //  2. <root>/<seg0>/.../<segN>.sy — módulo de arquivo único
 //  3. <root>/<seg0>/.../<segN>/      — diretório: todos os *.sy dentro
 func (r *Resolver) Resolve(imp *parser.ImportDecl) ([]string, error) {
-	if len(imp.Path) == 0 {
+	segments := imp.PathSegments()
+	if len(segments) == 0 {
 		return nil, fmt.Errorf("declaração de import vazia")
 	}
 
 	if imp.IsStdlib {
 		if r.StdlibDir == "" {
-			return nil, fmt.Errorf("import @soyuz/%s: stdlib não disponível (soyuz build não configurado com stdlib)", imp.Path[0])
+			return nil, fmt.Errorf("import %q: stdlib não disponível (soyuz build não configurado com stdlib)", imp.Path)
 		}
-		return r.resolveIn(r.StdlibDir, imp.Path)
+		return r.resolveIn(r.StdlibDir, segments)
 	}
 
-	return r.resolveIn(r.Root, imp.Path)
+	return r.resolveIn(r.Root, segments)
 }
 
 func (r *Resolver) resolveIn(base string, path []string) ([]string, error) {

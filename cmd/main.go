@@ -112,16 +112,11 @@ func build(inputFile, outputFile string) {
 
 		for _, node := range prog.Body {
 			if imp, isImport := node.(*parser.ImportDecl); isImport {
-				// Bare stdlib import (@soyuz.mock sem nomes): incluir para o checker
-				// criar o namespace mock.* após o registro de assinaturas.
-				// Re-resolve aqui para popular ResolvedFiles nesta instância de AST.
-				if imp.IsStdlib && len(imp.Names) == 0 && !imp.Wildcard {
-					if resolved, rerr := resolver.Resolve(imp); rerr == nil {
-						imp.ResolvedFiles = resolved
-					}
-					nodeFile[node] = file
-					allNodes = append(allNodes, node)
+				if resolved, rerr := resolver.Resolve(imp); rerr == nil {
+					imp.ResolvedFiles = resolved
 				}
+				nodeFile[node] = file
+				allNodes = append(allNodes, node)
 				continue
 			}
 			nodeFile[node] = file
@@ -141,7 +136,11 @@ func build(inputFile, outputFile string) {
 	if len(result.Errors) > 0 {
 		fmt.Println("Erros de tipo encontrados:")
 		for _, e := range result.Errors {
-			fmt.Printf("  %v: %s\n", e.Pos, e.Message)
+			if e.File != "" {
+				fmt.Printf("  [%s %v]: %s\n", filepath.Base(e.File), e.Pos, e.Message)
+			} else {
+				fmt.Printf("  %v: %s\n", e.Pos, e.Message)
+			}
 		}
 		os.Exit(1)
 	}

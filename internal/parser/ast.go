@@ -1,6 +1,10 @@
 package parser
 
-import "soyuz/internal/lexer"
+import (
+	"strings"
+
+	"soyuz/internal/lexer"
+)
 
 // Node is the base interface for every AST node.
 type Node interface {
@@ -25,9 +29,8 @@ func (p *Program) Pos() lexer.Position { return p.pos }
 type VarKind string
 
 const (
-	KindVal   VarKind = "val"
-	KindVar   VarKind = "var"
-	KindConst VarKind = "const"
+	KindVal VarKind = "val"
+	KindVar VarKind = "var"
 )
 
 type VarDecl struct {
@@ -142,14 +145,26 @@ type EnumField struct {
 
 type ImportDecl struct {
 	pos           lexer.Position
-	Path          []string // ["parser", "lexer"]
+	Path          string // "@soyuz/collections" or "lib/lexer/tokens"
 	Names         []ImportName
-	Wildcard      bool
-	IsStdlib      bool     // true when imported as @soyuz.modname
+	Namespace     string // last path segment for module imports
+	IsStdlib      bool
 	ResolvedFiles []string // populated by module.Collect at graph traversal time
 }
 
 func (i *ImportDecl) Pos() lexer.Position { return i.pos }
+
+// PathSegments returns filesystem path segments for module resolution.
+func (i *ImportDecl) PathSegments() []string {
+	p := strings.TrimPrefix(i.Path, "@soyuz/")
+	if p == "" {
+		return nil
+	}
+	return strings.Split(p, "/")
+}
+
+// IsModuleImport reports whether this imports the whole module as a namespace.
+func (i *ImportDecl) IsModuleImport() bool { return len(i.Names) == 0 }
 
 // ExternDecl declares a C function available for FFI: extern fn name(params) -> RetType
 type ExternDecl struct {
@@ -370,6 +385,14 @@ type PipeExpr struct {
 }
 
 func (p *PipeExpr) Pos() lexer.Position { return p.pos }
+
+type PipeQuestExpr struct {
+	pos   lexer.Position
+	Left  Node
+	Right Node
+}
+
+func (p *PipeQuestExpr) Pos() lexer.Position { return p.pos }
 
 type IndexExpr struct {
 	pos    lexer.Position

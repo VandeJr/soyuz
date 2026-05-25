@@ -40,6 +40,13 @@ type classInfo struct {
 	weakFields   map[string]bool
 }
 
+type pendingClassMethodBody struct {
+	className string
+	si        structInfo
+	fd        *parser.FuncDecl
+	fn        *ir.Func
+}
+
 // Generator takes a parsed Program and emits an LLVM IR Module.
 type Generator struct {
 	module       *ir.Module
@@ -55,6 +62,8 @@ type Generator struct {
 	genericDecls       map[string]*parser.FuncDecl
 	genericRecordDecls map[string]*parser.RecordDecl
 	genericEnumDecls   map[string]*parser.EnumDecl
+	// Class method bodies deferred until all top-level function signatures are declared.
+	pendingClassBodies []pendingClassMethodBody
 	// RC fields
 	destructors map[string]*ir.Func // record name → generated destructor function
 	heapVars    map[string]bool     // which in-scope named vars hold RC-managed pointers
@@ -219,6 +228,14 @@ func (g *Generator) Generate(prog *parser.Program) (*ir.Module, error) {
 		g.declareFuncVariants(name, variants)
 	}
 
+	// 2.5. Generate class method bodies (deferred from step 1 so that top-level
+	// functions declared in step 2 are visible when method bodies call them).
+	for _, pm := range g.pendingClassBodies {
+		if err := g.generateClassMethodBody(pm.className, pm.si, pm.fd, pm.fn); err != nil {
+			return nil, err
+		}
+	}
+
 	// 3. Generate function bodies
 	for name, variants := range g.check.FuncVariants {
 		if err := g.generateFuncVariantsBody(name, variants); err != nil {
@@ -273,6 +290,31 @@ func (g *Generator) declareBuiltins() {
 		ir.NewParam("index", types.I64))
 	g.module.NewFunc("soyuz_list_dtor_rc", types.Void, ir.NewParam("ptr", types.I8Ptr))
 	g.module.NewFunc("soyuz_list_dtor_primitive", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_set", types.Void,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("index", types.I64),
+		ir.NewParam("value", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_set_rc", types.Void,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("index", types.I64),
+		ir.NewParam("value", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_remove", types.I8Ptr,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("index", types.I64))
+	g.module.NewFunc("soyuz_list_pop", types.I8Ptr,
+		ir.NewParam("list", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_prepend", types.Void,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("value", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_clear_rc", types.Void, ir.NewParam("list", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_clear_primitive", types.Void, ir.NewParam("list", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_copy", types.I8Ptr,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("elem_is_heap", types.I64))
+	g.module.NewFunc("soyuz_list_concat", types.I8Ptr,
+		ir.NewParam("list_a", types.I8Ptr),
+		ir.NewParam("list_b", types.I8Ptr),
+		ir.NewParam("elem_is_heap", types.I64))
 
 	// Map primitives
 	g.module.NewFunc("soyuz_map_new", types.I8Ptr,

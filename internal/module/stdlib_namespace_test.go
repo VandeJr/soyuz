@@ -30,13 +30,11 @@ func checkWithStdlib(t *testing.T, stdlibDir, src string) []checker.TypeError {
 		prog := p.Parse()
 		for _, node := range prog.Body {
 			if imp, isImp := node.(*parser.ImportDecl); isImp {
-				if imp.IsStdlib && len(imp.Names) == 0 && !imp.Wildcard {
-					if resolved, rerr := resolver.Resolve(imp); rerr == nil {
-						imp.ResolvedFiles = resolved
-					}
-					nodeFile[node] = file
-					allNodes = append(allNodes, node)
+				if resolved, rerr := resolver.Resolve(imp); rerr == nil {
+					imp.ResolvedFiles = resolved
 				}
+				nodeFile[node] = file
+				allNodes = append(allNodes, node)
 				continue
 			}
 			nodeFile[node] = file
@@ -53,7 +51,7 @@ func checkWithStdlib(t *testing.T, stdlibDir, src string) []checker.TypeError {
 	return c.Check(merged).Errors
 }
 
-// TestStdlibBareImportNamespace verifica que import @soyuz.mock cria namespace mock.*.
+// TestStdlibBareImportNamespace verifica que import "@soyuz/mock" cria namespace mock.*.
 func TestStdlibBareImportNamespace(t *testing.T) {
 	stdlibDir := t.TempDir()
 	writeFile(t, stdlibDir, "mock.sy", `
@@ -63,7 +61,7 @@ pub fn assert_true(cond: Bool, name: String) {
 }
 `)
 	src := `
-import @soyuz.mock
+import ( "@soyuz/mock" )
 fn main() {
     mock.assert_true(true, "ok")
 }
@@ -73,7 +71,7 @@ fn main() {
 	}
 }
 
-// TestStdlibSingleNameImport verifica import @soyuz.mock.{assert_true} (chaves obrigatórias).
+// TestStdlibSingleNameImport verifica import nomeado { assert_true } from "@soyuz/mock".
 func TestStdlibSingleNameImport(t *testing.T) {
 	stdlibDir := t.TempDir()
 	writeFile(t, stdlibDir, "mock.sy", `
@@ -83,7 +81,7 @@ pub fn assert_true(cond: Bool, name: String) {
 }
 `)
 	src := `
-import @soyuz.mock.{assert_true}
+import ( { assert_true } from "@soyuz/mock" )
 fn main() {
     assert_true(true, "ok")
 }
@@ -93,7 +91,7 @@ fn main() {
 	}
 }
 
-// TestStdlibBothImportForms verifica os dois imports juntos: bare e named.
+// TestStdlibBothImportForms verifica os dois imports juntos: module e named.
 func TestStdlibBothImportForms(t *testing.T) {
 	stdlibDir := t.TempDir()
 	writeFile(t, stdlibDir, "mock.sy", `
@@ -103,8 +101,10 @@ pub fn assert_true(cond: Bool, name: String) {
 }
 `)
 	src := `
-import @soyuz.mock
-import @soyuz.mock.{assert_true}
+import (
+    "@soyuz/mock"
+    { assert_true } from "@soyuz/mock"
+)
 fn main() {
     assert_true(true, "direto")
     mock.assert_true(true, "qualificado")
@@ -115,14 +115,14 @@ fn main() {
 	}
 }
 
-// TestStdlibNestedPath verifica que std/collections/list.sy é acessível via @soyuz.collections.list.
+// TestStdlibNestedPath verifica que std/collections/list.sy é acessível via "@soyuz/collections/list".
 func TestStdlibNestedPath(t *testing.T) {
 	stdlibDir := t.TempDir()
 	writeFile(t, stdlibDir, filepath.Join("collections", "list.sy"), `
 pub fn length() -> Int = 0
 `)
 	src := `
-import @soyuz.collections.list
+import ( "@soyuz/collections/list" )
 fn main() {
     list.length()
 }
@@ -132,28 +132,27 @@ fn main() {
 	}
 }
 
-// TestStdlibFormatterImport verifica que o formatter emite a sintaxe correta.
+// TestStdlibFormatterImport verifica que o parser aceita a nova sintaxe.
 func TestStdlibFormatterImport(t *testing.T) {
 	stdlibDir := t.TempDir()
 	writeFile(t, stdlibDir, "mock.sy", `pub fn assert_true(cond: Bool, name: String) {}`)
 
-	cases := []struct {
-		src  string
-		want string
-	}{
-		{`import @soyuz.mock`, "import @soyuz.mock\n"},
-		{`import @soyuz.mock.{assert_true}`, "import @soyuz.mock.{assert_true}\n"},
-		{`import @soyuz.mock.{assert_true, assert_eq}`, "import @soyuz.mock.{assert_true, assert_eq}\n"},
+	cases := []string{
+		`import ( "@soyuz/mock" )`,
+		`import ( { assert_true } from "@soyuz/mock" )`,
+		`import ( { assert_true, assert_eq } from "@soyuz/mock" )`,
 	}
 
-	for _, tc := range cases {
-		tokens := lexer.Tokenize(tc.src)
-		prog := parser.New(tokens).Parse()
-		_ = prog // just verify parse doesn't panic; formatter tested separately
+	for _, src := range cases {
+		tokens := lexer.Tokenize(src)
+		p := parser.New(tokens)
+		p.Parse()
+		if p.HasErrors() {
+			t.Fatalf("parse error for %q: %v", src, p.Errors())
+		}
 	}
 
-	// Verify output by checking the file path resolution (stdlib dir set)
 	entry := filepath.Join(t.TempDir(), "main.sy")
 	resolver := module.NewResolverWithStdlib(entry, stdlibDir)
-	_ = resolver // confirm it can be created
+	_ = resolver
 }

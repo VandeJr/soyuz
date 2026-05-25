@@ -144,6 +144,7 @@ var (
 
 type TypeError struct {
 	Pos     lexer.Position
+	File    string // source file; empty in single-file mode
 	Message string
 }
 

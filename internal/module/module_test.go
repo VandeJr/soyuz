@@ -143,7 +143,7 @@ func TestStdlibImport(t *testing.T) {
 	writeFile(t, stdlibDir, "mock.sy", `pub fn assert_eq(a: Int, b: Int, name: String) {}`)
 
 	// Arquivo principal importa via @soyuz.mock
-	entry := writeFile(t, dir, "main.sy", `import @soyuz.mock.{assert_eq}
+	entry := writeFile(t, dir, "main.sy", `import ( { assert_eq } from "@soyuz/mock" )
 fn main() { assert_eq(1, 1, "ok") }`)
 
 	resolver := module.NewResolverWithStdlib(entry, stdlibDir)
@@ -160,7 +160,7 @@ fn main() { assert_eq(1, 1, "ok") }`)
 // TestStdlibImportSemStdlibDir verifica erro quando stdlib não está configurada.
 func TestStdlibImportSemStdlibDir(t *testing.T) {
 	dir := t.TempDir()
-	entry := writeFile(t, dir, "main.sy", `import @soyuz/mock.{assert_eq}`)
+	entry := writeFile(t, dir, "main.sy", `import ( { assert_eq } from "@soyuz/mock" )`)
 
 	resolver := module.NewResolver(entry) // sem StdlibDir
 	_, err := module.Collect(entry, resolver)

@@ -8,7 +8,7 @@ import "soyuz/internal/lexer"
 //   < EQUALS/NE < LT/GT/… < RANGE < SHL/SHR < PLUS/MINUS < MUL/DIV/MOD < DOT < CALL/INDEX
 func bindingPower(t lexer.TokenType) int {
 	switch t {
-	case lexer.PIPE:
+	case lexer.PIPE, lexer.PIPE_QUEST:
 		return 2
 	case lexer.ASSIGN:
 		return 4
@@ -198,6 +198,11 @@ func (p *Parser) parseInfix(left Node) Node {
 		p.advance()
 		right := p.parseExpression(bp)
 		return &PipeExpr{pos: tok.Position, Left: left, Right: right}
+
+	case lexer.PIPE_QUEST:
+		p.advance()
+		right := p.parseExpression(bp)
+		return &PipeQuestExpr{pos: tok.Position, Left: left, Right: right}
 
 	case lexer.ELVIS:
 		p.advance()

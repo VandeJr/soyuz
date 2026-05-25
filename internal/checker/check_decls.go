@@ -2,6 +2,45 @@ package checker
 
 import "soyuz/internal/parser"
 
+// pendingClassMethod holds everything needed to check a class method body
+// after all top-level function signatures have been registered (Pass 3.7).
+type pendingClassMethod struct {
+	fd         *parser.FuncDecl
+	ct         *ClassType
+	selfType   Type
+	paramTypes []Type
+	retType    Type
+	file       string
+}
+
+func (c *Checker) checkClassMethodBody(pm pendingClassMethod) {
+	if pm.fd.Body == nil {
+		return
+	}
+	parentScope := c.scope
+	c.scope = NewScope(parentScope)
+	c.scope.Define("self", pm.selfType, true)
+	paramIdx := 0
+	for _, p := range pm.fd.Params {
+		bp, ok := p.Pattern.(*parser.BindingPattern)
+		if !ok || bp.Name == "self" {
+			continue
+		}
+		if paramIdx < len(pm.paramTypes) {
+			c.scope.Define(bp.Name, pm.paramTypes[paramIdx], true)
+		}
+		paramIdx++
+	}
+	oldRet := c.context.returnType
+	c.context.returnType = pm.retType
+	bodyType := c.checkNode(pm.fd.Body)
+	if pm.fd.IsExprBody && !c.isAssignable(pm.retType, bodyType) {
+		c.errorf(pm.fd.Body.Pos(), "incompatible return type in method %s: expected %s, got %s", pm.fd.Name, pm.retType, bodyType)
+	}
+	c.context.returnType = oldRet
+	c.scope = parentScope
+}
+
 func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl) {
 	if len(variants) == 0 {
 		return
@@ -388,37 +427,20 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 		methodPub[fd.Name] = fd.Pub
 		c.nodeTypes[fd] = ft
 
-		// Check method body with self and params in scope.
-		if fd.Body != nil {
-			parentScope := c.scope
-			c.scope = NewScope(parentScope)
-			// StringExtensions is an extension class: self IS the String value, not the class.
-			var selfType Type = ct
-			if ct.Name == "StringExtensions" {
-				selfType = StringType
-			}
-			c.scope.Define("self", selfType, true)
-			paramIdx := 0
-			for _, p := range fd.Params {
-				if bp, ok2 := p.Pattern.(*parser.BindingPattern); ok2 {
-					if bp.Name == "self" {
-						continue
-					}
-					if paramIdx < len(paramTypes) {
-						c.scope.Define(bp.Name, paramTypes[paramIdx], true)
-					}
-					paramIdx++
-				}
-			}
-			oldRet := c.context.returnType
-			c.context.returnType = ret
-			bodyType := c.checkNode(fd.Body)
-			if fd.IsExprBody && !c.isAssignable(ret, bodyType) {
-				c.errorf(fd.Body.Pos(), "incompatible return type in method %s: expected %s, got %s", fd.Name, ret, bodyType)
-			}
-			c.context.returnType = oldRet
-			c.scope = parentScope
+		// Defer method body checking to Pass 3.7 so that top-level functions
+		// (registered in Pass 3) are already in scope when method bodies run.
+		var selfType Type = ct
+		if ct.Name == "StringExtensions" {
+			selfType = StringType
 		}
+		c.pendingClassMethods = append(c.pendingClassMethods, pendingClassMethod{
+			fd:         fd,
+			ct:         ct,
+			selfType:   selfType,
+			paramTypes: paramTypes,
+			retType:    ret,
+			file:       c.currentFile,
+		})
 	}
 
 	// Interface implementation check.
@@ -487,10 +509,10 @@ func getKindName(t Type) string {
 // (ex: "mock") contendo todas as declarações pub do arquivo do módulo.
 // Isso permite acesso qualificado: mock.assert_true(...).
 func (c *Checker) registerModuleNamespace(prog *parser.Program, imp *parser.ImportDecl) {
-	if len(imp.Path) == 0 || len(imp.ResolvedFiles) == 0 || c.nodeFile == nil {
+	if imp.Path == "" || len(imp.ResolvedFiles) == 0 || c.nodeFile == nil {
 		return
 	}
-	modName := imp.Path[len(imp.Path)-1]
+	modName := imp.Namespace
 
 	resolvedSet := make(map[string]bool, len(imp.ResolvedFiles))
 	for _, f := range imp.ResolvedFiles {

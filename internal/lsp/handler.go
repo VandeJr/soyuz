@@ -91,6 +91,9 @@ func (h *Handler) handleInitialize(ctx *glsp.Context, params *protocol.Initializ
 
 func (h *Handler) handleInitialized(ctx *glsp.Context, params *protocol.InitializedParams) error {
 	if h.workspaceRoot != "" {
+		// Set root immediately so files opened before IndexWorkspace completes
+		// (e.g. didOpen arriving right after initialized) resolve imports correctly.
+		h.engine.SetWorkspaceRoot(h.workspaceRoot)
 		go h.engine.IndexWorkspace(h.workspaceRoot)
 	}
 	return nil
@@ -220,10 +223,14 @@ func formatHover(node parser.Node, t checker.Type, result *AnalysisResult) strin
 			return fmt.Sprintf("```soyuz\nextern fn %s%s\n```", n.Name, ft.String())
 		}
 	case *parser.ImportDecl:
-		if n.IsStdlib {
-			return fmt.Sprintf("```soyuz\nimport @soyuz.%s\n```", strings.Join(n.Path, "."))
+		if len(n.Names) > 0 {
+			parts := make([]string, len(n.Names))
+			for i, nm := range n.Names {
+				parts[i] = nm.Name
+			}
+			return fmt.Sprintf("```soyuz\n{ %s } from \"%s\"\n```", strings.Join(parts, ", "), n.Path)
 		}
-		return fmt.Sprintf("```soyuz\nimport %s\n```", strings.Join(n.Path, "."))
+		return fmt.Sprintf("```soyuz\n\"%s\"\n```", n.Path)
 	}
 	return fmt.Sprintf("```soyuz\n%s\n```", t.String())
 }
@@ -469,7 +476,7 @@ func identRange(pos lexer.Position, name string) protocol.Range {
 // ─── Completion ───────────────────────────────────────────────────────────────
 
 var soyuzKeywords = []string{
-	"val", "var", "const", "fn", "extern", "return", "pub", "weak", "impl",
+	"val", "var", "fn", "extern", "return", "pub", "weak", "impl",
 	"record", "class", "interface", "enum",
 	"if", "else", "when", "match", "for", "while", "loop", "break", "continue", "in",
 	"import", "self",
@@ -602,6 +609,12 @@ func (h *Handler) handleCodeLens(_ *glsp.Context, params *protocol.CodeLensParam
 func (h *Handler) handleFormatting(_ *glsp.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
 	result := h.engine.Get(params.TextDocument.URI)
 	if result == nil {
+		return nil, nil
+	}
+
+	// O formatter reconstrói o fonte a partir do AST e perderia comentários,
+	// pois o lexer os descarta antes de chegarem ao AST. Pula se houver qualquer comentário.
+	if strings.Contains(result.Text, "//") {
 		return nil, nil
 	}
 

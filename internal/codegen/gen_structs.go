@@ -294,11 +294,17 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 		if methodCounts[fd.Name] > 1 {
 			methodName = fmt.Sprintf("%s_%d", fd.Name, nonSelfArity)
 		}
-		fn, err := g.generateClassMethod(n.Name, si, fd, methodName)
-		if err != nil {
-			return err
-		}
+		fn := g.declareClassMethod(n.Name, si, fd, methodName)
 		ci.methods[fd.Name] = append(ci.methods[fd.Name], fn)
+		// Defer body generation until all top-level function signatures are declared.
+		if fd.Body != nil {
+			g.pendingClassBodies = append(g.pendingClassBodies, pendingClassMethodBody{
+				className: n.Name,
+				si:        si,
+				fd:        fd,
+				fn:        fn,
+			})
+		}
 	}
 
 	// 4. Generate vtable globals for each implemented interface.
@@ -318,10 +324,10 @@ func (g *Generator) generateClassDecl(n *parser.ClassDecl) error {
 	return nil
 }
 
-// generateClassMethod emits the LLVM function for a class method.
-// Signature: ClassName_methodName(i8* __self, non-self-params...) -> retType
-// methodName may differ from fd.Name when the method is overloaded (mangled with arity suffix).
-func (g *Generator) generateClassMethod(className string, si structInfo, fd *parser.FuncDecl, methodName string) (*ir.Func, error) {
+// declareClassMethod creates the LLVM function signature for a class method without
+// generating the body. The body is deferred to generateClassMethodBody so that
+// top-level functions declared in step 2 of Generate are visible.
+func (g *Generator) declareClassMethod(className string, si structInfo, fd *parser.FuncDecl, methodName string) *ir.Func {
 	ft, _ := g.check.NodeTypes[fd].(*checker.FuncType)
 
 	var retType types.Type = types.Void
@@ -331,7 +337,6 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 		retType = g.mapSoyuzTypeToLLVM(fd.ReturnType)
 	}
 
-	// Build non-self param list, matching against ft.Params (which excludes self).
 	var nonSelfParams []parser.FuncParam
 	for _, p := range fd.Params {
 		if bp, ok := p.Pattern.(*parser.BindingPattern); ok && bp.Name == "self" {
@@ -360,6 +365,7 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 
 	fn := g.module.NewFunc(className+"_"+methodName, retType, params...)
 
+	// Stub for body-less methods (interface stubs, abstract-like).
 	if fd.Body == nil {
 		entry := fn.NewBlock("entry")
 		if retType.Equal(types.Void) {
@@ -367,8 +373,16 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 		} else {
 			entry.NewRet(g.defaultReturnValue(retType))
 		}
-		return fn, nil
 	}
+	return fn
+}
+
+// generateClassMethodBody fills in the body of a previously-declared class method.
+func (g *Generator) generateClassMethodBody(className string, si structInfo, fd *parser.FuncDecl, fn *ir.Func) error {
+	if fd.Body == nil {
+		return nil
+	}
+	retType := fn.Sig.RetType
 
 	// Save/restore outer codegen state.
 	oldCurrent := g.current
@@ -391,8 +405,6 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 	g.current = g.newBlock("entry", fn)
 
 	// Expose self in the method scope.
-	// For fieldless extension classes (like StringExtensions), __self is i8* but
-	// self should be %SoyuzString* so methods can pass it directly to extern fns.
 	if len(si.typ.Fields) == 0 {
 		selfTyped := g.current.NewBitCast(fn.Params[0], g.soyuzStringPtrType)
 		selfAlloc := g.newAlloca(g.soyuzStringPtrType)
@@ -405,7 +417,6 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 		g.vars["self"] = selfAlloc
 	}
 
-	// Store non-self parameters.
 	for _, p := range fn.Params[1:] {
 		if p.LocalName != "" {
 			alloc := g.newAlloca(p.Typ)
@@ -416,7 +427,7 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 
 	val, err := g.generateExpr(fd.Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if retType.Equal(types.Void) {
@@ -430,8 +441,7 @@ func (g *Generator) generateClassMethod(className string, si structInfo, fd *par
 			g.current.NewRet(g.defaultReturnValue(retType))
 		}
 	}
-
-	return fn, nil
+	return nil
 }
 
 // generateVtable emits a global constant [N x i8*] vtable for a (class, interface) pair.

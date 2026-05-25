@@ -74,6 +74,87 @@ void soyuz_list_dtor_primitive(void *ptr) {
     free(list->data);
 }
 
+void soyuz_list_set(void *list_ptr, int64_t index, void *value) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (index < 0 || index >= list->size) return;
+    list->data[index] = value;
+}
+
+void soyuz_list_set_rc(void *list_ptr, int64_t index, void *value) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (index < 0 || index >= list->size) return;
+    soyuz_release(list->data[index]);
+    list->data[index] = value;
+}
+
+void *soyuz_list_remove(void *list_ptr, int64_t index) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (index < 0 || index >= list->size) return NULL;
+    void *removed = list->data[index];
+    for (int64_t i = index; i < list->size - 1; i++) {
+        list->data[i] = list->data[i + 1];
+    }
+    list->size--;
+    return removed;
+}
+
+void *soyuz_list_pop(void *list_ptr) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (list->size == 0) return NULL;
+    return list->data[--list->size];
+}
+
+void soyuz_list_prepend(void *list_ptr, void *value) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    if (list->size >= list->capacity) {
+        list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
+        list->data = (void **)realloc(list->data, sizeof(void *) * (size_t)list->capacity);
+    }
+    memmove(list->data + 1, list->data, sizeof(void *) * (size_t)list->size);
+    list->data[0] = value;
+    list->size++;
+}
+
+void soyuz_list_clear_rc(void *list_ptr) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    for (int64_t i = 0; i < list->size; i++) {
+        soyuz_release(list->data[i]);
+    }
+    list->size = 0;
+}
+
+void soyuz_list_clear_primitive(void *list_ptr) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    list->size = 0;
+}
+
+void *soyuz_list_copy(void *list_ptr, int64_t elem_is_heap) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    SoyuzDtor dtor = elem_is_heap ? soyuz_list_dtor_rc : soyuz_list_dtor_primitive;
+    void *result = soyuz_list_new(list->size, dtor);
+    for (int64_t i = 0; i < list->size; i++) {
+        soyuz_list_append(result, list->data[i]);
+        if (elem_is_heap) soyuz_retain(list->data[i]);
+    }
+    return result;
+}
+
+void *soyuz_list_concat(void *list_a, void *list_b, int64_t elem_is_heap) {
+    SoyuzList *a = (SoyuzList *)list_a;
+    SoyuzList *b = (SoyuzList *)list_b;
+    SoyuzDtor dtor = elem_is_heap ? soyuz_list_dtor_rc : soyuz_list_dtor_primitive;
+    void *result = soyuz_list_new(a->size + b->size, dtor);
+    for (int64_t i = 0; i < a->size; i++) {
+        soyuz_list_append(result, a->data[i]);
+        if (elem_is_heap) soyuz_retain(a->data[i]);
+    }
+    for (int64_t i = 0; i < b->size; i++) {
+        soyuz_list_append(result, b->data[i]);
+        if (elem_is_heap) soyuz_retain(b->data[i]);
+    }
+    return result;
+}
+
 typedef struct {
     void *key;
     void *value;

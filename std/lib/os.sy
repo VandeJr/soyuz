@@ -1,4 +1,4 @@
-import @soyuz.error.{Error}
+import ( { Error } from "@soyuz/error" )
 
 extern fn soyuz_os_getenv(name: String) -> String
 

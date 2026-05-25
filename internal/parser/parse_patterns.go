@@ -46,6 +46,22 @@ func (p *Parser) parsePattern() Pattern {
 		tok := p.advance()
 		return &LiteralPattern{pos: pos, Value: &StringLiteral{pos: tok.Position, Value: tok.Lexeme}}
 
+	case lexer.CHAR_LITERAL:
+		tok := p.advance()
+		runes := []rune(tok.Lexeme)
+		var r rune
+		if len(runes) > 0 {
+			r = runes[0]
+		}
+
+		return &LiteralPattern{
+			pos: pos,
+			Value: &CharLiteral{
+				pos:   tok.Position,
+				Value: r,
+			},
+		}
+
 	case lexer.TRUE:
 		p.advance()
 		return &LiteralPattern{pos: pos, Value: &BoolLiteral{pos: pos, Value: true}}

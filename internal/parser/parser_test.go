@@ -63,18 +63,6 @@ func TestVarDecl(t *testing.T) {
 	}
 }
 
-func TestConstDecl(t *testing.T) {
-	prog := parseSource(t, `const PI = 3.14`)
-	assertBodyLen(t, prog, 1)
-	decl := prog.Body[0].(*VarDecl)
-	if decl.Kind != KindConst {
-		t.Errorf("esperado const")
-	}
-	if _, ok := decl.Init.(*FloatLiteral); !ok {
-		t.Errorf("esperado FloatLiteral")
-	}
-}
-
 // ============================================================
 // Function declarations
 // ============================================================
@@ -249,27 +237,79 @@ enum Forma {
 // Import declarations
 // ============================================================
 
-func TestImportSimple(t *testing.T) {
-	prog := parseSource(t, `import parser.Lexer`)
+func TestImportNamed(t *testing.T) {
+	prog := parseSource(t, `import ( { readFile } from "@soyuz/fs" )`)
+	assertBodyLen(t, prog, 1)
 	imp := prog.Body[0].(*ImportDecl)
-	if len(imp.Path) != 2 {
-		t.Errorf("esperado path len=2, obtido %d", len(imp.Path))
+	if imp.Path != "@soyuz/fs" {
+		t.Errorf("esperado path @soyuz/fs, obtido %q", imp.Path)
+	}
+	if len(imp.Names) != 1 || imp.Names[0].Name != "readFile" {
+		t.Errorf("esperado names=[readFile], obtido %v", imp.Names)
+	}
+	if !imp.IsStdlib {
+		t.Error("esperado IsStdlib=true")
 	}
 }
 
-func TestImportDestructured(t *testing.T) {
-	prog := parseSource(t, `import parser.{ Token, TokenType }`)
+func TestImportModule(t *testing.T) {
+	prog := parseSource(t, `import ( "@soyuz/mock" )`)
+	assertBodyLen(t, prog, 1)
 	imp := prog.Body[0].(*ImportDecl)
-	if len(imp.Names) != 2 {
-		t.Errorf("esperado 2 names, obtido %d", len(imp.Names))
+	if !imp.IsModuleImport() {
+		t.Error("esperado import de módulo inteiro")
+	}
+	if imp.Namespace != "mock" {
+		t.Errorf("esperado namespace mock, obtido %q", imp.Namespace)
 	}
 }
 
-func TestImportWildcard(t *testing.T) {
-	prog := parseSource(t, `import parser.*`)
+func TestImportBlock(t *testing.T) {
+	prog := parseSource(t, `import (
+		{ Token, TokenType } from "lib/lexer/tokens"
+		"@soyuz/fs"
+	)`)
+	assertBodyLen(t, prog, 2)
+	imp0 := prog.Body[0].(*ImportDecl)
+	imp1 := prog.Body[1].(*ImportDecl)
+	if len(imp0.Names) != 2 {
+		t.Errorf("esperado 2 names no primeiro import, obtido %d", len(imp0.Names))
+	}
+	if imp1.Path != "@soyuz/fs" {
+		t.Errorf("esperado segundo import @soyuz/fs, obtido %q", imp1.Path)
+	}
+}
+
+func TestImportInlineNamed(t *testing.T) {
+	prog := parseSource(t, `import math.{ dobrar }`)
+	assertBodyLen(t, prog, 1)
 	imp := prog.Body[0].(*ImportDecl)
-	if !imp.Wildcard {
-		t.Error("esperado wildcard=true")
+	if imp.Path != "math" {
+		t.Errorf("esperado path math, obtido %q", imp.Path)
+	}
+	if len(imp.Names) != 1 || imp.Names[0].Name != "dobrar" {
+		t.Errorf("esperado names=[dobrar], obtido %v", imp.Names)
+	}
+}
+
+func TestImportInlineStdlib(t *testing.T) {
+	prog := parseSource(t, `import @soyuz.fs.{ readFile }`)
+	assertBodyLen(t, prog, 1)
+	imp := prog.Body[0].(*ImportDecl)
+	if imp.Path != "@soyuz/fs" {
+		t.Errorf("esperado path @soyuz/fs, obtido %q", imp.Path)
+	}
+	if !imp.IsStdlib {
+		t.Error("esperado IsStdlib=true")
+	}
+}
+
+func TestImportInlineNestedPath(t *testing.T) {
+	prog := parseSource(t, `import lib.lexer.tokens.{ Token, TokenType }`)
+	assertBodyLen(t, prog, 1)
+	imp := prog.Body[0].(*ImportDecl)
+	if imp.Path != "lib/lexer/tokens" {
+		t.Errorf("esperado path lib/lexer/tokens, obtido %q", imp.Path)
 	}
 }
 
@@ -306,6 +346,18 @@ func TestPipeExpr(t *testing.T) {
 	}
 }
 
+func TestPipeQuestExpr(t *testing.T) {
+	prog := parseSource(t, `val r = buscar(1) |?> validar |?> transformar`)
+	decl := prog.Body[0].(*VarDecl)
+	outer, ok := decl.Init.(*PipeQuestExpr)
+	if !ok {
+		t.Fatalf("esperado PipeQuestExpr, obtido %T", decl.Init)
+	}
+	if _, ok := outer.Left.(*PipeQuestExpr); !ok {
+		t.Fatalf("esperado PipeQuestExpr aninhado à esquerda")
+	}
+}
+
 func TestMatchExpr(t *testing.T) {
 	prog := parseSource(t, `
 val msg = match resultado {
@@ -337,17 +389,18 @@ val desc = match n {
 }
 
 func TestArrowFunc(t *testing.T) {
-	// Top-level val = fn(...) => ... is rewritten as FuncDecl.
-	prog := parseSource(t, `val dobrar = fn(x: Int) => x`)
-	fd, ok := prog.Body[0].(*FuncDecl)
-	if !ok {
-		t.Fatalf("esperado *FuncDecl (reescrita de val = fn), obtido %T", prog.Body[0])
+	p := New(lexer.Tokenize(`val dobrar = fn(x: Int) => x`))
+	p.Parse()
+	if !p.HasErrors() {
+		t.Fatal("esperado erro para val = fn no top-level")
 	}
-	if fd.Name != "dobrar" {
-		t.Errorf("esperado nome dobrar, obtido %s", fd.Name)
-	}
-	if len(fd.Params) != 1 {
-		t.Fatalf("esperado 1 param, obtido %d", len(fd.Params))
+}
+
+func TestValFnNamedError(t *testing.T) {
+	p := New(lexer.Tokenize(`val somar = fn(a: Int, b: Int) => a`))
+	p.Parse()
+	if !p.HasErrors() {
+		t.Fatal("esperado erro para val = fn no top-level")
 	}
 }
 
@@ -372,19 +425,6 @@ func TestFuncParamDefault(t *testing.T) {
 	}
 }
 
-func TestValFnRewrite(t *testing.T) {
-	prog := parseSource(t, `val somar = fn(a: Int, b: Int) => a`)
-	fd, ok := prog.Body[0].(*FuncDecl)
-	if !ok {
-		t.Fatalf("esperado *FuncDecl, obtido %T", prog.Body[0])
-	}
-	if fd.Name != "somar" {
-		t.Errorf("esperado nome somar, obtido %s", fd.Name)
-	}
-	if !fd.IsExprBody {
-		t.Error("esperado IsExprBody = true")
-	}
-}
 
 func TestRecordLiteral(t *testing.T) {
 	prog := parseSource(t, `val p = Ponto { x: 1, y: 2 }`)
@@ -586,8 +626,9 @@ func TestTupleType(t *testing.T) {
 }
 
 func TestFuncType(t *testing.T) {
-	prog := parseSource(t, `val f: (Int) -> Int = fn(x: Int) => x`)
-	decl := prog.Body[0].(*VarDecl)
+	prog := parseSource(t, `fn test() { val f: (Int) -> Int = fn(x: Int) => x }`)
+	block := prog.Body[0].(*FuncDecl).Body.(*BlockStmt)
+	decl := block.Statements[0].(*VarDecl)
 	if _, ok := decl.Type.(*FuncType); !ok {
 		t.Fatalf("esperado *FuncType, obtido %T", decl.Type)
 	}

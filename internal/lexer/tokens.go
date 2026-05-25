@@ -85,6 +85,7 @@ const (
 	ARROW      // ->
 	FAT_ARROW  // =>
 	PIPE       // |>
+	PIPE_QUEST // |?>
 	RANGE      // ..
 	RANGE_INCL // ..=
 	SAFE_NAV   // ?.
@@ -97,7 +98,6 @@ const (
 	// Keywords — declarations
 	VAL
 	VAR
-	CONST
 	FN
 	EXTERN
 	RETURN
@@ -194,6 +194,7 @@ func (t TokenType) String() string {
 		ARROW:          "ARROW",
 		FAT_ARROW:      "FAT_ARROW",
 		PIPE:           "PIPE",
+		PIPE_QUEST:     "PIPE_QUEST",
 		RANGE:          "RANGE",
 		RANGE_INCL:     "RANGE_INCL",
 		SAFE_NAV:       "SAFE_NAV",
@@ -204,7 +205,6 @@ func (t TokenType) String() string {
 		TILDE:          "TILDE",
 		VAL:            "VAL",
 		VAR:            "VAR",
-		CONST:          "CONST",
 		FN:             "FN",
 		EXTERN:         "EXTERN",
 		RETURN:         "RETURN",

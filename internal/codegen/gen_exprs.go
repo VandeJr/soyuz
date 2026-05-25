@@ -194,6 +194,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		g.check.Specializations[call] = g.check.Specializations[n]
 		return g.generateCallExpr(call)
 
+	case *parser.PipeQuestExpr:
+		return g.generatePipeQuestExpr(n)
+
 	case *parser.ElvisExpr:
 		return g.generateElvisExpr(n)
 
@@ -783,7 +786,8 @@ func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
 	glob.Immutable = true
 	ptr := g.current.NewGetElementPtr(cs.Type(), glob,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I64, 0))
-	return g.current.NewCall(printf, append([]value.Value{ptr}, printArgs...)...), nil
+	g.current.NewCall(printf, append([]value.Value{ptr}, printArgs...)...)
+	return nil, nil
 }
 
 // generateEnumConstructorWithValues is like generateEnumConstructor but takes pre-evaluated arg values.
@@ -862,6 +866,9 @@ func (g *Generator) generateInterpolatedString(n *parser.InterpolatedString) (va
 			args = append(args, g.strData(val))
 		case val.Type().Equal(types.I64):
 			b.WriteString("%lld")
+			args = append(args, val)
+		case val.Type().Equal(types.I32):
+			b.WriteString("%c")
 			args = append(args, val)
 		case val.Type().Equal(types.Double):
 			b.WriteString("%f")
@@ -958,6 +965,84 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				return g.generateListReduce(n, obj, st, args)
 			case "join":
 				return g.generateListJoin(obj, st, args)
+			case "set":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				elem := args[1]
+				var valCast value.Value
+				if elem.Type().Equal(types.I64) {
+					valCast = g.current.NewIntToPtr(elem, types.I8Ptr)
+				} else {
+					valCast = g.current.NewBitCast(elem, types.I8Ptr)
+				}
+				if g.isHeapType(elem.Type()) {
+					g.emitRetain(elem)
+					g.current.NewCall(g.findFunc("soyuz_list_set_rc"), objAsI8, args[0], valCast)
+				} else {
+					g.current.NewCall(g.findFunc("soyuz_list_set"), objAsI8, args[0], valCast)
+				}
+				return nil, nil
+			case "remove":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				raw := g.current.NewCall(g.findFunc("soyuz_list_remove"), objAsI8, args[0])
+				targetType := g.mapTypeToLLVM(st.Params[0])
+				if targetType.Equal(types.I64) {
+					return g.current.NewPtrToInt(raw, types.I64), nil
+				}
+				return g.current.NewBitCast(raw, targetType), nil
+			case "pop":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				raw := g.current.NewCall(g.findFunc("soyuz_list_pop"), objAsI8)
+				targetType := g.mapTypeToLLVM(st.Params[0])
+				if targetType.Equal(types.I64) {
+					return g.current.NewPtrToInt(raw, types.I64), nil
+				}
+				return g.current.NewBitCast(raw, targetType), nil
+			case "prepend":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				elem := args[0]
+				if g.isHeapType(elem.Type()) {
+					g.emitRetain(elem)
+				}
+				var valCast value.Value
+				if elem.Type().Equal(types.I64) {
+					valCast = g.current.NewIntToPtr(elem, types.I8Ptr)
+				} else {
+					valCast = g.current.NewBitCast(elem, types.I8Ptr)
+				}
+				g.current.NewCall(g.findFunc("soyuz_list_prepend"), objAsI8, valCast)
+				return nil, nil
+			case "clear":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				elemLLVMType := g.mapTypeToLLVM(st.Params[0])
+				if g.isHeapType(elemLLVMType) {
+					g.current.NewCall(g.findFunc("soyuz_list_clear_rc"), objAsI8)
+				} else {
+					g.current.NewCall(g.findFunc("soyuz_list_clear_primitive"), objAsI8)
+				}
+				return nil, nil
+			case "copy":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				elemLLVMType := g.mapTypeToLLVM(st.Params[0])
+				elemIsHeap := int64(0)
+				if g.isHeapType(elemLLVMType) {
+					elemIsHeap = 1
+				}
+				raw := g.current.NewCall(g.findFunc("soyuz_list_copy"), objAsI8,
+					constant.NewInt(types.I64, elemIsHeap))
+				listPtrType := types.NewPointer(g.structs["SoyuzList"].typ)
+				return g.current.NewBitCast(raw, listPtrType), nil
+			case "concat":
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				otherAsI8 := g.current.NewBitCast(args[0], types.I8Ptr)
+				elemLLVMType := g.mapTypeToLLVM(st.Params[0])
+				elemIsHeap := int64(0)
+				if g.isHeapType(elemLLVMType) {
+					elemIsHeap = 1
+				}
+				raw := g.current.NewCall(g.findFunc("soyuz_list_concat"), objAsI8, otherAsI8,
+					constant.NewInt(types.I64, elemIsHeap))
+				listPtrType := types.NewPointer(g.structs["SoyuzList"].typ)
+				return g.current.NewBitCast(raw, listPtrType), nil
 			}
 		}
 	}
@@ -1196,6 +1281,206 @@ func (g *Generator) generateMapExpr(n *parser.MapExpr) (value.Value, error) {
 	}
 
 	return mapPtr, nil
+}
+
+// generatePipeQuestExpr emits `left |?> f`: short-circuit bind for Result/Option.
+func (g *Generator) generatePipeQuestExpr(n *parser.PipeQuestExpr) (value.Value, error) {
+	leftVal, err := g.generateExpr(n.Left)
+	if err != nil {
+		return nil, err
+	}
+
+	leftKind := pipeQuestEnumKind(g.check.NodeTypes[n.Left])
+	enumName := "Result"
+	if leftKind == "Option" {
+		enumName = "Option"
+	}
+	ei := g.enums[enumName]
+
+	optPtr := leftVal
+	if _, ok := leftVal.Type().(*types.PointerType); !ok {
+		alloc := g.newAlloca(leftVal.Type())
+		g.current.NewStore(leftVal, alloc)
+		optPtr = alloc
+	}
+
+	tagPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	tag := g.current.NewLoad(types.I64, tagPtr)
+	isOk := g.current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, 0))
+
+	fn := g.current.Parent
+	okBlock := g.newBlock("pq_ok", fn)
+	failBlock := g.newBlock("pq_fail", fn)
+	mergeBlock := g.newBlock("pq_merge", fn)
+	g.current.NewCondBr(isOk, okBlock, failBlock)
+
+	// Success path: unwrap payload and call the piped function.
+	g.current = okBlock
+	var innerType types.Type = types.I64
+	if st, ok := g.check.NodeTypes[n.Left].(*checker.SpecializedType); ok && len(st.Params) > 0 {
+		innerType = g.mapTypeToLLVM(st.Params[0])
+	}
+	payloadPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(innerType))
+	payload := g.current.NewLoad(innerType, castPtr)
+
+	callVal, callType, err := g.generatePipeQuestCall(n, payload)
+	if err != nil {
+		return nil, err
+	}
+	okResult, err := g.normalizeToResult(callVal, callType)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	okBlockOut := g.current
+
+	// Failure path: propagate Err or convert None.
+	g.current = failBlock
+	var failResult value.Value
+	if leftKind == "Result" {
+		failResult = leftVal
+	} else {
+		failResult, err = g.emitUnexpectedNoneAsResultErr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	g.current.NewBr(mergeBlock)
+	failBlockOut := g.current
+
+	g.current = mergeBlock
+	phi := mergeBlock.NewPhi(
+		ir.NewIncoming(okResult, okBlockOut),
+		ir.NewIncoming(failResult, failBlockOut),
+	)
+	return phi, nil
+}
+
+func pipeQuestEnumKind(t checker.Type) string {
+	if st, ok := t.(*checker.SpecializedType); ok {
+		if et, ok := st.Base.(*checker.EnumType); ok {
+			if et.Name == "Result" || et.Name == "Option" {
+				return et.Name
+			}
+		}
+	}
+	return "Result"
+}
+
+func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value.Value) (value.Value, checker.Type, error) {
+	var callee parser.Node
+	var extraArgs []parser.Node
+	if rc, ok := n.Right.(*parser.CallExpr); ok {
+		callee = rc.Callee
+		extraArgs = rc.Args
+	} else {
+		callee = n.Right
+	}
+
+	calleeVal, err := g.generateExpr(callee)
+	if err != nil {
+		return nil, checker.Unknown, err
+	}
+
+	args := []value.Value{payload}
+	for _, arg := range extraArgs {
+		v, err := g.generateExpr(arg)
+		if err != nil {
+			return nil, checker.Unknown, err
+		}
+		args = append(args, v)
+	}
+
+	retVal := g.current.NewCall(calleeVal, args...)
+	var retType checker.Type = checker.Unknown
+	if ft, ok := g.check.NodeTypes[callee].(*checker.FuncType); ok {
+		retType = ft.Return
+	}
+	if sp, ok := g.check.Specializations[n]; ok {
+		retType = sp.Return
+	}
+	return retVal, retType, nil
+}
+
+func (g *Generator) normalizeToResult(val value.Value, t checker.Type) (value.Value, error) {
+	kind := pipeQuestEnumKind(t)
+	if kind == "Result" {
+		return val, nil
+	}
+	if kind == "Option" {
+		ei := g.enums["Option"]
+		optPtr := val
+		if _, ok := val.Type().(*types.PointerType); !ok {
+			alloc := g.newAlloca(val.Type())
+			g.current.NewStore(val, alloc)
+			optPtr = alloc
+		}
+		tagPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+		tag := g.current.NewLoad(types.I64, tagPtr)
+		isSome := g.current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, 0))
+
+		fn := g.current.Parent
+		someBlock := g.newBlock("pq_opt_some", fn)
+		noneBlock := g.newBlock("pq_opt_none", fn)
+		mergeBlock := g.newBlock("pq_opt_merge", fn)
+		g.current.NewCondBr(isSome, someBlock, noneBlock)
+
+		g.current = someBlock
+		var innerType types.Type = types.I64
+		if st, ok := t.(*checker.SpecializedType); ok && len(st.Params) > 0 {
+			innerType = g.mapTypeToLLVM(st.Params[0])
+		}
+		payloadPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(innerType))
+		inner := g.current.NewLoad(innerType, castPtr)
+		okVal, err := g.emitOptionResultAlloc("Result", 0, inner)
+		if err != nil {
+			return nil, err
+		}
+		g.current.NewBr(mergeBlock)
+		someOut := g.current
+
+		g.current = noneBlock
+		errVal, err := g.emitUnexpectedNoneAsResultErr()
+		if err != nil {
+			return nil, err
+		}
+		g.current.NewBr(mergeBlock)
+		noneOut := g.current
+
+		g.current = mergeBlock
+		phi := mergeBlock.NewPhi(
+			ir.NewIncoming(okVal, someOut),
+			ir.NewIncoming(errVal, noneOut),
+		)
+		return phi, nil
+	}
+	return g.emitOptionResultAlloc("Result", 0, val)
+}
+
+func (g *Generator) emitUnexpectedNoneAsResultErr() (value.Value, error) {
+	if fn := g.findFunc("noneError"); fn != nil {
+		msgLit := &parser.StringLiteral{Value: "unexpected None"}
+		msgVal, err := g.generateExpr(msgLit)
+		if err != nil {
+			return nil, err
+		}
+		errIface, err := g.generateCallValue(fn, []value.Value{msgVal})
+		if err != nil {
+			return nil, err
+		}
+		return g.emitOptionResultAlloc("Result", 1, errIface)
+	}
+	return g.emitOptionResultAlloc("Result", 1, nil)
+}
+
+func (g *Generator) generateCallValue(callee value.Value, args []value.Value) (value.Value, error) {
+	return g.current.NewCall(callee, args...), nil
 }
 
 // generateElvisExpr emits `x ?: default`: if x is Some(v) return v, else return default.

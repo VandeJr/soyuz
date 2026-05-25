@@ -15,10 +15,8 @@ func parseFileNodes(src, filePath string) ([]parser.Node, map[parser.Node]string
 	nf := make(map[parser.Node]string)
 	var nodes []parser.Node
 	for _, n := range prog.Body {
-		if _, isImport := n.(*parser.ImportDecl); !isImport {
-			nf[n] = filePath
-			nodes = append(nodes, n)
-		}
+		nf[n] = filePath
+		nodes = append(nodes, n)
 	}
 	return nodes, nf
 }
@@ -52,7 +50,8 @@ func hasError(errors []TypeError, s string) bool {
 // TestM8PubFuncAccessible verifica que uma função pub é acessível cross-file.
 func TestM8PubFuncAccessible(t *testing.T) {
 	libSrc := `pub fn dobrar(x: Int) -> Int = x * 2`
-	mainSrc := `val r = dobrar(5)`
+	mainSrc := `import ( { dobrar } from "lib" )
+val r = dobrar(5)`
 
 	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
 	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
@@ -74,7 +73,8 @@ func TestM8PubFuncAccessible(t *testing.T) {
 // TestM8PrivateFuncBlocked verifica que uma função sem pub gera erro cross-file.
 func TestM8PrivateFuncBlocked(t *testing.T) {
 	libSrc := `fn dobrar(x: Int) -> Int = x * 2`
-	mainSrc := `val r = dobrar(5)`
+	mainSrc := `import ( { dobrar } from "lib" )
+val r = dobrar(5)`
 
 	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
 	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
@@ -96,7 +96,8 @@ func TestM8PrivateFuncBlocked(t *testing.T) {
 // TestM8PubRecordAccessible verifica que um record pub é acessível cross-file.
 func TestM8PubRecordAccessible(t *testing.T) {
 	libSrc := `pub record Ponto { x: Int, y: Int }`
-	mainSrc := `val p = Ponto { x: 1, y: 2 }`
+	mainSrc := `import ( { Ponto } from "lib" )
+val p = Ponto { x: 1, y: 2 }`
 
 	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
 	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
@@ -118,7 +119,8 @@ func TestM8PubRecordAccessible(t *testing.T) {
 // TestM8PrivateRecordBlocked verifica que um record sem pub gera erro cross-file.
 func TestM8PrivateRecordBlocked(t *testing.T) {
 	libSrc := `record Ponto { x: Int, y: Int }`
-	mainSrc := `val p = Ponto { x: 1, y: 2 }`
+	mainSrc := `import ( { Ponto } from "lib" )
+val p = Ponto { x: 1, y: 2 }`
 
 	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
 	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
@@ -159,7 +161,8 @@ val r = dobrar(5)
 // TestM8ValPubAccessible verifica que val pub é acessível cross-file.
 func TestM8ValPubAccessible(t *testing.T) {
 	libSrc := `pub val PI = 3`
-	mainSrc := `val r = PI`
+	mainSrc := `import ( { PI } from "lib" )
+val r = PI`
 
 	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
 	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")
@@ -181,7 +184,8 @@ func TestM8ValPubAccessible(t *testing.T) {
 // TestM8PrivateValBlocked verifica que val sem pub gera erro cross-file.
 func TestM8PrivateValBlocked(t *testing.T) {
 	libSrc := `val PI = 3`
-	mainSrc := `val r = PI`
+	mainSrc := `import ( { PI } from "lib" )
+val r = PI`
 
 	libNodes, libNF := parseFileNodes(libSrc, "/lib.sy")
 	mainNodes, mainNF := parseFileNodes(mainSrc, "/main.sy")

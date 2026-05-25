@@ -1,6 +1,7 @@
-import @soyuz.error.{Error}
-
-import @soyuz.string
+import (
+    { Error } from "@soyuz/error"
+    "@soyuz/string"
+)
 
 extern fn soyuz_str_concat(s1: String, s2: String) -> String
 

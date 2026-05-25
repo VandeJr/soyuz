@@ -37,18 +37,65 @@ func (p *printer) nl()              { p.buf.WriteByte('\n') }
 // ─── Program ─────────────────────────────────────────────────────────────────
 
 func (p *printer) printProgram(prog *parser.Program) {
-	for i, node := range prog.Body {
-		if i > 0 {
-			p.nl() // blank line between top-level declarations
+	i := 0
+	for i < len(prog.Body) {
+		if _, ok := prog.Body[i].(*parser.ImportDecl); ok {
+			p.printImportBlock(prog, i)
+			for i < len(prog.Body) {
+				if _, ok := prog.Body[i].(*parser.ImportDecl); !ok {
+					break
+				}
+				i++
+			}
+			if i < len(prog.Body) {
+				p.nl()
+			}
+			continue
 		}
-		p.printTopLevel(node)
+		if i > 0 {
+			p.nl()
+		}
+		p.printTopLevel(prog.Body[i])
+		i++
 	}
+}
+
+func (p *printer) printImportBlock(prog *parser.Program, start int) {
+	p.writeln("import (")
+	end := start
+	for end < len(prog.Body) {
+		if _, ok := prog.Body[end].(*parser.ImportDecl); !ok {
+			break
+		}
+		end++
+	}
+	for j := start; j < end; j++ {
+		p.write("    ")
+		p.printImportSpec(prog.Body[j].(*parser.ImportDecl))
+		if j < end-1 {
+			p.writeln("")
+		}
+	}
+	p.writeln("")
+	p.writeln(")")
+}
+
+func (p *printer) printImportSpec(n *parser.ImportDecl) {
+	if len(n.Names) > 0 {
+		parts := make([]string, len(n.Names))
+		for i, nm := range n.Names {
+			parts[i] = nm.Name
+		}
+		p.write("{ " + strings.Join(parts, ", ") + " } from \"" + n.Path + "\"")
+		return
+	}
+	p.write("\"" + n.Path + "\"")
 }
 
 func (p *printer) printTopLevel(node parser.Node) {
 	switch n := node.(type) {
 	case *parser.ImportDecl:
-		p.printImportDecl(n)
+		p.printImportBlockSingle(n)
 	case *parser.ExternDecl:
 		p.printExternDecl(n)
 	case *parser.FuncDecl:
@@ -70,37 +117,16 @@ func (p *printer) printTopLevel(node parser.Node) {
 	}
 }
 
+func (p *printer) printImportBlockSingle(n *parser.ImportDecl) {
+	p.writeln("import (")
+	p.write("    ")
+	p.printImportSpec(n)
+	p.writeln("")
+	p.writeln(")")
+}
+
 func (p *printer) printImportDecl(n *parser.ImportDecl) {
-	if n.IsStdlib {
-		mod := strings.Join(n.Path, ".")
-		switch {
-		case len(n.Names) == 0 && !n.Wildcard:
-			p.writeln("import @soyuz." + mod)
-		case n.Wildcard:
-			p.writeln("import @soyuz." + mod + ".*")
-		default:
-			parts := make([]string, len(n.Names))
-			for i, nm := range n.Names {
-				parts[i] = nm.Name
-			}
-			p.writeln("import @soyuz." + mod + ".{" + strings.Join(parts, ", ") + "}")
-		}
-		return
-	}
-	// Regular import: import path.to.mod.{names}
-	path := strings.Join(n.Path, ".")
-	switch {
-	case n.Wildcard:
-		p.writeln("import " + path + ".*")
-	case len(n.Names) == 0:
-		p.writeln("import " + path)
-	default:
-		parts := make([]string, len(n.Names))
-		for i, nm := range n.Names {
-			parts[i] = nm.Name
-		}
-		p.writeln("import " + path + ".{" + strings.Join(parts, ", ") + "}")
-	}
+	p.printImportBlockSingle(n)
 }
 
 func (p *printer) printExternDecl(n *parser.ExternDecl) {
@@ -404,6 +430,8 @@ func (p *printer) expr(node parser.Node) string {
 		return p.expr(n.Left) + " = " + p.expr(n.Right)
 	case *parser.PipeExpr:
 		return p.expr(n.Left) + " |> " + p.expr(n.Right)
+	case *parser.PipeQuestExpr:
+		return p.expr(n.Left) + " |?> " + p.expr(n.Right)
 	case *parser.CallExpr:
 		return p.callExpr(n)
 	case *parser.MemberExpr:
@@ -462,7 +490,7 @@ func (p *printer) exprParen(node parser.Node, minPrec int) string {
 	s := p.expr(node)
 	// Add parens for binary/pipe expressions that may have lower precedence.
 	switch node.(type) {
-	case *parser.BinaryExpr, *parser.PipeExpr, *parser.ElvisExpr, *parser.AssignExpr:
+	case *parser.BinaryExpr, *parser.PipeExpr, *parser.PipeQuestExpr, *parser.ElvisExpr, *parser.AssignExpr:
 		s = "(" + s + ")"
 	}
 	return s

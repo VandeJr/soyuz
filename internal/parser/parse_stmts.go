@@ -4,7 +4,7 @@ import "soyuz/internal/lexer"
 
 func (p *Parser) parseStatement() Node {
 	switch p.peek().Type {
-	case lexer.VAL, lexer.VAR, lexer.CONST:
+	case lexer.VAL, lexer.VAR:
 		return p.parseVarDecl(false)
 	case lexer.FN:
 		return p.parseFuncDecl(false)

@@ -127,6 +127,27 @@ func TestWalkASTVisitsWhenGuard(t *testing.T) {
 	}
 }
 
+// ─── Formatter: import grouping ──────────────────────────────────────────────
+
+func TestFormatImportsNoBlankLineBetween(t *testing.T) {
+	src := `import (
+    { readFile } from "@soyuz/fs"
+    { Lexer } from "lib/lexer/lexer"
+)
+
+fn main() {}`
+	got := parseAndFormat(src)
+	if !strings.Contains(got, "import (") {
+		t.Fatalf("esperado bloco import, obteve:\n%s", got)
+	}
+	if strings.Contains(got, "readFile}\n\nimport") {
+		t.Fatalf("formatter inseriu blank line entre specs do import:\n%s", got)
+	}
+	if !strings.Contains(got, ")\n\nfn") && !strings.Contains(got, ")\n\n\nfn") {
+		t.Fatalf("esperado blank line entre import e fn, obteve:\n%s", got)
+	}
+}
+
 // ─── walkAST: param defaults reachability ────────────────────────────────────
 
 func TestWalkASTVisitsParamDefaults(t *testing.T) {

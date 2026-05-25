@@ -334,7 +334,7 @@ fn main() -> String = greet("Vand")
 
 func TestValFnRewriteCodegen(t *testing.T) {
 	src := `
-val dobrar = fn(x: Int) => x * 2
+fn dobrar(x: Int) -> Int = x * 2
 fn main() -> Int = dobrar(5)
 `
 	tokens := lexer.Tokenize(src)

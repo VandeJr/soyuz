@@ -22,14 +22,15 @@ type AnalysisResult struct {
 // Engine re-analyzes documents on change with a 300 ms debounce and maintains
 // a cross-file SymbolIndex for workspace-wide navigation.
 type Engine struct {
-	mu        sync.RWMutex
-	results   map[string]*AnalysisResult
-	texts     map[string]string
-	timers    map[string]*time.Timer
-	open      map[string]bool // files currently open in the editor
-	notify    func(uri string, result *AnalysisResult)
-	index     *SymbolIndex
-	stdlibDir string // temp dir with extracted stdlib; empty = no stdlib
+	mu            sync.RWMutex
+	results       map[string]*AnalysisResult
+	texts         map[string]string
+	timers        map[string]*time.Timer
+	open          map[string]bool // files currently open in the editor
+	notify        func(uri string, result *AnalysisResult)
+	index         *SymbolIndex
+	stdlibDir     string // temp dir with extracted stdlib; empty = no stdlib
+	workspaceRoot string // filesystem path of the workspace root; used as resolver root
 }
 
 func NewEngine(notify func(uri string, result *AnalysisResult)) *Engine {
@@ -109,6 +110,15 @@ func (e *Engine) GetText(uri string) string {
 	return e.texts[uri]
 }
 
+// SetWorkspaceRoot sets the workspace root used by the import resolver.
+// Call this before spawning IndexWorkspace so files opened before the
+// background scan completes still resolve imports from the correct root.
+func (e *Engine) SetWorkspaceRoot(root string) {
+	e.mu.Lock()
+	e.workspaceRoot = root
+	e.mu.Unlock()
+}
+
 // GetAll returns a shallow copy of all analyzed results, keyed by URI.
 func (e *Engine) GetAll() map[string]*AnalysisResult {
 	e.mu.RLock()
@@ -121,6 +131,8 @@ func (e *Engine) GetAll() map[string]*AnalysisResult {
 }
 
 func (e *Engine) analyze(uri string) {
+	defer func() { recover() }() //nolint — impede que panics em goroutines de timer derrubem o servidor
+
 	e.mu.RLock()
 	text, ok := e.texts[uri]
 	e.mu.RUnlock()
@@ -164,6 +176,13 @@ func (e *Engine) analyze(uri string) {
 // For each import found (stdlib or local), dependencies are resolved and merged recursively.
 func (e *Engine) analyzeWithStdlib(filePath, text string, prog *parser.Program) *checker.CheckResult {
 	resolver := module.NewResolverWithStdlib(filePath, e.stdlibDir)
+	// Use workspace root so local imports resolve correctly for any file in the project,
+	// not just the entry file.
+	e.mu.RLock()
+	if e.workspaceRoot != "" {
+		resolver.Root = e.workspaceRoot
+	}
+	e.mu.RUnlock()
 
 	var allNodes []parser.Node
 	nodeFile := make(map[parser.Node]string)

@@ -4,7 +4,6 @@ var keywords = map[string]TokenType{
 	// Declarações
 	"val":    VAL,
 	"var":    VAR,
-	"const":  CONST,
 	"fn":     FN,
 	"extern": EXTERN,
 	"return": RETURN,

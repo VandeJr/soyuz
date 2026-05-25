@@ -1,6 +1,10 @@
 package parser
 
-import "soyuz/internal/lexer"
+import (
+	"strings"
+
+	"soyuz/internal/lexer"
+)
 
 func (p *Parser) parseTopLevel() Node {
 	pub := false
@@ -10,25 +14,11 @@ func (p *Parser) parseTopLevel() Node {
 	}
 
 	switch p.peek().Type {
-	case lexer.WEAK, lexer.VAL, lexer.VAR, lexer.CONST:
+	case lexer.WEAK, lexer.VAL, lexer.VAR:
 		vd := p.parseVarDecl(pub)
-		// Rewrite: val name = fn(...) => body → FuncDecl (only when no type annotation)
-		if vd.Kind == KindVal && vd.Pattern == nil && vd.Name != "" && vd.Type == nil {
-			if af, ok := vd.Init.(*ArrowFunc); ok {
-				isExprBody := true
-				if _, isBlock := af.Body.(*BlockStmt); isBlock {
-					isExprBody = false
-				}
-				return &FuncDecl{
-					pos:        vd.Pos(),
-					NamePos:    vd.NamePos,
-					Pub:        vd.Pub,
-					Name:       vd.Name,
-					Params:     af.Params,
-					ReturnType: af.ReturnType,
-					Body:       af.Body,
-					IsExprBody: isExprBody,
-				}
+		if vd.Pattern == nil && vd.Name != "" {
+			if _, ok := vd.Init.(*ArrowFunc); ok {
+				p.errorf(vd.Pos(), "funções nomeadas devem usar 'fn %s(...)', não 'val %s = fn(...)'", vd.Name, vd.Name)
 			}
 		}
 		return vd
@@ -44,11 +34,6 @@ func (p *Parser) parseTopLevel() Node {
 		return p.parseInterfaceDecl(pub)
 	case lexer.ENUM:
 		return p.parseEnumDecl(pub)
-	case lexer.IMPORT:
-		if pub {
-			p.errorf(p.peek().Position, "import não pode ser pub")
-		}
-		return p.parseImportDecl()
 	default:
 		if pub {
 			p.errorf(p.peek().Position, "esperado declaração após pub")
@@ -374,81 +359,161 @@ func (p *Parser) parseExternDecl(pub bool) *ExternDecl {
 	return &ExternDecl{pos: pos, Pub: pub, Name: nameTok.Lexeme, Params: params, ReturnType: returnType}
 }
 
-func (p *Parser) parseImportDecl() *ImportDecl {
+func (p *Parser) parseImportBlock() []Node {
 	pos := p.expect(lexer.IMPORT).Position
 
-	// Stdlib import:
-	//   import @soyuz.mock                    — bare: tudo público + namespace mock.*
-	//   import @soyuz.mock.assert_true        — símbolo único (sem chaves)
-	//   import @soyuz.mock.{assert_true, ...} — múltiplos símbolos (chaves obrigatórias)
-	if p.consume(lexer.AT) {
-		p.expect(lexer.IDENT) // "soyuz" — escopo, validado mas não armazenado
-		p.expect(lexer.DOT)
-
-		// Consome todos os segmentos de caminho até encontrar {, * ou EOF.
-		// Exemplos:
-		//   import @soyuz.mock                    → path=["mock"]
-		//   import @soyuz.collections.list        → path=["collections","list"]
-		//   import @soyuz.mock.{f1, f2}           → path=["mock"], names=[f1,f2]
-		//   import @soyuz.collections.list.{fn}   → path=["collections","list"], names=[fn]
-		var path []string
-		path = append(path, p.expect(lexer.IDENT).Lexeme)
-
-		var names []ImportName
-		wildcard := false
-
-		for p.consume(lexer.DOT) {
-			if p.check(lexer.LBRACE) {
-				p.advance()
-				for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
-					n := p.expect(lexer.IDENT).Lexeme
-					names = append(names, ImportName{Name: n})
-					p.consume(lexer.COMMA)
-				}
-				p.expect(lexer.RBRACE)
-				break
-			}
-			if p.check(lexer.ASTERISK) {
-				wildcard = true
-				p.advance()
-				break
-			}
-			if p.check(lexer.IDENT) {
-				path = append(path, p.advance().Lexeme)
-			} else {
-				break
-			}
-		}
-
-		p.consume(lexer.SEMICOLON)
-		return &ImportDecl{pos: pos, Path: path, Names: names, Wildcard: wildcard, IsStdlib: true}
+	// Bloco: import ( ... )
+	if p.check(lexer.LPAREN) {
+		return p.parseImportParenBlock(pos)
 	}
 
-	var path []string
-	path = append(path, p.expect(lexer.IDENT).Lexeme)
+	// Inline: import path.{ names }  ou  import path
+	segments, isStdlib, ok := p.parseImportPathSegments()
+	if !ok {
+		p.synchronize()
+		return nil
+	}
 
 	var names []ImportName
-	wildcard := false
+	p.consume(lexer.DOT) // math.{ names } ou @soyuz.fs.{ readFile }
+	if p.check(lexer.LBRACE) {
+		names = p.parseImportNames()
+	}
 
-	for p.consume(lexer.DOT) {
-		if p.check(lexer.LBRACE) {
-			p.advance()
-			for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
-				n := p.expect(lexer.IDENT).Lexeme
-				names = append(names, ImportName{Name: n})
-				p.consume(lexer.COMMA)
-			}
-			p.expect(lexer.RBRACE)
-			break
+	p.consume(lexer.SEMICOLON)
+	return []Node{p.makeImportDeclFromSegments(pos, segments, isStdlib, names)}
+}
+
+func (p *Parser) parseImportParenBlock(pos lexer.Position) []Node {
+	p.expect(lexer.LPAREN)
+
+	var decls []Node
+	for !p.check(lexer.RPAREN) && !p.check(lexer.EOF) {
+		if spec := p.parseImportSpec(pos); spec != nil {
+			decls = append(decls, spec)
+		} else {
+			p.advance() // evita loop infinito em erro de sintaxe
 		}
-		if p.check(lexer.ASTERISK) {
-			wildcard = true
-			p.advance()
-			break
-		}
-		path = append(path, p.expect(lexer.IDENT).Lexeme)
+		p.consume(lexer.SEMICOLON)
+		p.skipSemicolons()
+	}
+	if p.check(lexer.RPAREN) {
+		p.advance()
+	} else {
+		p.errorf(p.peek().Position, "esperado ')' no bloco import")
 	}
 	p.consume(lexer.SEMICOLON)
+	return decls
+}
 
-	return &ImportDecl{pos: pos, Path: path, Names: names, Wildcard: wildcard}
+func (p *Parser) parseImportPathSegments() ([]string, bool, bool) {
+	var segments []string
+	isStdlib := false
+
+	if p.check(lexer.AT) {
+		p.advance()
+		tok := p.peek()
+		if tok.Type != lexer.IDENT || tok.Lexeme != "soyuz" {
+			p.errorf(tok.Position, "esperado 'soyuz' após '@' em import stdlib")
+			return nil, false, false
+		}
+		p.advance()
+		isStdlib = true
+	} else if p.check(lexer.IDENT) {
+		segments = append(segments, p.advance().Lexeme)
+	} else {
+		p.errorf(p.peek().Position, "esperado caminho de módulo após import")
+		return nil, false, false
+	}
+
+	for {
+		if !p.check(lexer.DOT) && !p.check(lexer.SLASH) {
+			break
+		}
+		// math.{ names } — o ponto antes de { encerra o caminho, não é segmento
+		if p.check(lexer.DOT) && p.peekN(1).Type == lexer.LBRACE {
+			break
+		}
+		p.advance()
+		if !p.check(lexer.IDENT) {
+			p.errorf(p.peek().Position, "esperado segmento de módulo após '.' ou '/'")
+			return nil, false, false
+		}
+		segments = append(segments, p.advance().Lexeme)
+	}
+
+	return segments, isStdlib, true
+}
+
+func (p *Parser) parseImportNames() []ImportName {
+	p.expect(lexer.LBRACE)
+	var names []ImportName
+	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+		tok := p.peek()
+		if tok.Type != lexer.IDENT {
+			p.errorf(tok.Position, "esperado identificador na lista de import")
+			p.advance()
+			continue
+		}
+		names = append(names, ImportName{Name: p.advance().Lexeme})
+		p.consume(lexer.COMMA)
+	}
+	p.expect(lexer.RBRACE)
+	return names
+}
+
+func (p *Parser) parseImportSpec(blockPos lexer.Position) *ImportDecl {
+	if p.check(lexer.LBRACE) {
+		names := p.parseImportNames()
+		if !p.check(lexer.IDENT) || p.peek().Lexeme != "from" {
+			p.errorf(p.peek().Position, "esperado 'from' após nomes importados")
+			return nil
+		}
+		p.advance()
+		if !p.check(lexer.STRING_LITERAL) {
+			p.errorf(p.peek().Position, "esperado string literal após 'from'")
+			return nil
+		}
+		path := p.advance().Lexeme
+		return p.makeImportDecl(blockPos, path, names)
+	}
+
+	if p.check(lexer.STRING_LITERAL) {
+		path := p.advance().Lexeme
+		return p.makeImportDecl(blockPos, path, nil)
+	}
+
+	p.errorf(p.peek().Position, "esperado {names} from \"path\" ou \"path\" no import")
+	return nil
+}
+
+func (p *Parser) makeImportDecl(pos lexer.Position, path string, names []ImportName) *ImportDecl {
+	isStdlib := strings.HasPrefix(path, "@soyuz/")
+	return p.makeImportDeclFromSegments(pos, pathSegmentsFromPath(path), isStdlib, names)
+}
+
+func (p *Parser) makeImportDeclFromSegments(pos lexer.Position, segments []string, isStdlib bool, names []ImportName) *ImportDecl {
+	path := strings.Join(segments, "/")
+	if isStdlib {
+		path = "@soyuz/" + path
+	}
+	namespace := ""
+	if len(segments) > 0 {
+		namespace = segments[len(segments)-1]
+	}
+	return &ImportDecl{
+		pos:       pos,
+		Path:      path,
+		Names:     names,
+		Namespace: namespace,
+		IsStdlib:  isStdlib,
+	}
+}
+
+func pathSegmentsFromPath(path string) []string {
+	p := strings.TrimPrefix(path, "@soyuz/")
+	if p == "" {
+		return nil
+	}
+	return strings.Split(p, "/")
 }

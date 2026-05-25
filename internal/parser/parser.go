@@ -39,9 +39,18 @@ func (p *Parser) Parse() *Program {
 	prog := &Program{pos: p.peek().Position}
 	p.skipSemicolons()
 	for !p.check(lexer.EOF) {
-		node := p.parseTopLevel()
-		if node != nil {
-			prog.Body = append(prog.Body, node)
+		if p.check(lexer.IMPORT) {
+			decls := p.parseImportBlock()
+			for _, d := range decls {
+				if d != nil {
+					prog.Body = append(prog.Body, d)
+				}
+			}
+		} else {
+			node := p.parseTopLevel()
+			if node != nil {
+				prog.Body = append(prog.Body, node)
+			}
 		}
 		p.skipSemicolons()
 	}
@@ -115,7 +124,7 @@ func (p *Parser) isNameLikeKeyword(t lexer.TokenType) bool {
 		lexer.INT_TYPE, lexer.FLOAT_TYPE, lexer.BOOL_TYPE,
 		lexer.STRING_TYPE, lexer.UNIT_TYPE,
 		// field names that shadow declaration keywords
-		lexer.VAL, lexer.VAR, lexer.CONST, lexer.FN,
+		lexer.VAL, lexer.VAR, lexer.FN,
 		lexer.PUB, lexer.SELF, lexer.IN:
 		return true
 	}
@@ -148,7 +157,7 @@ func (p *Parser) synchronize() {
 			return
 		}
 		switch p.peek().Type {
-		case lexer.FN, lexer.VAL, lexer.VAR, lexer.CONST,
+		case lexer.FN, lexer.VAL, lexer.VAR,
 			lexer.CLASS, lexer.RECORD, lexer.INTERFACE, lexer.ENUM,
 			lexer.IF, lexer.FOR, lexer.WHILE, lexer.LOOP, lexer.RETURN,
 			lexer.RBRACE:

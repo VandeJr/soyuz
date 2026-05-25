@@ -156,6 +156,9 @@ func walkNode(node parser.Node, fn func(parser.Node)) {
 	case *parser.PipeExpr:
 		walkNode(n.Left, fn)
 		walkNode(n.Right, fn)
+	case *parser.PipeQuestExpr:
+		walkNode(n.Left, fn)
+		walkNode(n.Right, fn)
 	case *parser.IndexExpr:
 		walkNode(n.Object, fn)
 		walkNode(n.Index, fn)

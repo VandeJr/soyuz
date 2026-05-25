@@ -132,6 +132,135 @@ fn main() {
 	}
 }
 
+// ─── mutable List methods ─────────────────────────────────────────────────────
+
+func TestListSet(t *testing.T) {
+	src := `
+fn main() {
+  var xs = [10, 20, 30]
+  xs.set(1, 99)
+  print(xs.get(1))
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_set") {
+		t.Fatalf("esperado soyuz_list_set no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListRemove(t *testing.T) {
+	src := `
+fn main() {
+  var xs = [1, 2, 3]
+  val removed = xs.remove(0)
+  print(removed)
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_remove") {
+		t.Fatalf("esperado soyuz_list_remove no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListPop(t *testing.T) {
+	src := `
+fn main() {
+  var xs = [1, 2, 3]
+  val last = xs.pop()
+  print(last)
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_pop") {
+		t.Fatalf("esperado soyuz_list_pop no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListPrepend(t *testing.T) {
+	src := `
+fn main() {
+  var xs = [2, 3]
+  xs.prepend(1)
+  print(xs.get(0))
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_prepend") {
+		t.Fatalf("esperado soyuz_list_prepend no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListClearPrimitive(t *testing.T) {
+	src := `
+fn main() {
+  var xs = [1, 2, 3]
+  xs.clear()
+  print(xs.size())
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_clear_primitive") {
+		t.Fatalf("esperado soyuz_list_clear_primitive no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListClearRC(t *testing.T) {
+	src := `
+fn main() {
+  var xs = ["a", "b", "c"]
+  xs.clear()
+  print(xs.size())
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_clear_rc") {
+		t.Fatalf("esperado soyuz_list_clear_rc no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListCopy(t *testing.T) {
+	src := `
+fn main() {
+  val xs = [1, 2, 3]
+  val ys = xs.copy()
+  print(ys.size())
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_copy") {
+		t.Fatalf("esperado soyuz_list_copy no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListConcat(t *testing.T) {
+	src := `
+fn main() {
+  val xs = [1, 2]
+  val ys = [3, 4]
+  val zs = xs.concat(ys)
+  print(zs.size())
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_concat") {
+		t.Fatalf("esperado soyuz_list_concat no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestListSetRC(t *testing.T) {
+	src := `
+fn main() {
+  var xs = ["a", "b", "c"]
+  xs.set(0, "z")
+  print(xs.get(0))
+}
+`
+	ir := collIR(t, src)
+	if !strings.Contains(ir, "soyuz_list_set_rc") {
+		t.Fatalf("esperado soyuz_list_set_rc no IR, obteve:\n%s", ir)
+	}
+}
+
 // ─── path.sy: extern fn usados sem import de string.sy ───────────────────────
 
 func TestPathExternFnsPresent(t *testing.T) {

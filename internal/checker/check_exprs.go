@@ -59,6 +59,13 @@ func (c *Checker) checkMapExpr(n *parser.MapExpr) Type {
 }
 
 func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
+	if id, ok := n.Object.(*parser.Identifier); ok {
+		if sym, exists := c.scope.Resolve(id.Name); exists {
+			if ct, ok := sym.Type.(*ClassType); ok && len(ct.Fields) == 0 && len(ct.Methods) > 0 {
+				c.checkModuleNamespaceAccess(id.Name, n.Pos())
+			}
+		}
+	}
 	objType := c.checkNode(n.Object)
 	switch t := objType.(type) {
 	case *EnumType:
@@ -278,6 +285,9 @@ func freeIdentifiers(node parser.Node, paramNames map[string]bool, parentScope *
 		case *parser.PipeExpr:
 			walk(v.Left)
 			walk(v.Right)
+		case *parser.PipeQuestExpr:
+			walk(v.Left)
+			walk(v.Right)
 		case *parser.ExprStmt:
 			walk(v.Expr)
 		case *parser.RecordLiteral:
@@ -321,6 +331,86 @@ func (c *Checker) checkPipeExpr(n *parser.PipeExpr) Type {
 		c.specializations[n] = ft
 	}
 	return t
+}
+
+// unwrapResultOption returns the inner payload type and enum name ("Result" or "Option").
+func (c *Checker) unwrapResultOption(t Type) (Type, string) {
+	if st, ok := t.(*SpecializedType); ok {
+		if et, ok := st.Base.(*EnumType); ok && len(st.Params) > 0 {
+			if et.Name == "Result" || et.Name == "Option" {
+				return st.Params[0], et.Name
+			}
+		}
+	}
+	return Unknown, ""
+}
+
+// asResultType normalizes a return type to Result[T] for |?> chaining.
+func (c *Checker) asResultType(t Type) Type {
+	if inner, kind := c.unwrapResultOption(t); kind != "" {
+		if kind == "Result" {
+			return t
+		}
+		if eb := c.resultEnum(); eb != nil {
+			return &SpecializedType{Base: eb, Params: []Type{inner}}
+		}
+	}
+	if eb := c.resultEnum(); eb != nil {
+		return &SpecializedType{Base: eb, Params: []Type{t}}
+	}
+	return Unknown
+}
+
+func (c *Checker) resultEnum() *EnumType {
+	sym, ok := c.scope.Resolve("Result")
+	if !ok {
+		return nil
+	}
+	et, ok := sym.Type.(*EnumType)
+	if !ok {
+		return nil
+	}
+	return et
+}
+
+func (c *Checker) checkPipeQuestExpr(n *parser.PipeQuestExpr) Type {
+	leftType := c.checkNode(n.Left)
+	innerType, kind := c.unwrapResultOption(leftType)
+	if kind == "" {
+		c.errorf(n.Left.Pos(), "|?> requer Result ou Option à esquerda, obtido %s", leftType)
+		return Unknown
+	}
+
+	var call *parser.CallExpr
+	if rc, ok := n.Right.(*parser.CallExpr); ok {
+		newArgs := append([]parser.Node{n.Left}, rc.Args...)
+		call = &parser.CallExpr{Callee: rc.Callee, Args: newArgs}
+	} else {
+		call = &parser.CallExpr{Callee: n.Right, Args: []parser.Node{n.Left}}
+	}
+
+	// Type-check call as if the piped value were the unwrapped payload.
+	if af, ok := call.Args[0].(*parser.ArrowFunc); ok {
+		c.arrowFuncHints[af] = []Type{innerType}
+	}
+	calleeType := c.checkNode(call.Callee)
+	ft, ok := calleeType.(*FuncType)
+	if !ok {
+		c.errorf(n.Right.Pos(), "|?> lado direito deve ser chamável")
+		return Unknown
+	}
+	if len(ft.Params) > 0 && innerType != Unknown && !c.isAssignable(ft.Params[0], innerType) && !c.isAssignable(innerType, ft.Params[0]) {
+		c.errorf(n.Pos(), "|?> argumento incompatível: esperado %s, obtido %s", ft.Params[0], innerType)
+	}
+	for i := 1; i < len(call.Args); i++ {
+		c.checkNode(call.Args[i])
+	}
+
+	outType := c.asResultType(ft.Return)
+	c.nodeTypes[call] = ft.Return
+	c.specializations[n] = &FuncType{Return: outType}
+	_ = kind
+	return outType
 }
 
 func (c *Checker) checkMatchExpr(n *parser.MatchExpr) Type {
@@ -493,6 +583,48 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				case "isEmpty":
 					c.specializations[n] = &FuncType{Return: BoolType}
 					return BoolType
+				case "set":
+					if len(n.Args) == 2 {
+						c.checkNode(n.Args[0])
+						c.checkNode(n.Args[1])
+						c.specializations[n] = &FuncType{Return: UnitType}
+						return UnitType
+					}
+				case "remove":
+					if len(n.Args) == 1 {
+						c.checkNode(n.Args[0])
+						c.specializations[n] = &FuncType{Return: elemType}
+						return elemType
+					}
+				case "pop":
+					if len(n.Args) == 0 {
+						c.specializations[n] = &FuncType{Return: elemType}
+						return elemType
+					}
+				case "prepend":
+					if len(n.Args) == 1 {
+						c.checkNode(n.Args[0])
+						c.specializations[n] = &FuncType{Return: UnitType}
+						return UnitType
+					}
+				case "clear":
+					if len(n.Args) == 0 {
+						c.specializations[n] = &FuncType{Return: UnitType}
+						return UnitType
+					}
+				case "copy":
+					if len(n.Args) == 0 {
+						resultType := &SpecializedType{Base: ct, Params: []Type{elemType}}
+						c.specializations[n] = &FuncType{Return: resultType}
+						return resultType
+					}
+				case "concat":
+					if len(n.Args) == 1 {
+						c.checkNode(n.Args[0])
+						resultType := &SpecializedType{Base: ct, Params: []Type{elemType}}
+						c.specializations[n] = &FuncType{Return: resultType}
+						return resultType
+					}
 				}
 			}
 			if ct, isCT := st.Base.(*ClassType); isCT && ct.Name == "Map" && len(st.Params) == 2 {
@@ -756,7 +888,7 @@ func (c *Checker) checkBinaryExpr(n *parser.BinaryExpr) Type {
 		}
 		return BoolType
 	case "<", ">", "<=", ">=":
-		if (left == IntType || left == FloatType) && left.String() == right.String() {
+		if (left == IntType || left == FloatType || left == CharType) && left.String() == right.String() {
 			return BoolType
 		}
 		c.errorf(n.Pos(), "order comparison not supported for %s and %s", left, right)

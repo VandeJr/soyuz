@@ -8,21 +8,24 @@ import (
 )
 
 type Checker struct {
-	errors          []TypeError
-	scope           *Scope
-	nodeTypes       map[parser.Node]Type
-	specializations map[parser.Node]*FuncType
-	funcVariants    map[string][]*parser.FuncDecl
-	captures        map[*parser.ArrowFunc][]string
-	currentClass    *ClassType
-	synthCallArgs   map[*parser.CallExpr][]parser.Node
-	inferredBodies  map[*parser.FuncDecl]bool
-	arrowFuncHints  map[*parser.ArrowFunc][]Type
-	curriedCalls    map[*parser.CallExpr]*parser.ArrowFunc
+	errors               []TypeError
+	scope                *Scope
+	nodeTypes            map[parser.Node]Type
+	specializations      map[parser.Node]*FuncType
+	funcVariants         map[string][]*parser.FuncDecl
+	captures             map[*parser.ArrowFunc][]string
+	currentClass         *ClassType
+	synthCallArgs        map[*parser.CallExpr][]parser.Node
+	inferredBodies       map[*parser.FuncDecl]bool
+	arrowFuncHints       map[*parser.ArrowFunc][]Type
+	curriedCalls         map[*parser.CallExpr]*parser.ArrowFunc
+	pendingClassMethods  []pendingClassMethod
 	// M8.1: cross-file pub enforcement
 	nodeFile     map[parser.Node]string // nil = single-file mode (pub not enforced)
 	symbolOrigin map[string]string      // global name → defining file
 	symbolPub    map[string]bool        // global name → pub status
+	fileNamedImports     map[string]map[string]bool // file → imported symbol names
+	fileModuleNamespaces map[string]map[string]bool // file → imported module namespace names
 	currentFile  string                 // file currently being checked
 	inTopLevel   bool                   // true while checking a top-level value node (Pass 4)
 	context      context
@@ -90,6 +93,13 @@ func New() *Checker {
 			"reduce":  {{Params: []Type{Unknown, Unknown}, Return: Unknown}},
 			"join":    {{Params: []Type{StringType}, Return: StringType}},
 			"isEmpty": {{Params: []Type{}, Return: BoolType}},
+			"set":     {{Params: []Type{IntType, &TypeParameter{Name: "T"}}, Return: UnitType}},
+			"remove":  {{Params: []Type{IntType}, Return: &TypeParameter{Name: "T"}}},
+			"pop":     {{Params: []Type{}, Return: &TypeParameter{Name: "T"}}},
+			"prepend": {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"clear":   {{Params: []Type{}, Return: UnitType}},
+			"copy":    {{Params: []Type{}, Return: Unknown}},    // handled specially in checkCallExpr
+			"concat":  {{Params: []Type{Unknown}, Return: Unknown}}, // handled specially in checkCallExpr
 		},
 	}
 	scope.Define("List", listType, true)
@@ -120,8 +130,10 @@ func New() *Checker {
 		inferredBodies:  make(map[*parser.FuncDecl]bool),
 		arrowFuncHints:  make(map[*parser.ArrowFunc][]Type),
 		curriedCalls:    make(map[*parser.CallExpr]*parser.ArrowFunc),
-		symbolOrigin:    make(map[string]string),
-		symbolPub:       make(map[string]bool),
+		symbolOrigin:         make(map[string]string),
+		symbolPub:            make(map[string]bool),
+		fileNamedImports:     make(map[string]map[string]bool),
+		fileModuleNamespaces: make(map[string]map[string]bool),
 	}
 }
 
@@ -132,6 +144,8 @@ func (c *Checker) SetNodeFiles(nf map[parser.Node]string) {
 }
 
 func (c *Checker) Check(prog *parser.Program) *CheckResult {
+	c.collectFileImports(prog)
+
 	// Pass 1: group function variants, separate type decls from value nodes.
 	var typeNodes []parser.Node
 	var valueNodes []parser.Node
@@ -167,13 +181,29 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 		c.registerFuncVariants(name, variants)
 	}
 
-	// Pass 3.5: create module namespaces for bare stdlib imports (import @soyuz.mock).
+	// Pass 3.5: create module namespaces for module imports.
 	// Must run after Pass 3 so all function signatures are registered in scope.
 	for _, node := range prog.Body {
-		if imp, ok := node.(*parser.ImportDecl); ok && imp.IsStdlib && len(imp.Names) == 0 && !imp.Wildcard {
+		if imp, ok := node.(*parser.ImportDecl); ok && imp.IsModuleImport() {
+			if c.nodeFile != nil {
+				c.currentFile = c.nodeFile[node]
+			}
 			c.registerModuleNamespace(prog, imp)
 		}
 	}
+
+	// Pass 3.7: check class method bodies that were deferred during Pass 2.
+	// Running after Pass 3 ensures top-level functions are in scope so methods
+	// can reference them (e.g. passing isDigit/isLetter as HOF arguments).
+	prevClass := c.currentClass
+	for _, pm := range c.pendingClassMethods {
+		if c.nodeFile != nil {
+			c.currentFile = pm.file
+		}
+		c.currentClass = pm.ct
+		c.checkClassMethodBody(pm)
+	}
+	c.currentClass = prevClass
 
 	// Pass 4: check value nodes (var decls, expressions) that may call functions.
 	for _, node := range valueNodes {
@@ -278,6 +308,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkArrowFunc(n)
 	case *parser.PipeExpr:
 		return c.checkPipeExpr(n)
+	case *parser.PipeQuestExpr:
+		return c.checkPipeQuestExpr(n)
 	case *parser.ElvisExpr:
 		return c.checkElvisExpr(n)
 	case *parser.TupleExpr:
@@ -320,6 +352,7 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 func (c *Checker) errorf(pos lexer.Position, format string, args ...any) {
 	c.errors = append(c.errors, TypeError{
 		Pos:     pos,
+		File:    c.currentFile,
 		Message: fmt.Sprintf(format, args...),
 	})
 }
@@ -333,8 +366,41 @@ func (c *Checker) registerGlobalSymbol(name string, node parser.Node, pub bool) 
 	c.symbolPub[name] = pub
 }
 
+// collectFileImports builds per-file named import and module namespace sets.
+func (c *Checker) collectFileImports(prog *parser.Program) {
+	if c.nodeFile == nil {
+		return
+	}
+	for _, node := range prog.Body {
+		imp, ok := node.(*parser.ImportDecl)
+		if !ok {
+			continue
+		}
+		file := c.nodeFile[node]
+		if file == "" {
+			continue
+		}
+		if c.fileNamedImports[file] == nil {
+			c.fileNamedImports[file] = make(map[string]bool)
+		}
+		if c.fileModuleNamespaces[file] == nil {
+			c.fileModuleNamespaces[file] = make(map[string]bool)
+		}
+		if imp.IsModuleImport() {
+			c.fileModuleNamespaces[file][imp.Namespace] = true
+		}
+		for _, n := range imp.Names {
+			name := n.Name
+			if n.Alias != "" {
+				name = n.Alias
+			}
+			c.fileNamedImports[file][name] = true
+		}
+	}
+}
+
 // checkGlobalAccess emits an error if name is a global symbol from a different file
-// than currentFile and is not marked pub.
+// than currentFile and is not marked pub or not imported.
 func (c *Checker) checkGlobalAccess(name string, pos lexer.Position) {
 	if c.nodeFile == nil {
 		return
@@ -345,7 +411,23 @@ func (c *Checker) checkGlobalAccess(name string, pos lexer.Position) {
 	}
 	if !c.symbolPub[name] {
 		c.errorf(pos, "símbolo '%s' não é público (defina com 'pub' em %s)", name, filepath.Base(origin))
+		return
 	}
+	if c.fileNamedImports[c.currentFile][name] {
+		return
+	}
+	c.errorf(pos, "símbolo '%s' não foi importado em %s", name, filepath.Base(c.currentFile))
+}
+
+// checkModuleNamespaceAccess verifies the current file imported the module namespace.
+func (c *Checker) checkModuleNamespaceAccess(ns string, pos lexer.Position) {
+	if c.nodeFile == nil {
+		return
+	}
+	if c.fileModuleNamespaces[c.currentFile][ns] {
+		return
+	}
+	c.errorf(pos, "namespace '%s' não foi importado em %s", ns, filepath.Base(c.currentFile))
 }
 
 func (c *Checker) isHeapType(t Type) bool {

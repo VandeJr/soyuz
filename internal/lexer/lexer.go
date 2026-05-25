@@ -63,6 +63,14 @@ func (l *Lexer) peekChar() rune {
 	return l.input[l.readPosition]
 }
 
+func (l *Lexer) peekCharN(n int) rune {
+	pos := l.readPosition + n - 1
+	if pos >= len(l.input) {
+		return 0
+	}
+	return l.input[pos]
+}
+
 func (l *Lexer) currentPos() Position {
 	return Position{Line: l.line, Column: l.column}
 }
@@ -429,7 +437,11 @@ func (l *Lexer) NextToken() Token {
 		}
 
 	case '|':
-		if l.peekChar() == '>' {
+		if l.peekChar() == '?' && l.peekCharN(2) == '>' {
+			l.readChar() // ?
+			l.readChar() // >
+			tok = Token{Type: PIPE_QUEST, Lexeme: "|?>", Position: pos}
+		} else if l.peekChar() == '>' {
 			l.readChar()
 			tok = Token{Type: PIPE, Lexeme: "|>", Position: pos}
 		} else if l.peekChar() == '|' {

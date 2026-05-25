@@ -1,9 +1,9 @@
 import (
     { range, Iteravel, List, Map } from "@soyuz/collections"
     { StringExtensions } from "@soyuz/string"
+    { Error } from "@soyuz/error"
     { getenv, args } from "@soyuz/os"
     { readFile } from "@soyuz/fs"
-    { Error } from "@soyuz/error"
 )
 
 extern fn soyuz_print_str(s: String)
@@ -28,10 +28,6 @@ pub class Usuario : Identificavel {
 
     pub fn saudar(self) {
         print("Olá, eu sou $(self.nome) (ID: $(self.id()))")
-    }
-
-    pub fn promover(self) {
-        print("$(self.nome) promovido para o nível padrão.")
     }
 
     pub fn promover(self, nivel: Int) {
@@ -104,9 +100,10 @@ fn demonstrarColecoes() {
     }
 }
 
+fn multiplicar(x: Int, y: Int) = x * y
+
 fn demonstrarPipes() {
-    val multiplicar = fn(x: Int, y: Int) => x * y
-    val dobrar = multiplicar(2, _)
+    fn dobrar = multiplicar(2, _)
     val resultado = 10 |> dobrar |> identidade
     print("Resultado do pipe: $(resultado)")
 }
@@ -137,15 +134,10 @@ fn demonstrarBitwise() {
 }
 
 fn demonstrarOsFs() {
-    match getenv("PATH") {
-        Ok(sysPath) => print("Variável PATH carregada, tam: $(sysPath.len())")
-        Err(e) => print("PATH não definido: $(e.message())")
-    }
-    match readFile("index.sy") {
-        Ok(content) => print("Arquivo lido, tamanho: $(content.len()) bytes.")
-        Err(e) => print("Falha ao ler arquivo: $(e.message())")
-    }
-    match readFile("index.soyuz") {
+    val sysPath = getenv("PATH")
+    print("Variável PATH carregada, tam: $(sysPath.len())")
+    val fileResult = readFile("main.sy")
+    match fileResult {
         Ok(content) => print("Arquivo lido, tamanho: $(content.len()) bytes.")
         Err(e) => print("Falha ao ler arquivo: $(e.message())")
     }
@@ -155,7 +147,6 @@ pub fn main() {
     print("Iniciando Soyuz Showcase Expandido")
     val u = Usuario { nome: "Vand", _id: 42, superior: None }
     u.saudar()
-    u.promover()
     u.promover(3)
     val nomeSuperior = match u.superior {
         Some(s) => s.nome

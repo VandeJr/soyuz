@@ -29,7 +29,7 @@ type SymbolKind int
 const (
 	SymbolFunction SymbolKind = iota
 	SymbolType                // record, enum, class, interface
-	SymbolVariable            // pub val / var / const
+	SymbolVariable            // pub val / var
 )
 
 // ─── IndexedSymbol ────────────────────────────────────────────────────────────
@@ -145,6 +145,10 @@ func (idx *SymbolIndex) Lookup(name string) []IndexedSymbol {
 // IndexWorkspace scans root for .sy files and analyzes each one that is not
 // already open in the editor. Safe to call in a goroutine.
 func (e *Engine) IndexWorkspace(root string) {
+	e.mu.Lock()
+	e.workspaceRoot = root
+	e.mu.Unlock()
+
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
