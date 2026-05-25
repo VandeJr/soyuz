@@ -20,15 +20,19 @@ type Checker struct {
 	arrowFuncHints       map[*parser.ArrowFunc][]Type
 	curriedCalls         map[*parser.CallExpr]*parser.ArrowFunc
 	pendingClassMethods  []pendingClassMethod
+	pendingExtendMethods []pendingExtendMethod
 	// M8.1: cross-file pub enforcement
 	nodeFile     map[parser.Node]string // nil = single-file mode (pub not enforced)
 	symbolOrigin map[string]string      // global name → defining file
 	symbolPub    map[string]bool        // global name → pub status
 	fileNamedImports     map[string]map[string]bool // file → imported symbol names
 	fileModuleNamespaces map[string]map[string]bool // file → imported module namespace names
-	currentFile  string                 // file currently being checked
-	inTopLevel   bool                   // true while checking a top-level value node (Pass 4)
-	context      context
+	currentFile          string
+	inTopLevel           bool
+	context              context
+	typeExtensions       map[string]map[string][]*FuncType // extended/builtin methods per type name
+	extendSelfTypes      map[string]Type                 // self type for extension methods
+	currentExtend        string                            // type name when checking extend method body
 }
 
 type CheckResult struct {
@@ -37,9 +41,9 @@ type CheckResult struct {
 	Specializations     map[parser.Node]*FuncType
 	FuncVariants        map[string][]*parser.FuncDecl
 	Captures            map[*parser.ArrowFunc][]string
-	ImplicitWeakFields  map[string]map[string]bool // typeName → fieldName → true
 	SynthCallArgs       map[*parser.CallExpr][]parser.Node
-	CurriedCalls        map[*parser.CallExpr]*parser.ArrowFunc // M4b: curried call sites
+	CurriedCalls        map[*parser.CallExpr]*parser.ArrowFunc
+	TypeExtensions      map[string]map[string][]*FuncType
 }
 
 type context struct {
@@ -120,20 +124,84 @@ func New() *Checker {
 	printFunc := &FuncType{Params: []Type{Unknown}, Return: UnitType}
 	scope.Define("print", printFunc, true)
 
+	typeExtensions := builtinTypeExtensions()
+
 	return &Checker{
-		scope:           scope,
-		nodeTypes:       make(map[parser.Node]Type),
-		specializations: make(map[parser.Node]*FuncType),
-		funcVariants:    make(map[string][]*parser.FuncDecl),
-		captures:        make(map[*parser.ArrowFunc][]string),
-		synthCallArgs:   make(map[*parser.CallExpr][]parser.Node),
-		inferredBodies:  make(map[*parser.FuncDecl]bool),
-		arrowFuncHints:  make(map[*parser.ArrowFunc][]Type),
-		curriedCalls:    make(map[*parser.CallExpr]*parser.ArrowFunc),
+		scope:                scope,
+		nodeTypes:            make(map[parser.Node]Type),
+		specializations:      make(map[parser.Node]*FuncType),
+		funcVariants:         make(map[string][]*parser.FuncDecl),
+		captures:             make(map[*parser.ArrowFunc][]string),
+		synthCallArgs:        make(map[*parser.CallExpr][]parser.Node),
+		inferredBodies:       make(map[*parser.FuncDecl]bool),
+		arrowFuncHints:       make(map[*parser.ArrowFunc][]Type),
+		curriedCalls:         make(map[*parser.CallExpr]*parser.ArrowFunc),
 		symbolOrigin:         make(map[string]string),
 		symbolPub:            make(map[string]bool),
 		fileNamedImports:     make(map[string]map[string]bool),
 		fileModuleNamespaces: make(map[string]map[string]bool),
+		typeExtensions:       typeExtensions,
+		extendSelfTypes:      builtinExtendSelfTypes(),
+	}
+}
+
+func builtinExtendSelfTypes() map[string]Type {
+	return map[string]Type{
+		"String": StringType,
+		"Int":    IntType,
+		"Float":  FloatType,
+		"Bool":   BoolType,
+		"Char":   CharType,
+	}
+}
+
+func builtinTypeExtensions() map[string]map[string][]*FuncType {
+	resultEnum := &EnumType{
+		Name:     "Result",
+		Generics: []string{"T"},
+		Variants: map[string][]Type{
+			"Ok":  {IntType},
+			"Err": {&InterfaceType{Name: "Error", Methods: map[string]*FuncType{}}},
+		},
+	}
+	resultInt := &SpecializedType{
+		Base:   resultEnum,
+		Params: []Type{IntType},
+	}
+	resultFloat := &SpecializedType{
+		Base:   resultEnum,
+		Params: []Type{FloatType},
+	}
+	return map[string]map[string][]*FuncType{
+		"String": {
+			"len":         {{Params: []Type{}, Return: IntType}},
+			"isEmpty":     {{Params: []Type{}, Return: BoolType}},
+			"toUpperCase": {{Params: []Type{}, Return: StringType}},
+			"toUpper":     {{Params: []Type{}, Return: StringType}},
+			"toLowerCase": {{Params: []Type{}, Return: StringType}},
+			"toLower":     {{Params: []Type{}, Return: StringType}},
+			"trim":        {{Params: []Type{}, Return: StringType}},
+			"contains":    {{Params: []Type{StringType}, Return: BoolType}},
+			"split":       {{Params: []Type{StringType}, Return: Unknown}},
+			"substring":   {{Params: []Type{IntType, IntType}, Return: StringType}},
+			"toInt":       {{Params: []Type{}, Return: resultInt}},
+			"toFloat":     {{Params: []Type{}, Return: resultFloat}},
+		},
+		"Int": {
+			"toString": {{Params: []Type{}, Return: StringType}},
+			"toFloat":  {{Params: []Type{}, Return: FloatType}},
+			"abs":      {{Params: []Type{}, Return: IntType}},
+		},
+		"Float": {
+			"toString": {{Params: []Type{}, Return: StringType}},
+			"toInt":    {{Params: []Type{}, Return: IntType}},
+		},
+		"Bool": {
+			"toString": {{Params: []Type{}, Return: StringType}},
+		},
+		"Char": {
+			"toString": {{Params: []Type{}, Return: StringType}},
+		},
 	}
 }
 
@@ -155,7 +223,7 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 			continue
 		}
 		switch node.(type) {
-		case *parser.RecordDecl, *parser.EnumDecl, *parser.InterfaceDecl, *parser.ClassDecl, *parser.ExternDecl:
+		case *parser.RecordDecl, *parser.EnumDecl, *parser.InterfaceDecl, *parser.ClassDecl, *parser.ExternDecl, *parser.ExtendDecl:
 			typeNodes = append(typeNodes, node)
 		default:
 			valueNodes = append(valueNodes, node)
@@ -169,9 +237,6 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 		}
 		c.checkNode(node)
 	}
-
-	// After Pass 2: detect implicit weak fields from type cycles.
-	implicitWeak := DetectImplicitWeakFields(prog)
 
 	// Pass 3: register all function signatures so calls can resolve them.
 	for name, variants := range c.funcVariants {
@@ -205,6 +270,16 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 	}
 	c.currentClass = prevClass
 
+	prevExtend := c.currentExtend
+	for _, pm := range c.pendingExtendMethods {
+		if c.nodeFile != nil {
+			c.currentFile = pm.file
+		}
+		c.currentExtend = pm.typeName
+		c.checkExtendMethodBody(pm)
+	}
+	c.currentExtend = prevExtend
+
 	// Pass 4: check value nodes (var decls, expressions) that may call functions.
 	for _, node := range valueNodes {
 		if c.nodeFile != nil {
@@ -224,14 +299,14 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 	}
 
 	return &CheckResult{
-		Errors:             c.errors,
-		NodeTypes:          c.nodeTypes,
-		Specializations:    c.specializations,
-		FuncVariants:       c.funcVariants,
-		Captures:           c.captures,
-		ImplicitWeakFields: implicitWeak,
-		SynthCallArgs:      c.synthCallArgs,
-		CurriedCalls:       c.curriedCalls,
+		Errors:          c.errors,
+		NodeTypes:       c.nodeTypes,
+		Specializations: c.specializations,
+		FuncVariants:    c.funcVariants,
+		Captures:        c.captures,
+		SynthCallArgs:   c.synthCallArgs,
+		CurriedCalls:    c.curriedCalls,
+		TypeExtensions:  c.typeExtensions,
 	}
 }
 
@@ -259,6 +334,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkClassDecl(n)
 	case *parser.ExternDecl:
 		return c.checkExternDecl(n)
+	case *parser.ExtendDecl:
+		return c.checkExtendDecl(n)
 	case *parser.ReturnStmt:
 		return c.checkReturnStmt(n)
 	case *parser.IntLiteral:

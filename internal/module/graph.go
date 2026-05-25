@@ -40,7 +40,9 @@ func Collect(entryFile string, resolver *Resolver) ([]string, error) {
 			if !ok {
 				continue
 			}
+			resolver.ImportingFile = file
 			files, err := resolver.Resolve(imp)
+			resolver.ImportingFile = ""
 			if err != nil {
 				return fmt.Errorf("%s: %w", file, err)
 			}

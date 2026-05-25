@@ -14,7 +14,7 @@ func (p *Parser) parseTopLevel() Node {
 	}
 
 	switch p.peek().Type {
-	case lexer.WEAK, lexer.VAL, lexer.VAR:
+	case lexer.VAL, lexer.VAR:
 		vd := p.parseVarDecl(pub)
 		if vd.Pattern == nil && vd.Name != "" {
 			if _, ok := vd.Init.(*ArrowFunc); ok {
@@ -34,6 +34,8 @@ func (p *Parser) parseTopLevel() Node {
 		return p.parseInterfaceDecl(pub)
 	case lexer.ENUM:
 		return p.parseEnumDecl(pub)
+	case lexer.EXTEND:
+		return p.parseExtendDecl()
 	default:
 		if pub {
 			p.errorf(p.peek().Position, "esperado declaração após pub")
@@ -46,7 +48,6 @@ func (p *Parser) parseTopLevel() Node {
 
 func (p *Parser) parseVarDecl(pub bool) *VarDecl {
 	pos := p.peek().Position
-	weak := p.consume(lexer.WEAK)
 	kind := VarKind(p.advance().Lexeme)
 
 	var name string
@@ -71,7 +72,7 @@ func (p *Parser) parseVarDecl(pub bool) *VarDecl {
 	}
 	p.consume(lexer.SEMICOLON)
 
-	return &VarDecl{pos: pos, NamePos: namePos, Pub: pub, Weak: weak, Kind: kind, Name: name, Pattern: pattern, Type: typeExpr, Init: init}
+	return &VarDecl{pos: pos, NamePos: namePos, Pub: pub, Kind: kind, Name: name, Pattern: pattern, Type: typeExpr, Init: init}
 }
 
 func (p *Parser) parseFuncDecl(pub bool) *FuncDecl {
@@ -191,11 +192,10 @@ func (p *Parser) parseRecordDecl(pub bool) *RecordDecl {
 	var fields []RecordField
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
 		fpos := p.peek().Position
-		fweak := p.consume(lexer.WEAK)
 		fname := p.expect(lexer.IDENT).Lexeme
 		p.expect(lexer.COLON)
 		ftype := p.parseTypeExpr()
-		fields = append(fields, RecordField{Pos: fpos, Weak: fweak, Name: fname, Type: ftype})
+		fields = append(fields, RecordField{Pos: fpos, Name: fname, Type: ftype})
 		p.consume(lexer.COMMA)
 		p.skipSemicolons()
 	}
@@ -228,15 +228,10 @@ func (p *Parser) parseClassDecl(pub bool) *ClassDecl {
 	var body []Node
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
 		memberPub := p.consume(lexer.PUB)
-		memberWeak := p.check(lexer.WEAK) // Don't consume yet, parseVarDecl will
 		switch p.peek().Type {
 		case lexer.FN:
-			if memberWeak {
-				p.errorf(p.peek().Position, "fn não pode ser weak")
-				p.advance() // consume weak to continue
-			}
 			body = append(body, p.parseFuncDecl(memberPub))
-		case lexer.WEAK, lexer.VAL, lexer.VAR:
+		case lexer.VAL, lexer.VAR:
 			body = append(body, p.parseVarDecl(memberPub))
 		default:
 			p.errorf(p.peek().Position, "esperado membro de class (fn, val, var), encontrado %s", p.peek().Type)
@@ -359,6 +354,54 @@ func (p *Parser) parseExternDecl(pub bool) *ExternDecl {
 	return &ExternDecl{pos: pos, Pub: pub, Name: nameTok.Lexeme, Params: params, ReturnType: returnType}
 }
 
+func (p *Parser) parseExtendDecl() *ExtendDecl {
+	pos := p.expect(lexer.EXTEND).Position
+	typeName := p.parseExtendTypeName()
+	p.expect(lexer.LBRACE)
+	p.skipSemicolons()
+
+	var methods []*FuncDecl
+	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+		memberPub := p.consume(lexer.PUB)
+		if !p.check(lexer.FN) {
+			p.errorf(p.peek().Position, "esperado fn em bloco extend")
+			p.synchronize()
+			continue
+		}
+		fd := p.parseFuncDecl(memberPub)
+		methods = append(methods, fd)
+		p.skipSemicolons()
+	}
+	p.expect(lexer.RBRACE)
+	p.consume(lexer.SEMICOLON)
+	return &ExtendDecl{pos: pos, TypeName: typeName, Methods: methods}
+}
+
+func (p *Parser) parseExtendTypeName() string {
+	switch p.peek().Type {
+	case lexer.STRING_TYPE:
+		p.advance()
+		return "String"
+	case lexer.INT_TYPE:
+		p.advance()
+		return "Int"
+	case lexer.FLOAT_TYPE:
+		p.advance()
+		return "Float"
+	case lexer.BOOL_TYPE:
+		p.advance()
+		return "Bool"
+	case lexer.CHAR_TYPE:
+		p.advance()
+		return "Char"
+	case lexer.IDENT:
+		return p.advance().Lexeme
+	default:
+		p.errorf(p.peek().Position, "esperado nome de tipo após extend")
+		return ""
+	}
+}
+
 func (p *Parser) parseImportBlock() []Node {
 	pos := p.expect(lexer.IMPORT).Position
 
@@ -368,20 +411,35 @@ func (p *Parser) parseImportBlock() []Node {
 	}
 
 	// Inline: import path.{ names }  ou  import path
-	segments, isStdlib, ok := p.parseImportPathSegments()
+	var path string
+	var ok bool
+	if p.check(lexer.AT) || p.check(lexer.DOT) || p.check(lexer.STRING_LITERAL) {
+		path, ok = p.parseImportPath()
+	} else {
+		var segments []string
+		var isStdlib bool
+		segments, isStdlib, ok = p.parseImportPathSegments()
+		if ok {
+			decl := p.makeImportDeclFromSegments(pos, segments, isStdlib, nil)
+			if p.consume(lexer.DOT) && p.check(lexer.LBRACE) {
+				decl.Names = p.parseImportNames()
+			}
+			p.consume(lexer.SEMICOLON)
+			return []Node{decl}
+		}
+	}
 	if !ok {
 		p.synchronize()
 		return nil
 	}
 
 	var names []ImportName
-	p.consume(lexer.DOT) // math.{ names } ou @soyuz.fs.{ readFile }
-	if p.check(lexer.LBRACE) {
+	if p.consume(lexer.DOT) && p.check(lexer.LBRACE) {
 		names = p.parseImportNames()
 	}
 
 	p.consume(lexer.SEMICOLON)
-	return []Node{p.makeImportDeclFromSegments(pos, segments, isStdlib, names)}
+	return []Node{p.makeImportDeclFromPath(pos, path, names)}
 }
 
 func (p *Parser) parseImportParenBlock(pos lexer.Position) []Node {
@@ -412,14 +470,37 @@ func (p *Parser) parseImportPathSegments() ([]string, bool, bool) {
 
 	if p.check(lexer.AT) {
 		p.advance()
-		tok := p.peek()
-		if tok.Type != lexer.IDENT || tok.Lexeme != "soyuz" {
-			p.errorf(tok.Position, "esperado 'soyuz' após '@' em import stdlib")
-			return nil, false, false
+		if p.check(lexer.SLASH) {
+			p.advance()
+			segs, ok := p.parsePathSegmentsAfterSlash()
+			if !ok {
+				return nil, false, false
+			}
+			return segs, false, true // project root @/ — PathKind set later
 		}
-		p.advance()
-		isStdlib = true
-	} else if p.check(lexer.IDENT) {
+		if p.check(lexer.IDENT) {
+			ident := p.advance().Lexeme
+			if ident == "soyuz" {
+				isStdlib = true
+				if p.check(lexer.SLASH) || p.check(lexer.DOT) {
+					segs, ok := p.parsePathSegmentsAfterDotOrSlash()
+					return segs, isStdlib, ok
+				}
+				return nil, isStdlib, true
+			}
+			segments = append(segments, ident)
+			segs, ok := p.parsePathSegmentsAfterDotOrSlash()
+			return append(segments, segs...), false, ok
+		}
+		p.errorf(p.peek().Position, "esperado caminho após '@'")
+		return nil, false, false
+	}
+
+	if p.check(lexer.DOT) {
+		return p.parseRelativePathSegments()
+	}
+
+	if p.check(lexer.IDENT) {
 		segments = append(segments, p.advance().Lexeme)
 	} else {
 		p.errorf(p.peek().Position, "esperado caminho de módulo após import")
@@ -430,7 +511,6 @@ func (p *Parser) parseImportPathSegments() ([]string, bool, bool) {
 		if !p.check(lexer.DOT) && !p.check(lexer.SLASH) {
 			break
 		}
-		// math.{ names } — o ponto antes de { encerra o caminho, não é segmento
 		if p.check(lexer.DOT) && p.peekN(1).Type == lexer.LBRACE {
 			break
 		}
@@ -443,6 +523,75 @@ func (p *Parser) parseImportPathSegments() ([]string, bool, bool) {
 	}
 
 	return segments, isStdlib, true
+}
+
+func (p *Parser) parseRelativePathSegments() ([]string, bool, bool) {
+	var parts []string
+	for p.check(lexer.DOT) {
+		p.advance()
+		if p.check(lexer.DOT) && p.peekN(1).Type == lexer.DOT {
+			p.advance()
+			parts = append(parts, "..")
+		} else {
+			parts = append(parts, ".")
+		}
+		if p.check(lexer.SLASH) {
+			p.advance()
+		} else if p.check(lexer.IDENT) {
+			// ./foo without slash
+		} else {
+			break
+		}
+		if p.check(lexer.IDENT) {
+			parts = append(parts, p.advance().Lexeme)
+		}
+		for p.check(lexer.SLASH) {
+			p.advance()
+			if p.check(lexer.IDENT) {
+				parts = append(parts, p.advance().Lexeme)
+			}
+		}
+		if p.check(lexer.DOT) && p.peekN(1).Type != lexer.LBRACE {
+			continue
+		}
+		break
+	}
+	if len(parts) == 0 {
+		p.errorf(p.peek().Position, "esperado caminho relativo ./ ou ../")
+		return nil, false, false
+	}
+	return parts, false, true
+}
+
+func (p *Parser) parsePathSegmentsAfterSlash() ([]string, bool) {
+	var segs []string
+	for p.check(lexer.IDENT) {
+		segs = append(segs, p.advance().Lexeme)
+		if !p.check(lexer.SLASH) {
+			break
+		}
+		p.advance()
+	}
+	return segs, true
+}
+
+func (p *Parser) parsePathSegmentsAfterDotOrSlash() ([]string, bool) {
+	var segs []string
+	for {
+		if !p.check(lexer.DOT) && !p.check(lexer.SLASH) {
+			break
+		}
+		if p.check(lexer.DOT) && p.peekN(1).Type == lexer.LBRACE {
+			break
+		}
+		p.advance()
+		if !p.check(lexer.IDENT) {
+			p.errorf(p.peek().Position, "esperado segmento após '.' ou '/'")
+			return nil, false
+		}
+		segs = append(segs, p.advance().Lexeme)
+	}
+	return segs, true
 }
 
 func (p *Parser) parseImportNames() []ImportName {
@@ -470,50 +619,198 @@ func (p *Parser) parseImportSpec(blockPos lexer.Position) *ImportDecl {
 			return nil
 		}
 		p.advance()
-		if !p.check(lexer.STRING_LITERAL) {
-			p.errorf(p.peek().Position, "esperado string literal após 'from'")
+		path, ok := p.parseImportPath()
+		if !ok {
 			return nil
 		}
-		path := p.advance().Lexeme
-		return p.makeImportDecl(blockPos, path, names)
+		return p.makeImportDeclFromPath(blockPos, path, names)
 	}
 
 	if p.check(lexer.STRING_LITERAL) {
 		path := p.advance().Lexeme
-		return p.makeImportDecl(blockPos, path, nil)
+		return p.makeImportDeclFromPath(blockPos, path, nil)
 	}
 
-	p.errorf(p.peek().Position, "esperado {names} from \"path\" ou \"path\" no import")
+	if p.check(lexer.AT) || p.check(lexer.DOT) {
+		path, ok := p.parseImportPath()
+		if !ok {
+			return nil
+		}
+		return p.makeImportDeclFromPath(blockPos, path, nil)
+	}
+
+	p.errorf(p.peek().Position, "esperado {names} from path ou path no import")
 	return nil
 }
 
+func (p *Parser) parseImportPath() (string, bool) {
+	if p.check(lexer.STRING_LITERAL) {
+		return p.advance().Lexeme, true
+	}
+	if p.check(lexer.AT) {
+		return p.parseAtImportPath()
+	}
+	if p.check(lexer.DOT) {
+		return p.parseDotImportPath()
+	}
+	if p.check(lexer.IDENT) {
+		return p.parseLegacyIdentPath()
+	}
+	p.errorf(p.peek().Position, "esperado caminho de import após 'from'")
+	return "", false
+}
+
+func (p *Parser) parseAtImportPath() (string, bool) {
+	p.advance()
+	if p.check(lexer.SLASH) {
+		p.advance()
+		segs, ok := p.parsePathSegmentsAfterSlash()
+		if !ok {
+			return "", false
+		}
+		return "@/" + strings.Join(segs, "/"), true
+	}
+	if !p.check(lexer.IDENT) {
+		p.errorf(p.peek().Position, "esperado identificador após '@'")
+		return "", false
+	}
+	first := p.advance().Lexeme
+	if first == "soyuz" {
+		segs, ok := p.parsePathSegmentsAfterDotOrSlash()
+		if !ok && len(segs) == 0 {
+			return "@soyuz", true
+		}
+		if len(segs) > 0 {
+			return "@soyuz/" + strings.Join(segs, "/"), true
+		}
+		return "@soyuz", true
+	}
+	segs := []string{first}
+	more, ok := p.parsePathSegmentsAfterDotOrSlash()
+	if !ok {
+		return "", false
+	}
+	segs = append(segs, more...)
+	return "@" + strings.Join(segs, "/"), true
+}
+
+func (p *Parser) parseDotImportPath() (string, bool) {
+	segs, _, ok := p.parseRelativePathSegments()
+	if !ok {
+		return "", false
+	}
+	return strings.Join(segs, "/"), true
+}
+
+func (p *Parser) parseLegacyIdentPath() (string, bool) {
+	var segs []string
+	segs = append(segs, p.advance().Lexeme)
+	more, ok := p.parsePathSegmentsAfterDotOrSlash()
+	if !ok {
+		return "", false
+	}
+	segs = append(segs, more...)
+	return strings.Join(segs, "/"), true
+}
+
+func (p *Parser) makeImportDeclFromPath(pos lexer.Position, path string, names []ImportName) *ImportDecl {
+	if strings.HasPrefix(path, `"`) || strings.HasPrefix(path, `'`) {
+		path = strings.Trim(path, `"'`)
+	}
+	kind, alias := classifyImportPath(path)
+	segments := importPathSegments(path, kind, alias)
+	return p.buildImportDecl(pos, path, kind, alias, segments, names)
+}
+
 func (p *Parser) makeImportDecl(pos lexer.Position, path string, names []ImportName) *ImportDecl {
-	isStdlib := strings.HasPrefix(path, "@soyuz/")
-	return p.makeImportDeclFromSegments(pos, pathSegmentsFromPath(path), isStdlib, names)
+	return p.makeImportDeclFromPath(pos, path, names)
 }
 
 func (p *Parser) makeImportDeclFromSegments(pos lexer.Position, segments []string, isStdlib bool, names []ImportName) *ImportDecl {
-	path := strings.Join(segments, "/")
+	var path string
+	var kind ImportPathKind
+	var alias string
 	if isStdlib {
-		path = "@soyuz/" + path
+		path = "@soyuz/" + strings.Join(segments, "/")
+		kind = ImportPathStdlib
+	} else if len(segments) > 0 && (segments[0] == "." || segments[0] == "..") {
+		path = strings.Join(segments, "/")
+		kind = ImportPathRelative
+	} else {
+		path = strings.Join(segments, "/")
+		kind = ImportPathLegacy
 	}
+	return p.buildImportDecl(pos, path, kind, alias, segments, names)
+}
+
+func classifyImportPath(path string) (ImportPathKind, string) {
+	if strings.HasPrefix(path, "@soyuz/") || path == "@soyuz" {
+		return ImportPathStdlib, ""
+	}
+	if strings.HasPrefix(path, "@/") {
+		return ImportPathProjectRoot, ""
+	}
+	if strings.HasPrefix(path, "@") {
+		rest := path[1:]
+		if idx := strings.Index(rest, "/"); idx >= 0 {
+			return ImportPathPackageAlias, rest[:idx]
+		}
+		return ImportPathPackageAlias, rest
+	}
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") || path == "." || path == ".." {
+		return ImportPathRelative, ""
+	}
+	if strings.HasPrefix(path, "@soyuz") {
+		return ImportPathStdlib, ""
+	}
+	return ImportPathLegacy, ""
+}
+
+func importPathSegments(path string, kind ImportPathKind, alias string) []string {
+	switch kind {
+	case ImportPathStdlib:
+		p := strings.TrimPrefix(path, "@soyuz/")
+		if p == "" {
+			return nil
+		}
+		return strings.Split(p, "/")
+	case ImportPathProjectRoot:
+		p := strings.TrimPrefix(path, "@/")
+		if p == "" {
+			return nil
+		}
+		return strings.Split(p, "/")
+	case ImportPathPackageAlias:
+		rest := path[1:]
+		if alias != "" {
+			rest = strings.TrimPrefix(rest, alias+"/")
+		}
+		if rest == "" {
+			return nil
+		}
+		return strings.Split(rest, "/")
+	case ImportPathRelative:
+		return strings.Split(path, "/")
+	default:
+		if strings.HasPrefix(path, "@soyuz/") {
+			return strings.Split(strings.TrimPrefix(path, "@soyuz/"), "/")
+		}
+		return strings.Split(path, "/")
+	}
+}
+
+func (p *Parser) buildImportDecl(pos lexer.Position, path string, kind ImportPathKind, alias string, segments []string, names []ImportName) *ImportDecl {
 	namespace := ""
 	if len(segments) > 0 {
 		namespace = segments[len(segments)-1]
 	}
 	return &ImportDecl{
-		pos:       pos,
-		Path:      path,
-		Names:     names,
-		Namespace: namespace,
-		IsStdlib:  isStdlib,
+		pos:          pos,
+		Path:         path,
+		Names:        names,
+		Namespace:    namespace,
+		PathKind:     kind,
+		PackageAlias: alias,
+		IsStdlib:     kind == ImportPathStdlib,
 	}
-}
-
-func pathSegmentsFromPath(path string) []string {
-	p := strings.TrimPrefix(path, "@soyuz/")
-	if p == "" {
-		return nil
-	}
-	return strings.Split(p, "/")
 }

@@ -203,15 +203,7 @@ func formatHover(node parser.Node, t checker.Type, result *AnalysisResult) strin
 		}
 		return fmt.Sprintf("```soyuz\n%s: %s\n```", n.Name, t.String())
 	case *parser.MemberExpr:
-		extra := ""
-		if ot, ok := result.Check.NodeTypes[n.Object]; ok {
-			if rt, ok2 := ot.(*checker.RecordType); ok2 {
-				if result.Check.ImplicitWeakFields[rt.Name][n.Property] {
-					extra = "\n\n*campo implicitamente weak (ciclo de referência)*"
-				}
-			}
-		}
-		return fmt.Sprintf("```soyuz\n.%s: %s\n```%s", n.Property, t.String(), extra)
+		return fmt.Sprintf("```soyuz\n.%s: %s\n```", n.Property, t.String())
 	case *parser.FuncDecl:
 		if ft, ok := t.(*checker.FuncType); ok {
 			return fmt.Sprintf("```soyuz\nfn %s%s\n```", n.Name, ft.String())
@@ -476,7 +468,7 @@ func identRange(pos lexer.Position, name string) protocol.Range {
 // ─── Completion ───────────────────────────────────────────────────────────────
 
 var soyuzKeywords = []string{
-	"val", "var", "fn", "extern", "return", "pub", "weak", "impl",
+	"val", "var", "fn", "extern", "return", "pub", "extend", "impl",
 	"record", "class", "interface", "enum",
 	"if", "else", "when", "match", "for", "while", "loop", "break", "continue", "in",
 	"import", "self",

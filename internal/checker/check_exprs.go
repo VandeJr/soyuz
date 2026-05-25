@@ -126,6 +126,11 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 		}
 		return t.Elements[idx]
 	case *BasicType:
+		if methods, ok := c.typeExtensions[t.Name]; ok {
+			if variants, ok2 := methods[n.Property]; ok2 && len(variants) > 0 {
+				return variants[0]
+			}
+		}
 		if t.Name == "String" {
 			if sym, ok := c.scope.Resolve("StringExtensions"); ok {
 				if ct, ok2 := sym.Type.(*ClassType); ok2 {
@@ -134,17 +139,21 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 					}
 				}
 			}
-			c.errorf(n.Pos(), "String não tem método '%s'", n.Property)
-			return Unknown
 		}
+		c.errorf(n.Pos(), "%s não tem método '%s'", t.Name, n.Property)
+		return Unknown
 	}
 	// Unknown object type — allow, return Unknown
 	return Unknown
 }
 
 func (c *Checker) checkSelfExpr(n *parser.SelfExpr) Type {
+	if c.currentExtend != "" {
+		if st, ok := c.extendSelfTypes[c.currentExtend]; ok {
+			return st
+		}
+	}
 	if c.currentClass != nil {
-		// StringExtensions is an extension class: self IS the String value, not the class.
 		if c.currentClass.Name == "StringExtensions" {
 			return StringType
 		}

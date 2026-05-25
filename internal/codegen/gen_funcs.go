@@ -260,7 +260,7 @@ func (g *Generator) buildClosureValue(fn *ir.Func, captures []string, envStructT
 			envSize = 8
 		}
 		envRaw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-			constant.NewInt(types.I64, envSize), constant.NewNull(types.I8Ptr))
+			constant.NewInt(types.I64, envSize), constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
 		envStructPtr := g.current.NewBitCast(envRaw, types.NewPointer(envStructType))
 
 		for i, capName := range captures {
@@ -281,7 +281,7 @@ func (g *Generator) buildClosureValue(fn *ir.Func, captures []string, envStructT
 
 	// Allocate SoyuzClosure{ fn_ptr: i8*, env_ptr: i8* }
 	closureRaw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-		constant.NewInt(types.I64, 16), constant.NewNull(types.I8Ptr))
+		constant.NewInt(types.I64, 16), constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
 	closurePtr := g.current.NewBitCast(closureRaw, types.NewPointer(g.closureType))
 
 	fnRaw := g.current.NewBitCast(fn, types.I8Ptr)

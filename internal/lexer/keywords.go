@@ -7,8 +7,8 @@ var keywords = map[string]TokenType{
 	"fn":     FN,
 	"extern": EXTERN,
 	"return": RETURN,
-	"weak":   WEAK,
 	"pub":    PUB,
+	"extend": EXTEND,
 	"impl":   IMPL,
 
 	// Tipos compostos

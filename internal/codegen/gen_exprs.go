@@ -201,22 +201,7 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		return g.generateElvisExpr(n)
 
 	case *parser.AssignExpr:
-		// When assigning Some(x) to a weak field, the Option payload must NOT be retained,
-		// otherwise the weak reference would still increment the reference count of x.
-		var val value.Value
-		var err error
-		if me, isMember := n.Left.(*parser.MemberExpr); isMember && g.isWeakMember(me) {
-			if se, isSome := n.Right.(*parser.SomeExpr); isSome {
-				inner, innerErr := g.generateExpr(se.Value)
-				if innerErr != nil {
-					return nil, innerErr
-				}
-				val, err = g.emitOptionResultAllocNoRetain("Option", 0, inner)
-			}
-		}
-		if val == nil {
-			val, err = g.generateExpr(n.Right)
-		}
+		val, err := g.generateExpr(n.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -229,11 +214,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 			}
 
 			if g.isHeapType(val.Type()) {
-				// Release old value
 				ptrType := alloc.Type().(*types.PointerType)
 				old := g.current.NewLoad(ptrType.ElemType, alloc)
 				g.emitRelease(old)
-				// Retain new value
 				g.emitRetain(val)
 			}
 
@@ -244,13 +227,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 				return nil, err
 			}
 
-			// Handle RC for member assignment; weak fields do not own the value.
-			isWeak := g.isWeakMember(l)
-			if g.isHeapType(val.Type()) && !isWeak {
-				// Release old value
+			if g.isHeapType(val.Type()) {
 				old := g.current.NewLoad(val.Type(), ptr)
 				g.emitRelease(old)
-				// Retain new value
 				g.emitRetain(val)
 			}
 
@@ -497,7 +476,7 @@ func (g *Generator) generateVarDecl(n *parser.VarDecl) (value.Value, error) {
 // returning the result as i8* (the runtime representation of an interface value).
 func (g *Generator) wrapInInterfaceFatPtr(objPtr value.Value, vtable *ir.Global) (value.Value, error) {
 	closureRaw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-		constant.NewInt(types.I64, 16), constant.NewNull(types.I8Ptr))
+		constant.NewInt(types.I64, 16), constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
 	closureStructPtr := g.current.NewBitCast(closureRaw, types.NewPointer(g.closureType))
 
 	objAsI8 := g.current.NewBitCast(objPtr, types.I8Ptr)
@@ -526,7 +505,7 @@ func (g *Generator) generateTupleExpr(n *parser.TupleExpr) (value.Value, error) 
 	}
 	st := types.NewStruct(elemTypes...)
 	size := constant.NewInt(types.I64, int64(len(elems))*8)
-	rawPtr := g.current.NewCall(g.findBuiltin("soyuz_alloc"), size, constant.NewNull(types.I8Ptr))
+	rawPtr := g.current.NewCall(g.findBuiltin("soyuz_alloc"), size, constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
 	structPtr := g.current.NewBitCast(rawPtr, types.NewPointer(st))
 	for i, v := range elems {
 		fieldPtr := g.current.NewGetElementPtr(st, structPtr,
@@ -798,7 +777,7 @@ func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInf
 	} else {
 		dtorArg = constant.NewNull(types.I8Ptr)
 	}
-	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"), constant.NewInt(types.I64, 72), dtorArg)
+	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"), constant.NewInt(types.I64, 72), dtorArg, constant.NewNull(types.I8Ptr))
 	structPtr := g.current.NewBitCast(raw, types.NewPointer(ei.typ))
 	tagPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
@@ -827,7 +806,7 @@ func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *pars
 
 	// Enum layout is 72 bytes: 8 (tag i64) + 64 ([64 x i8] payload).
 	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-		constant.NewInt(types.I64, 72), dtorArg)
+		constant.NewInt(types.I64, 72), dtorArg, constant.NewNull(types.I8Ptr))
 	structPtr := g.current.NewBitCast(raw, types.NewPointer(ei.typ))
 
 	tagPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
@@ -1085,20 +1064,33 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 		}
 	}
 
-	// String extension method dispatch: "hello".len() → StringExtensions_len("hello")
-	if bt, ok := g.check.NodeTypes[me.Object].(*checker.BasicType); ok && bt.Name == "String" {
-		if ci, exists := g.classes["StringExtensions"]; exists {
-			if variants, ok2 := ci.methods[me.Property]; ok2 {
-				fn := classMethodByArity(variants, len(args))
-				if fn != nil {
-					// obj is %SoyuzString* — __self param is i8*, so bitcast
-					objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
-					allArgs := append([]value.Value{objAsI8}, args...)
-					return g.current.NewCall(fn, allArgs...), nil
+	// Primitive / extension method dispatch
+	if bt, ok := g.check.NodeTypes[me.Object].(*checker.BasicType); ok {
+		if cfn := primitiveMethodCFunc(bt.Name, me.Property); cfn != "" {
+			callArgs := append([]value.Value{obj}, args...)
+			return g.current.NewCall(g.findFunc(cfn), callArgs...), nil
+		}
+		if variants, ok := g.extensionMethods[bt.Name][me.Property]; ok {
+			fn := classMethodByArity(variants, len(args))
+			if fn != nil {
+				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				allArgs := append([]value.Value{objAsI8}, args...)
+				return g.current.NewCall(fn, allArgs...), nil
+			}
+		}
+		if bt.Name == "String" {
+			if ci, exists := g.classes["StringExtensions"]; exists {
+				if variants, ok2 := ci.methods[me.Property]; ok2 {
+					fn := classMethodByArity(variants, len(args))
+					if fn != nil {
+						objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+						allArgs := append([]value.Value{objAsI8}, args...)
+						return g.current.NewCall(fn, allArgs...), nil
+					}
 				}
 			}
 		}
-		return nil, fmt.Errorf("String não tem método '%s' no codegen", me.Property)
+		return nil, fmt.Errorf("%s não tem método '%s' no codegen", bt.Name, me.Property)
 	}
 
 	// Determine return type from checker specialization.
@@ -1614,7 +1606,7 @@ func (g *Generator) emitOptionResultAllocInner(typeName string, tag int, payload
 	// We don't have a specialized dtor for built-in enums here yet,
 	// but for M10 test purposes, we can proceed.
 	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-		constant.NewInt(types.I64, 72), constant.NewNull(types.I8Ptr))
+		constant.NewInt(types.I64, 72), constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
 	structPtr := g.current.NewBitCast(raw, types.NewPointer(enumTyp))
 
 	tagPtr := g.current.NewGetElementPtr(enumTyp, structPtr,
@@ -1901,6 +1893,36 @@ func (g *Generator) generateMapValues(obj value.Value, st *checker.SpecializedTy
 	raw := g.current.NewCall(g.findFunc("soyuz_map_values"), objAsI8, constant.NewInt(types.I64, valIsHeap))
 	listPtrType := types.NewPointer(g.structs["SoyuzList"].typ)
 	return g.current.NewBitCast(raw, listPtrType), nil
+}
+
+func primitiveMethodCFunc(typeName, method string) string {
+	switch typeName {
+	case "String":
+		switch method {
+		case "len":
+			return "soyuz_str_len"
+		case "trim":
+			return "soyuz_str_trim"
+		case "toUpperCase", "toUpper":
+			return "soyuz_str_to_upper"
+		case "toLowerCase", "toLower":
+			return "soyuz_str_to_lower"
+		case "contains":
+			return "soyuz_str_contains"
+		case "substring":
+			return "soyuz_str_substring"
+		}
+	case "Int":
+		switch method {
+		case "toString":
+			return "soyuz_int_to_str"
+		case "abs":
+			return "soyuz_int_abs"
+		case "toFloat":
+			return "soyuz_int_to_float"
+		}
+	}
+	return ""
 }
 
 // Ensure checker import is used (for FuncType in generateArrowFunc and generateSpecializedFunc).

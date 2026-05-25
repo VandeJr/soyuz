@@ -259,11 +259,6 @@ func (c *Checker) checkRecordDecl(n *parser.RecordDecl) Type {
 	fields := make(map[string]Type)
 	for _, f := range n.Fields {
 		ft := c.resolveTypeExpr(f.Type)
-		if f.Weak {
-			if !c.isHeapType(ft) {
-				c.errorf(f.Pos, "weak só pode ser usado em tipos heap (records ou classes), encontrado %s", ft)
-			}
-		}
 		fields[f.Name] = ft
 	}
 
@@ -379,14 +374,6 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 			ft = Unknown
 		}
 
-		if v.Weak {
-			if v.Kind != parser.KindVar {
-				c.errorf(v.Pos(), "weak só pode ser usado com var")
-			}
-			if !c.isHeapType(ft) {
-				c.errorf(v.Pos(), "weak só pode ser usado em tipos heap (records ou classes), encontrado %s", ft)
-			}
-		}
 		fields[v.Name] = ft
 		fieldPub[v.Name] = v.Pub
 		if v.Init != nil {
@@ -468,10 +455,6 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 }
 
 func (c *Checker) checkVarDecl(decl *parser.VarDecl) Type {
-	if decl.Weak {
-		c.errorf(decl.Pos(), "weak não é suportado em variáveis locais, apenas em campos de records ou classes")
-	}
-
 	var initType Type = Unknown
 	if decl.Init != nil {
 		initType = c.checkNode(decl.Init)
@@ -577,4 +560,92 @@ func (c *Checker) checkExternDecl(n *parser.ExternDecl) Type {
 		c.registerGlobalSymbol(n.Name, n, n.Pub)
 	}
 	return ft
+}
+
+type pendingExtendMethod struct {
+	fd         *parser.FuncDecl
+	typeName   string
+	selfType   Type
+	paramTypes []Type
+	retType    Type
+	file       string
+}
+
+func (c *Checker) resolveExtendTarget(typeName string) (Type, bool) {
+	if st, ok := c.extendSelfTypes[typeName]; ok {
+		return st, true
+	}
+	if sym, ok := c.scope.Resolve(typeName); ok {
+		return sym.Type, true
+	}
+	return nil, false
+}
+
+func (c *Checker) checkExtendDecl(n *parser.ExtendDecl) Type {
+	selfType, ok := c.resolveExtendTarget(n.TypeName)
+	if !ok {
+		c.errorf(n.Pos(), "extend: tipo '%s' não encontrado", n.TypeName)
+		return Unknown
+	}
+	if c.typeExtensions[n.TypeName] == nil {
+		c.typeExtensions[n.TypeName] = make(map[string][]*FuncType)
+	}
+	for _, fd := range n.Methods {
+		var paramTypes []Type
+		nonSelfIdx := 0
+		for _, p := range fd.Params {
+			if bp, ok := p.Pattern.(*parser.BindingPattern); ok && bp.Name == "self" {
+				continue
+			}
+			var pt Type
+			if p.Type != nil {
+				pt = c.resolveTypeExpr(p.Type)
+			} else {
+				pt = Unknown
+			}
+			paramTypes = append(paramTypes, pt)
+			nonSelfIdx++
+		}
+		var ret Type = UnitType
+		if fd.ReturnType != nil {
+			ret = c.resolveTypeExpr(fd.ReturnType)
+		}
+		ft := &FuncType{Params: paramTypes, Return: ret}
+		c.typeExtensions[n.TypeName][fd.Name] = append(c.typeExtensions[n.TypeName][fd.Name], ft)
+		c.nodeTypes[fd] = ft
+		c.pendingExtendMethods = append(c.pendingExtendMethods, pendingExtendMethod{
+			fd:         fd,
+			typeName:   n.TypeName,
+			selfType:   selfType,
+			paramTypes: paramTypes,
+			retType:    ret,
+			file:       c.currentFile,
+		})
+	}
+	return UnitType
+}
+
+func (c *Checker) checkExtendMethodBody(pm pendingExtendMethod) {
+	if pm.fd.Body == nil {
+		return
+	}
+	parentScope := c.scope
+	c.scope = NewScope(parentScope)
+	c.scope.Define("self", pm.selfType, true)
+	paramIdx := 0
+	for _, p := range pm.fd.Params {
+		bp, ok := p.Pattern.(*parser.BindingPattern)
+		if !ok || bp.Name == "self" {
+			continue
+		}
+		if paramIdx < len(pm.paramTypes) {
+			c.scope.Define(bp.Name, pm.paramTypes[paramIdx], true)
+			paramIdx++
+		}
+	}
+	prev := c.context.returnType
+	c.context.returnType = pm.retType
+	c.checkNode(pm.fd.Body)
+	c.context.returnType = prev
+	c.scope = parentScope
 }

@@ -1,16 +1,4 @@
 import (
-    { readFile } from "@soyuz/fs"
-    { Lexer } from "lib/lexer/lexer"
+    { readFile } from @soyuz/fs
+    { Lexer } from @/lib/lexer/lexer
 )
-
-fn compile(v: String) {
-    val l = Lexer { input: v, ch: '\0', line: 1, column: 0, position: 0, readPosition: 0 }
-}
-
-fn main() {
-    // Test
-    match readFile("main.test.sy") {
-        Ok(v) => compile(v)
-        Err(e) => print("Error $(e.message())")
-    }
-}

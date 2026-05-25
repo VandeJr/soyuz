@@ -1,9 +1,9 @@
 import (
-    { range, Iteravel, List, Map } from "@soyuz/collections"
-    { StringExtensions } from "@soyuz/string"
-    { getenv, args } from "@soyuz/os"
-    { readFile } from "@soyuz/fs"
-    { Error } from "@soyuz/error"
+    { range, Iteravel, List, Map } from @soyuz/collections
+    { StringExtensions } from @soyuz/string
+    { getenv, args } from @soyuz/os
+    { readFile } from @soyuz/fs
+    { Error } from @soyuz/error
 )
 
 extern fn soyuz_print_str(s: String)

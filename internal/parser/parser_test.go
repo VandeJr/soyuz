@@ -237,6 +237,28 @@ enum Forma {
 // Import declarations
 // ============================================================
 
+func TestImportAtProjectRoot(t *testing.T) {
+	prog := parseSource(t, `import ( { Lexer } from @/lib/lexer/lexer )`)
+	imp := prog.Body[0].(*ImportDecl)
+	if imp.PathKind != ImportPathProjectRoot {
+		t.Errorf("esperado PathKind project root, obtido %v", imp.PathKind)
+	}
+	if imp.Path != "@/lib/lexer/lexer" {
+		t.Errorf("path: %q", imp.Path)
+	}
+}
+
+func TestImportAtAlias(t *testing.T) {
+	prog := parseSource(t, `import ( { Token } from @lexer/tokens )`)
+	imp := prog.Body[0].(*ImportDecl)
+	if imp.PathKind != ImportPathPackageAlias {
+		t.Errorf("esperado alias path, obtido %v", imp.PathKind)
+	}
+	if imp.PackageAlias != "lexer" {
+		t.Errorf("alias: %q", imp.PackageAlias)
+	}
+}
+
 func TestImportNamed(t *testing.T) {
 	prog := parseSource(t, `import ( { readFile } from "@soyuz/fs" )`)
 	assertBodyLen(t, prog, 1)

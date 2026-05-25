@@ -37,7 +37,6 @@ type VarDecl struct {
 	pos     lexer.Position
 	NamePos lexer.Position
 	Pub     bool
-	Weak    bool
 	Kind    VarKind
 	Name    string  // empty when Pattern is set
 	Pattern Pattern // set for destructuring: val (x, y) = ...
@@ -89,7 +88,6 @@ func (r *RecordDecl) Pos() lexer.Position { return r.pos }
 
 type RecordField struct {
 	Pos  lexer.Position
-	Weak bool
 	Name string
 	Type TypeExpr
 }
@@ -143,24 +141,73 @@ type EnumField struct {
 	Type TypeExpr
 }
 
+type ExtendDecl struct {
+	pos      lexer.Position
+	TypeName string
+	Methods  []*FuncDecl
+}
+
+func (e *ExtendDecl) Pos() lexer.Position { return e.pos }
+
+type ImportPathKind int
+
+const (
+	ImportPathLegacy ImportPathKind = iota
+	ImportPathStdlib
+	ImportPathProjectRoot // @/...
+	ImportPathPackageAlias // @alias/...
+	ImportPathRelative     // ./ or ../
+)
+
 type ImportDecl struct {
 	pos           lexer.Position
-	Path          string // "@soyuz/collections" or "lib/lexer/tokens"
+	Path          string // canonical: "@soyuz/fs", "@/lib/lexer", "@lexer/tokens", "./local"
 	Names         []ImportName
-	Namespace     string // last path segment for module imports
-	IsStdlib      bool
-	ResolvedFiles []string // populated by module.Collect at graph traversal time
+	Namespace     string
+	PathKind      ImportPathKind
+	PackageAlias  string // set when PathKind == ImportPathPackageAlias
+	IsStdlib      bool   // deprecated: use PathKind; kept for compat
+	ResolvedFiles []string
 }
 
 func (i *ImportDecl) Pos() lexer.Position { return i.pos }
 
-// PathSegments returns filesystem path segments for module resolution.
+// PathSegments returns filesystem path segments for module resolution (without alias/stdlib prefix).
 func (i *ImportDecl) PathSegments() []string {
-	p := strings.TrimPrefix(i.Path, "@soyuz/")
-	if p == "" {
-		return nil
+	switch i.PathKind {
+	case ImportPathStdlib:
+		p := strings.TrimPrefix(i.Path, "@soyuz/")
+		if p == "" {
+			return nil
+		}
+		return strings.Split(p, "/")
+	case ImportPathProjectRoot:
+		p := strings.TrimPrefix(i.Path, "@/")
+		if p == "" {
+			return nil
+		}
+		return strings.Split(p, "/")
+	case ImportPathPackageAlias:
+		p := i.Path
+		if strings.HasPrefix(p, "@") {
+			p = p[1:]
+		}
+		if i.PackageAlias != "" {
+			p = strings.TrimPrefix(p, i.PackageAlias+"/")
+		}
+		if p == "" {
+			return nil
+		}
+		return strings.Split(p, "/")
+	case ImportPathRelative:
+		return strings.Split(i.Path, "/")
+	default:
+		if strings.HasPrefix(i.Path, "@soyuz/") {
+			p := strings.TrimPrefix(i.Path, "@soyuz/")
+			return strings.Split(p, "/")
+		}
+		return strings.Split(i.Path, "/")
 	}
-	return strings.Split(p, "/")
 }
 
 // IsModuleImport reports whether this imports the whole module as a namespace.

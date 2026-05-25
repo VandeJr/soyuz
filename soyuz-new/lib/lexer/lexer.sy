@@ -1,14 +1,5 @@
 import (
-    { StringExtensions } from "@soyuz/string"
-    { Position, TokenType, Token } from "lib/lexer/tokens"
-    { lookupIdent } from "lib/lexer/keywords"
+    { StringExtensions } from @soyuz/string
+    { Position, TokenType, Token } from @/lib/lexer/tokens
+    { lookupIdent } from @lexer/keywords
 )
-
-pub record Lexer {
-    input: String,
-    ch: Char,
-    line: Int,
-    column: Int,
-    position: Int,
-    readPosition: Int
-}

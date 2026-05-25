@@ -101,7 +101,7 @@ const (
 	FN
 	EXTERN
 	RETURN
-	WEAK
+	EXTEND
 
 	// Keywords — types
 	RECORD
@@ -208,7 +208,7 @@ func (t TokenType) String() string {
 		FN:             "FN",
 		EXTERN:         "EXTERN",
 		RETURN:         "RETURN",
-		WEAK:           "WEAK",
+		EXTEND:         "EXTEND",
 		RECORD:         "RECORD",
 		CLASS:          "CLASS",
 		INTERFACE:      "INTERFACE",

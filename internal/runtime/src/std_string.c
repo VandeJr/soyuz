@@ -252,3 +252,17 @@ double soyuz_str_to_float(SoyuzString *s) {
     if (*endptr != '\0') { parse_err = 1; return 0.0; }
     return val;
 }
+
+int64_t soyuz_int_abs(int64_t n) {
+    return n < 0 ? -n : n;
+}
+
+double soyuz_int_to_float(int64_t n) {
+    return (double)n;
+}
+
+SoyuzString *soyuz_int_to_str(int64_t n) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", (long long)n);
+    return soyuz_str_from_cstr(buf);
+}

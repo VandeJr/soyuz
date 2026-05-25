@@ -19,7 +19,6 @@ type loopCtx struct {
 type structInfo struct {
 	typ          *types.StructType
 	fieldIndices map[string]int
-	weakFields   map[string]bool
 }
 
 type enumInfo struct {
@@ -35,9 +34,15 @@ type variantInfo struct {
 type classInfo struct {
 	typ          *types.StructType
 	fieldIndices map[string]int
-	methods      map[string][]*ir.Func  // may have multiple variants (overloaded by arity)
-	vtables      map[string]*ir.Global  // interface name → vtable global
-	weakFields   map[string]bool
+	methods      map[string][]*ir.Func // may have multiple variants (overloaded by arity)
+	vtables      map[string]*ir.Global // interface name → vtable global
+}
+
+type pendingExtendMethodBody struct {
+	typeName string
+	selfLLVM types.Type
+	fd       *parser.FuncDecl
+	fn       *ir.Func
 }
 
 type pendingClassMethodBody struct {
@@ -56,6 +61,7 @@ type Generator struct {
 	structs      map[string]structInfo
 	enums        map[string]enumInfo
 	classes      map[string]classInfo
+	extensionMethods map[string]map[string][]*ir.Func
 	interfaceDecls map[string]*parser.InterfaceDecl
 	check        *checker.CheckResult
 	specialized        map[string]*ir.Func
@@ -64,8 +70,10 @@ type Generator struct {
 	genericEnumDecls   map[string]*parser.EnumDecl
 	// Class method bodies deferred until all top-level function signatures are declared.
 	pendingClassBodies []pendingClassMethodBody
+	pendingExtendBodies []pendingExtendMethodBody
 	// RC fields
 	destructors map[string]*ir.Func // record name → generated destructor function
+	traces      map[string]*ir.Func // record name → ORC trace function
 	heapVars    map[string]bool     // which in-scope named vars hold RC-managed pointers
 	scopeStack  [][]string          // stack of owned heap var names, one slice per scope level
 	// block name deduplication within the current function
@@ -84,31 +92,18 @@ func New(check *checker.CheckResult) *Generator {
 		structs:        make(map[string]structInfo),
 		enums:          make(map[string]enumInfo),
 		classes:        make(map[string]classInfo),
+		extensionMethods: make(map[string]map[string][]*ir.Func),
 		interfaceDecls: make(map[string]*parser.InterfaceDecl),
 		specialized:        make(map[string]*ir.Func),
 		genericDecls:       make(map[string]*parser.FuncDecl),
 		genericRecordDecls: make(map[string]*parser.RecordDecl),
 		genericEnumDecls:   make(map[string]*parser.EnumDecl),
 		destructors:  make(map[string]*ir.Func),
+		traces:      make(map[string]*ir.Func),
 		heapVars:     make(map[string]bool),
 		blockNames:   make(map[string]int),
 		check:        check,
 	}
-}
-
-// isEffectivelyWeak returns true if fieldName on typeName is weak — either explicitly
-// declared with `weak var` or inferred by the cycle detector (M11).
-func (g *Generator) isEffectivelyWeak(typeName, fieldName string) bool {
-	if si, ok := g.structs[typeName]; ok && si.weakFields[fieldName] {
-		return true
-	}
-	if ci, ok := g.classes[typeName]; ok && ci.weakFields[fieldName] {
-		return true
-	}
-	if fields, ok := g.check.ImplicitWeakFields[typeName]; ok {
-		return fields[fieldName]
-	}
-	return false
 }
 
 // isHeapType returns true for pointer-to-struct types (records, enums) managed by RC.
@@ -170,6 +165,21 @@ func (g *Generator) popScopeAndRelease() {
 		}
 		delete(g.heapVars, name)
 	}
+	if !blocked && len(g.scopeStack) == 0 {
+		g.current.NewCall(g.findBuiltin("soyuz_orc_collect"))
+	}
+}
+
+func (g *Generator) emitSoyuzAlloc(size value.Value, typeKey string) value.Value {
+	dtorArg := value.Value(constant.NewNull(types.I8Ptr))
+	traceArg := value.Value(constant.NewNull(types.I8Ptr))
+	if dtor, ok := g.destructors[typeKey]; ok {
+		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
+		if trace, ok := g.traces[typeKey]; ok {
+			traceArg = g.current.NewBitCast(trace, types.I8Ptr)
+		}
+	}
+	return g.current.NewCall(g.findBuiltin("soyuz_alloc"), size, dtorArg, traceArg)
 }
 
 // releaseAllScopes emits release calls for ALL heap vars in the current scope stack.
@@ -235,6 +245,11 @@ func (g *Generator) Generate(prog *parser.Program) (*ir.Module, error) {
 			return nil, err
 		}
 	}
+	for _, pm := range g.pendingExtendBodies {
+		if err := g.generateExtendMethodBody(pm); err != nil {
+			return nil, err
+		}
+	}
 
 	// 3. Generate function bodies
 	for name, variants := range g.check.FuncVariants {
@@ -259,9 +274,11 @@ func (g *Generator) declareBuiltins() {
 	// RC runtime — implemented in runtime/rc.c, linked alongside the compiled output.
 	g.module.NewFunc("soyuz_alloc", types.I8Ptr,
 		ir.NewParam("size", types.I64),
-		ir.NewParam("dtor", types.I8Ptr))
+		ir.NewParam("dtor", types.I8Ptr),
+		ir.NewParam("trace", types.I8Ptr))
 	g.module.NewFunc("soyuz_retain", types.Void, ir.NewParam("ptr", types.I8Ptr))
 	g.module.NewFunc("soyuz_release", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("soyuz_orc_collect", types.Void)
 
 	// SoyuzString type: %SoyuzString = { i64 len }
 	g.soyuzStringType = g.module.NewTypeDef("SoyuzString", types.NewStruct(types.I64)).(*types.StructType)
@@ -277,6 +294,11 @@ func (g *Generator) declareBuiltins() {
 		ir.NewParam("buf", types.I8Ptr))
 	g.module.NewFunc("soyuz_str_len", types.I64,
 		ir.NewParam("s", g.soyuzStringPtrType))
+
+	g.module.NewFunc("soyuz_int_to_str", g.soyuzStringPtrType,
+		ir.NewParam("n", types.I64))
+	g.module.NewFunc("soyuz_int_abs", types.I64, ir.NewParam("n", types.I64))
+	g.module.NewFunc("soyuz_int_to_float", types.Double, ir.NewParam("n", types.I64))
 
 	// List primitives
 	g.module.NewFunc("soyuz_list_new", types.I8Ptr,

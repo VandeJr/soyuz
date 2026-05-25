@@ -81,15 +81,28 @@ func (p *printer) printImportBlock(prog *parser.Program, start int) {
 }
 
 func (p *printer) printImportSpec(n *parser.ImportDecl) {
+	path := formatImportPath(n)
 	if len(n.Names) > 0 {
 		parts := make([]string, len(n.Names))
 		for i, nm := range n.Names {
 			parts[i] = nm.Name
 		}
-		p.write("{ " + strings.Join(parts, ", ") + " } from \"" + n.Path + "\"")
+		p.write("{ " + strings.Join(parts, ", ") + " } from " + path)
 		return
 	}
-	p.write("\"" + n.Path + "\"")
+	p.write(path)
+}
+
+func formatImportPath(n *parser.ImportDecl) string {
+	switch n.PathKind {
+	case parser.ImportPathStdlib, parser.ImportPathProjectRoot, parser.ImportPathPackageAlias, parser.ImportPathRelative:
+		return n.Path
+	default:
+		if strings.HasPrefix(n.Path, "@") {
+			return n.Path
+		}
+		return "\"" + n.Path + "\""
+	}
 }
 
 func (p *printer) printTopLevel(node parser.Node) {
@@ -176,9 +189,6 @@ func (p *printer) printVarDecl(n *parser.VarDecl) {
 	if n.Pub {
 		prefix = "pub "
 	}
-	if n.Weak {
-		prefix += "weak "
-	}
 	name := n.Name
 	if name == "" && n.Pattern != nil {
 		name = p.pattern(n.Pattern)
@@ -203,15 +213,11 @@ func (p *printer) printRecordDecl(n *parser.RecordDecl) {
 	p.writeln(fmt.Sprintf("%srecord %s%s {", prefix, n.Name, generics))
 	p.depth++
 	for i, f := range n.Fields {
-		weak := ""
-		if f.Weak {
-			weak = "weak "
-		}
 		comma := ","
 		if i == len(n.Fields)-1 {
 			comma = ""
 		}
-		p.writeln(fmt.Sprintf("%s%s: %s%s", weak, f.Name, p.typeExpr(f.Type), comma))
+		p.writeln(fmt.Sprintf("%s: %s%s", f.Name, p.typeExpr(f.Type), comma))
 	}
 	p.depth--
 	p.writeln("}")
