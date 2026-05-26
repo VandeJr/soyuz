@@ -9,6 +9,7 @@ import (
 // ParseError represents a syntax error with source position.
 type ParseError struct {
 	Position lexer.Position
+	End      lexer.Position
 	Message  string
 }
 
@@ -143,8 +144,20 @@ func (p *Parser) skipSemicolons() {
 }
 
 func (p *Parser) errorf(pos lexer.Position, format string, args ...any) {
+	end := pos
+	if p.pos < len(p.tokens) {
+		tok := p.tokens[p.pos]
+		if tok.Position.Line == pos.Line && tok.Position.Column == pos.Column {
+			width := len(tok.Lexeme)
+			if width < 1 {
+				width = 1
+			}
+			end = lexer.Position{Line: pos.Line, Column: pos.Column + width}
+		}
+	}
 	p.errors = append(p.errors, ParseError{
 		Position: pos,
+		End:      end,
 		Message:  fmt.Sprintf(format, args...),
 	})
 }

@@ -112,7 +112,9 @@ func (c *Checker) registerFuncVariants(name string, variants []*parser.FuncDecl)
 	ft := &FuncType{Params: paramTypes, Return: retType, Generics: genericNames, Defaults: defaults, IsOptional: isOptional}
 	parentScope.Define(name, ft, true)
 	if len(variants) > 0 {
-		c.registerGlobalSymbol(name, variants[0], variants[0].Pub)
+		for _, v := range variants {
+			c.registerGlobalSymbol(name, v, v.Pub)
+		}
 	}
 
 	for _, v := range variants {
@@ -182,6 +184,9 @@ func (c *Checker) checkFuncVariantsBody(name string, variants []*parser.FuncDecl
 	}
 
 	for _, v := range variants {
+		if c.nodeFile != nil {
+			c.currentFile = c.nodeFile[v]
+		}
 		c.checkFuncDeclBody(v, ft)
 	}
 }

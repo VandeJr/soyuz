@@ -14,9 +14,10 @@ import (
 )
 
 type AnalysisResult struct {
-	AST   *parser.Program
-	Check *checker.CheckResult
-	Text  string
+	AST         *parser.Program
+	Check       *checker.CheckResult
+	ParseErrors []parser.ParseError
+	Text        string
 }
 
 // Engine re-analyzes documents on change with a 300 ms debounce and maintains
@@ -153,9 +154,10 @@ func (e *Engine) analyze(uri string) {
 	}
 
 	ar := &AnalysisResult{
-		AST:   prog,
-		Check: result,
-		Text:  text,
+		AST:         prog,
+		Check:       result,
+		ParseErrors: p.Errors(),
+		Text:        text,
 	}
 
 	e.mu.Lock()
@@ -236,8 +238,27 @@ func (e *Engine) analyzeWithStdlib(filePath, text string, prog *parser.Program) 
 
 	loadRecursive(filePath, prog)
 
+	// Auto-import prelude symbols.
+	if preludeFiles, err := module.ResolvePrelude(resolver); err == nil {
+		for _, f := range preludeFiles {
+			if visited[f] {
+				continue
+			}
+			visited[f] = true
+			data, rerr := os.ReadFile(f)
+			if rerr != nil {
+				continue
+			}
+			subProg := parser.New(lexer.Tokenize(string(data))).Parse()
+			loadRecursive(f, subProg)
+		}
+	}
+
 	merged := &parser.Program{Body: allNodes}
 	c := checker.New()
 	c.SetNodeFiles(nodeFile)
+	if preludeFiles, err := module.ResolvePrelude(resolver); err == nil {
+		c.SetPreludeFiles(preludeFiles)
+	}
 	return c.Check(merged)
 }

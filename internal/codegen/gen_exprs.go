@@ -200,6 +200,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 	case *parser.ElvisExpr:
 		return g.generateElvisExpr(n)
 
+	case *parser.SafeNavExpr:
+		return g.generateSafeNavExpr(n)
+
 	case *parser.AssignExpr:
 		val, err := g.generateExpr(n.Right)
 		if err != nil {
@@ -307,6 +310,12 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 			if err != nil {
 				return nil, err
 			}
+			var coerceErr error
+			val, coerceErr = g.coerceToInterfaceReturn(val, g.currentReturnType)
+			if coerceErr != nil {
+				return nil, coerceErr
+			}
+			val = g.prepareReturn(val)
 		}
 		g.releaseAllScopes()
 
@@ -492,6 +501,32 @@ func (g *Generator) wrapInInterfaceFatPtr(objPtr value.Value, vtable *ir.Global)
 	return g.current.NewBitCast(closureStructPtr, types.I8Ptr), nil
 }
 
+// coerceClassToInterface wraps a concrete class pointer as an interface fat pointer.
+func (g *Generator) coerceClassToInterface(val value.Value, ifaceName string) (value.Value, error) {
+	if ptrType, ok := val.Type().(*types.PointerType); ok {
+		if st, ok2 := ptrType.ElemType.(*types.StructType); ok2 {
+			if ci, ok3 := g.classes[st.TypeName]; ok3 {
+				if vtable, ok4 := ci.vtables[ifaceName]; ok4 {
+					return g.wrapInInterfaceFatPtr(val, vtable)
+				}
+			}
+		}
+	}
+	return val, nil
+}
+
+// coerceToInterfaceReturn wraps a class value when the function return type is an interface.
+func (g *Generator) coerceToInterfaceReturn(val value.Value, retType checker.Type) (value.Value, error) {
+	if val == nil || retType == nil {
+		return val, nil
+	}
+	it, ok := retType.(*checker.InterfaceType)
+	if !ok {
+		return val, nil
+	}
+	return g.coerceClassToInterface(val, it.Name)
+}
+
 func (g *Generator) generateTupleExpr(n *parser.TupleExpr) (value.Value, error) {
 	elems := make([]value.Value, len(n.Elements))
 	elemTypes := make([]types.Type, len(n.Elements))
@@ -568,6 +603,11 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 	// M4b: curried call — generate a closure instead of a direct call
 	if af, ok := g.check.CurriedCalls[n]; ok {
 		return g.generateArrowFunc(af)
+	}
+
+	// Safe navigation method call: obj?.method(args)
+	if sn, ok := n.Callee.(*parser.SafeNavExpr); ok {
+		return g.generateSafeNavMethodCall(sn, n)
 	}
 
 	// 1. Built-in print
@@ -771,13 +811,8 @@ func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
 
 // generateEnumConstructorWithValues is like generateEnumConstructor but takes pre-evaluated arg values.
 func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInfo, args []value.Value) (value.Value, error) {
-	var dtorArg value.Value
-	if dtor, ok := g.destructors[ei.typ.TypeName]; ok {
-		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
-	} else {
-		dtorArg = constant.NewNull(types.I8Ptr)
-	}
-	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"), constant.NewInt(types.I64, 72), dtorArg, constant.NewNull(types.I8Ptr))
+	dtorArg, traceArg := g.enumRCFnArgs(ei.typ.TypeName)
+	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"), constant.NewInt(types.I64, 72), dtorArg, traceArg)
 	structPtr := g.current.NewBitCast(raw, types.NewPointer(ei.typ))
 	tagPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
@@ -796,17 +831,11 @@ func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInf
 }
 
 func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *parser.CallExpr) (value.Value, error) {
-	// Look up the enum destructor by type name.
-	var dtorArg value.Value
-	if dtor, ok := g.destructors[ei.typ.TypeName]; ok {
-		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
-	} else {
-		dtorArg = constant.NewNull(types.I8Ptr)
-	}
+	dtorArg, traceArg := g.enumRCFnArgs(ei.typ.TypeName)
 
 	// Enum layout is 72 bytes: 8 (tag i64) + 64 ([64 x i8] payload).
 	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-		constant.NewInt(types.I64, 72), dtorArg, constant.NewNull(types.I8Ptr))
+		constant.NewInt(types.I64, 72), dtorArg, traceArg)
 	structPtr := g.current.NewBitCast(raw, types.NewPointer(ei.typ))
 
 	tagPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
@@ -1022,6 +1051,20 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 					constant.NewInt(types.I64, elemIsHeap))
 				listPtrType := types.NewPointer(g.structs["SoyuzList"].typ)
 				return g.current.NewBitCast(raw, listPtrType), nil
+			case "iter":
+				return g.generateListIter(obj), nil
+			}
+		}
+	}
+
+	// Iterator[T] methods
+	if st, ok := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok {
+		if ct, ok2 := st.Base.(*checker.ClassType); ok2 && ct.Name == "Iterator" {
+			switch me.Property {
+			case "next":
+				return g.generateIteratorNext(obj, st)
+			case "isEmpty":
+				return g.generateIteratorIsEmpty(obj)
 			}
 		}
 	}
@@ -1060,6 +1103,12 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				return g.generateMapKeys(obj, st)
 			case "values":
 				return g.generateMapValues(obj, st)
+			case "iter":
+				keys, err := g.generateMapKeys(obj, st)
+				if err != nil {
+					return nil, err
+				}
+				return g.generateListIter(keys), nil
 			}
 		}
 	}
@@ -1482,10 +1531,12 @@ func (g *Generator) generateElvisExpr(n *parser.ElvisExpr) (value.Value, error) 
 		return nil, err
 	}
 
-	// Determine the inner payload LLVM type from the checker.
+	// Determine the inner payload LLVM type from the Option[T] on the left.
 	var payloadType types.Type = types.I64
-	if st, ok := g.check.NodeTypes[n].(*checker.SpecializedType); ok && len(st.Params) > 0 {
+	if st, ok := g.check.NodeTypes[n.Left].(*checker.SpecializedType); ok && len(st.Params) > 0 {
 		payloadType = g.mapTypeToLLVM(st.Params[0])
+	} else if bt, ok := g.check.NodeTypes[n].(*checker.BasicType); ok {
+		payloadType = g.mapTypeToLLVM(bt)
 	}
 
 	ei := g.enums["Option"]
@@ -1537,6 +1588,123 @@ func (g *Generator) generateElvisExpr(n *parser.ElvisExpr) (value.Value, error) 
 	return phi, nil
 }
 
+// generateSafeNavExpr emits `obj?.field`: short-circuit member access on Option[T].
+func (g *Generator) generateSafeNavExpr(n *parser.SafeNavExpr) (value.Value, error) {
+	return g.generateSafeNavAccess(n, func(unwrapped value.Value, innerCheckerType checker.Type) (value.Value, error) {
+		tmpName := "__safenav_unwrap"
+		tmpAlloc := g.newAlloca(unwrapped.Type())
+		g.current.NewStore(unwrapped, tmpAlloc)
+		oldVar, hadOld := g.vars[tmpName]
+		g.vars[tmpName] = tmpAlloc
+		defer func() {
+			if hadOld {
+				g.vars[tmpName] = oldVar
+			} else {
+				delete(g.vars, tmpName)
+			}
+		}()
+
+		g.check.NodeTypes[&parser.Identifier{Name: tmpName}] = innerCheckerType
+		me := &parser.MemberExpr{
+			Object:   &parser.Identifier{Name: tmpName},
+			Property: n.Property,
+		}
+		return g.generateMemberExpr(me)
+	})
+}
+
+func (g *Generator) generateSafeNavMethodCall(sn *parser.SafeNavExpr, n *parser.CallExpr) (value.Value, error) {
+	return g.generateSafeNavAccess(sn, func(unwrapped value.Value, innerCheckerType checker.Type) (value.Value, error) {
+		tmpName := "__safenav_unwrap"
+		tmpAlloc := g.newAlloca(unwrapped.Type())
+		g.current.NewStore(unwrapped, tmpAlloc)
+		oldVar, hadOld := g.vars[tmpName]
+		g.vars[tmpName] = tmpAlloc
+		defer func() {
+			if hadOld {
+				g.vars[tmpName] = oldVar
+			} else {
+				delete(g.vars, tmpName)
+			}
+		}()
+
+		g.check.NodeTypes[&parser.Identifier{Name: tmpName}] = innerCheckerType
+		me := &parser.MemberExpr{
+			Object:   &parser.Identifier{Name: tmpName},
+			Property: sn.Property,
+		}
+		return g.generateMethodCall(me, n)
+	})
+}
+
+// generateSafeNavAccess branches on Option tag; on Some runs accessFn on the unwrapped payload
+// and wraps the result in Some; on None returns None without evaluating accessFn.
+func (g *Generator) generateSafeNavAccess(n *parser.SafeNavExpr, accessFn func(unwrapped value.Value, innerCheckerType checker.Type) (value.Value, error)) (value.Value, error) {
+	optVal, err := g.generateExpr(n.Object)
+	if err != nil {
+		return nil, err
+	}
+
+	ei := g.enums["Option"]
+	optPtr := optVal
+	if _, ok := optVal.Type().(*types.PointerType); !ok {
+		alloc := g.newAlloca(optVal.Type())
+		g.current.NewStore(optVal, alloc)
+		optPtr = alloc
+	}
+
+	tagPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	tag := g.current.NewLoad(types.I64, tagPtr)
+	isSome := g.current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, 0))
+
+	fn := g.current.Parent
+	someBlock := g.newBlock("safenav_some", fn)
+	noneBlock := g.newBlock("safenav_none", fn)
+	mergeBlock := g.newBlock("safenav_merge", fn)
+	g.current.NewCondBr(isSome, someBlock, noneBlock)
+
+	var innerCheckerType checker.Type = checker.IntType
+	if st, ok := g.check.NodeTypes[n.Object].(*checker.SpecializedType); ok && len(st.Params) > 0 {
+		innerCheckerType = st.Params[0]
+	}
+	innerLLVMType := g.mapTypeToLLVM(innerCheckerType)
+
+	// None branch: return None without evaluating member access.
+	g.current = noneBlock
+	noneVal, err := g.generateNoneLiteral(&parser.NoneLiteral{})
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	noneBlockOut := g.current
+
+	// Some branch: unwrap payload, access member/method, wrap in Some.
+	g.current = someBlock
+	payloadPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(innerLLVMType))
+	payload := g.current.NewLoad(innerLLVMType, castPtr)
+
+	memberVal, err := accessFn(payload, innerCheckerType)
+	if err != nil {
+		return nil, err
+	}
+	someVal, err := g.emitOptionResultAlloc("Option", 0, memberVal)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	someBlockOut := g.current
+
+	g.current = mergeBlock
+	phi := mergeBlock.NewPhi(
+		ir.NewIncoming(someVal, someBlockOut),
+		ir.NewIncoming(noneVal, noneBlockOut),
+	)
+	return phi, nil
+}
+
 func (g *Generator) generateSomeExpr(n *parser.SomeExpr) (value.Value, error) {
 	val, err := g.generateExpr(n.Value)
 	if err != nil {
@@ -1564,20 +1732,11 @@ func (g *Generator) generateErrExpr(n *parser.ErrExpr) (value.Value, error) {
 	}
 	// The Err payload must be an Error interface fat pointer {obj_ptr, vtable_ptr}
 	// so that dynamic dispatch (e.message()) works when the match extracts it.
-	// If the value is a concrete class that implements Error, wrap it now.
-	if ptrType, ok := val.Type().(*types.PointerType); ok {
-		if st, ok2 := ptrType.ElemType.(*types.StructType); ok2 {
-			if ci, ok3 := g.classes[st.TypeName]; ok3 {
-				if vtable, ok4 := ci.vtables["Error"]; ok4 {
-					val, err = g.wrapInInterfaceFatPtr(val, vtable)
-					if err != nil {
-						return nil, err
-					}
-				}
-			}
-		}
+	wrapped, err := g.coerceClassToInterface(val, "Error")
+	if err != nil {
+		return nil, err
 	}
-	return g.emitOptionResultAlloc("Result", 1, val)
+	return g.emitOptionResultAlloc("Result", 1, wrapped)
 }
 
 func (g *Generator) emitOptionResultAlloc(typeName string, tag int, payload value.Value) (value.Value, error) {

@@ -1,11 +1,8 @@
-// Soyuz Standard Library — Error
-//
-// Define a interface base para tratamento de erros no sistema.
-// O tipo Result[T] utiliza esta interface para sua variante Err.
+// @soyuz/error — compatibility shim; canonical definitions live in @soyuz/prelude.
 
 pub interface Error {
-  fn message() -> String
-  fn code() -> Int
+    fn message() -> String
+    fn code() -> Int
 }
 
 pub class NoneError : Error {

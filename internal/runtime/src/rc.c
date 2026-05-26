@@ -341,6 +341,9 @@ void soyuz_map_set(void *map_ptr, void *key, void *value) {
     int64_t idx = h % map->capacity;
     while (map->entries[idx].occupied) {
         if (soyuz_key_eq(map->entries[idx].key, key, map->is_string_key)) {
+            if (map->entries[idx].value != value) {
+                soyuz_release(map->entries[idx].value);
+            }
             map->entries[idx].value = value;
             return;
         }

@@ -23,7 +23,5 @@ pub fn rangeInclusive(from: Int, to: Int) -> List[Int] = soyuz_range_inclusive(f
 // Exemplo: rangeStep(5, 0, -1) → [5, 4, 3, 2, 1]
 pub fn rangeStep(from: Int, to: Int, step: Int) -> List[Int] = soyuz_range_step(from, to, step)
 
-// Interface genérica de iterável — implementada implicitamente por List e Map.
-pub interface Iteravel[T] {
-  fn isEmpty() -> Bool
-}
+// Iterator[T] e Iteravel[T] são builtins do compilador (ver internal/checker/checker.go).
+// List[T].iter() e Map[K,V].iter() retornam Iterator[T] / Iterator[K].

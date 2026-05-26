@@ -213,3 +213,76 @@ func TestOptionSugarRequiredParamStillRequired(t *testing.T) {
 		t.Error("param não-opcional ausente deve gerar erro")
 	}
 }
+
+func TestResultSugarAutoOk(t *testing.T) {
+	src := `
+	interface Error { fn message() -> String fn code() -> Int }
+	class MyError : Error { fn message(self) -> String = "x" fn code(self) -> Int = 1 }
+	fn accept(r: Result[Int]) -> Int = match r { Ok(v) => v Err(e) => 0 }
+	val n = accept(42)
+	`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Errorf("valor bare para Result[T] deve auto-wrap Ok, obtido %v", result.Errors)
+	}
+}
+
+func TestResultSugarAutoErr(t *testing.T) {
+	src := `
+	interface Error { fn message() -> String fn code() -> Int }
+	class MyError : Error { fn message(self) -> String = "x" fn code(self) -> Int = 1 }
+	fn accept(r: Result[Int]) -> Int = match r { Ok(v) => v Err(e) => 0 }
+	val e: Error = MyError {}
+	val n = accept(e)
+	`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Errorf("Error para Result[T] deve auto-wrap Err, obtido %v", result.Errors)
+	}
+}
+
+func TestOptionExplicitSugarAutoSome(t *testing.T) {
+	src := `
+	fn accept(o: Option[String]) -> String = match o { Some(s) => s None => "" }
+	val s = accept("hello")
+	`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Errorf("valor bare para Option[T] deve auto-wrap Some, obtido %v", result.Errors)
+	}
+}
+
+func TestOptionExplicitSugarExplicitNone(t *testing.T) {
+	src := `
+	fn accept(o: Option[String]) -> String = match o { Some(s) => s None => "" }
+	val s = accept(None)
+	`
+	tokens := lexer.Tokenize(src)
+	p := parser.New(tokens)
+	prog := p.Parse()
+
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Errorf("None explícito para Option[T] não deve dar erro, obtido %v", result.Errors)
+	}
+}

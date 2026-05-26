@@ -129,8 +129,11 @@ func build(inputFile, outputFile string) {
 
 	// 3. Checagem de tipos (com enforcement de pub cross-file quando multi-arquivo).
 	c := checker.New()
-	if len(files) > 1 {
+	if len(files) > 0 {
 		c.SetNodeFiles(nodeFile)
+	}
+	if preludeFiles, err := module.ResolvePrelude(resolver); err == nil {
+		c.SetPreludeFiles(preludeFiles)
 	}
 	result := c.Check(mergedProg)
 	if len(result.Errors) > 0 {

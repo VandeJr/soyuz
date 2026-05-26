@@ -79,9 +79,13 @@ type Generator struct {
 	// block name deduplication within the current function
 	blockNames  map[string]int
 	closureType *types.StructType // { i8*, i8* } — shared closure fat-pointer layout
+	closureDtor *ir.Func           // releases captured env when closure is freed
+	envDtorCounter int
 	// SoyuzString RC-managed string type
 	soyuzStringType    *types.StructType
 	soyuzStringPtrType types.Type
+	// Checker return type of the function currently being codegen'd (for interface coercion).
+	currentReturnType checker.Type
 }
 
 // New returns a new Generator.
@@ -200,6 +204,26 @@ func (g *Generator) releaseAllScopes() {
 			}
 		}
 	}
+}
+
+// prepareReturn retains heap return values so they survive releaseAllScopes.
+func (g *Generator) prepareReturn(val value.Value) value.Value {
+	if val != nil && g.isHeapType(val.Type()) {
+		g.emitRetain(val)
+	}
+	return val
+}
+
+func (g *Generator) enumRCFnArgs(typeName string) (dtorArg, traceArg value.Value) {
+	dtorArg = constant.NewNull(types.I8Ptr)
+	traceArg = constant.NewNull(types.I8Ptr)
+	if dtor, ok := g.destructors[typeName]; ok {
+		dtorArg = g.current.NewBitCast(dtor, types.I8Ptr)
+	}
+	if trace, ok := g.traces[typeName]; ok {
+		traceArg = g.current.NewBitCast(trace, types.I8Ptr)
+	}
+	return dtorArg, traceArg
 }
 
 func (g *Generator) newBlock(name string, fn *ir.Func) *ir.Block {
@@ -389,6 +413,17 @@ func (g *Generator) declareBuiltins() {
 			"capacity":      1,
 			"entries":       2,
 			"is_string_key": 3,
+		},
+	}
+
+	// Iterator layout: { list: i8*, index: i64 }
+	iterStruct := g.module.NewTypeDef("SoyuzIterator",
+		types.NewStruct(types.I8Ptr, types.I64)).(*types.StructType)
+	g.structs["SoyuzIterator"] = structInfo{
+		typ: iterStruct,
+		fieldIndices: map[string]int{
+			"list":  0,
+			"index": 1,
 		},
 	}
 

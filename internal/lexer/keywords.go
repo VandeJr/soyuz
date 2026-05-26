@@ -9,7 +9,6 @@ var keywords = map[string]TokenType{
 	"return": RETURN,
 	"pub":    PUB,
 	"extend": EXTEND,
-	"impl":   IMPL,
 
 	// Tipos compostos
 	"record":    RECORD,

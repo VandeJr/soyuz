@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 	"strconv"
+	"soyuz/internal/lexer"
 	"soyuz/internal/parser"
 )
 
@@ -67,11 +68,15 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 		}
 	}
 	objType := c.checkNode(n.Object)
+	return c.resolveMemberType(objType, n.Property, n.Pos())
+}
+
+func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Position) Type {
 	switch t := objType.(type) {
 	case *EnumType:
 		// Enum.Variant — look up directly in the enum's own variants to avoid scope collisions
 		// when two enums share the same variant name (e.g. two enums with Ok/Err).
-		if fieldTypes, ok := t.Variants[n.Property]; ok {
+		if fieldTypes, ok := t.Variants[property]; ok {
 			var retType Type = t
 			if len(t.Generics) > 0 {
 				tparams := make([]Type, len(t.Generics))
@@ -85,66 +90,86 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 			}
 			return &FuncType{Params: fieldTypes, Return: retType, Generics: t.Generics}
 		}
-		c.errorf(n.Pos(), "enum %s não tem variante %s", t.Name, n.Property)
+		c.errorf(pos, "enum %s não tem variante %s", t.Name, property)
 		return Unknown
 	case *ClassType:
-		if variants, ok := t.Methods[n.Property]; ok && len(variants) > 0 {
-			if !t.MethodPub[n.Property] && c.currentClass != t {
-				c.errorf(n.Pos(), "método '%s' de '%s' é privado", n.Property, t.Name)
+		if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
+			if !t.MethodPub[property] && c.currentClass != t {
+				c.errorf(pos, "método '%s' de '%s' é privado", property, t.Name)
 			}
 			return variants[0]
 		}
-		if ft, ok := t.Fields[n.Property]; ok {
-			if !t.FieldPub[n.Property] && c.currentClass != t {
-				c.errorf(n.Pos(), "campo '%s' de '%s' é privado", n.Property, t.Name)
+		if ft, ok := t.Fields[property]; ok {
+			if !t.FieldPub[property] && c.currentClass != t {
+				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
 			}
 			return ft
 		}
-		c.errorf(n.Pos(), "class %s has no member %s", t.Name, n.Property)
+		c.errorf(pos, "class %s has no member %s", t.Name, property)
 		return Unknown
 	case *InterfaceType:
-		if ft, ok := t.Methods[n.Property]; ok {
+		if ft, ok := t.Methods[property]; ok {
 			return ft
 		}
-		c.errorf(n.Pos(), "interface %s has no method %s", t.Name, n.Property)
+		c.errorf(pos, "interface %s has no method %s", t.Name, property)
 		return Unknown
 	case *RecordType:
-		if ft, ok := t.Fields[n.Property]; ok {
+		if ft, ok := t.Fields[property]; ok {
 			return ft
 		}
-		c.errorf(n.Pos(), "record %s has no field %s", t.Name, n.Property)
+		c.errorf(pos, "record %s has no field %s", t.Name, property)
 		return Unknown
 	case *TupleType:
-		idx, err := strconv.Atoi(n.Property)
+		idx, err := strconv.Atoi(property)
 		if err != nil {
-			c.errorf(n.Pos(), "invalid tuple index: %s", n.Property)
+			c.errorf(pos, "invalid tuple index: %s", property)
 			return Unknown
 		}
 		if idx < 0 || idx >= len(t.Elements) {
-			c.errorf(n.Pos(), "tuple index out of bounds: %d (arity %d)", idx, len(t.Elements))
+			c.errorf(pos, "tuple index out of bounds: %d (arity %d)", idx, len(t.Elements))
 			return Unknown
 		}
 		return t.Elements[idx]
 	case *BasicType:
 		if methods, ok := c.typeExtensions[t.Name]; ok {
-			if variants, ok2 := methods[n.Property]; ok2 && len(variants) > 0 {
+			if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
 				return variants[0]
 			}
 		}
 		if t.Name == "String" {
 			if sym, ok := c.scope.Resolve("StringExtensions"); ok {
 				if ct, ok2 := sym.Type.(*ClassType); ok2 {
-					if variants, ok3 := ct.Methods[n.Property]; ok3 && len(variants) > 0 {
+					if variants, ok3 := ct.Methods[property]; ok3 && len(variants) > 0 {
 						return variants[0]
 					}
 				}
 			}
 		}
-		c.errorf(n.Pos(), "%s não tem método '%s'", t.Name, n.Property)
+		c.errorf(pos, "%s não tem método '%s'", t.Name, property)
 		return Unknown
 	}
 	// Unknown object type — allow, return Unknown
 	return Unknown
+}
+
+func (c *Checker) wrapOptionType(inner Type) Type {
+	base := c.resolveTypeExpr(&parser.NamedType{Name: "Option"})
+	return &SpecializedType{Base: base, Params: []Type{inner}}
+}
+
+// checkSafeNavExpr: `obj?.field` — obj must be Option[T], result is Option[FieldType].
+func (c *Checker) checkSafeNavExpr(n *parser.SafeNavExpr) Type {
+	objType := c.checkNode(n.Object)
+	innerType, kind := c.unwrapResultOption(objType)
+	if kind != "Option" {
+		c.errorf(n.Pos(), "safe navigation (?.) requer Option[T], obtido %s", objType)
+		return Unknown
+	}
+	memberType := c.resolveMemberType(innerType, n.Property, n.Pos())
+	if memberType == Unknown {
+		return Unknown
+	}
+	return c.wrapOptionType(memberType)
 }
 
 func (c *Checker) checkSelfExpr(n *parser.SelfExpr) Type {
@@ -539,6 +564,44 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 	var ft *FuncType
 	var calleeType Type
 
+	// Safe navigation method call: obj?.method(args)
+	if sn, ok := n.Callee.(*parser.SafeNavExpr); ok {
+		objType := c.checkNode(sn.Object)
+		innerType, kind := c.unwrapResultOption(objType)
+		if kind != "Option" {
+			c.errorf(sn.Pos(), "safe navigation (?.) requer Option[T], obtido %s", objType)
+			return Unknown
+		}
+		memberType := c.resolveMemberType(innerType, sn.Property, sn.Pos())
+		methodFT, ok := memberType.(*FuncType)
+		if !ok {
+			c.errorf(n.Callee.Pos(), "attempt to call a value that is not a function: %s", memberType)
+			return Unknown
+		}
+		ft = methodFT
+		c.specializations[n] = ft
+		if len(n.Args) > len(ft.Params) {
+			c.errorf(n.Pos(), "argumentos em excesso: esperado %d, encontrado %d", len(ft.Params), len(n.Args))
+			return c.wrapOptionType(ft.Return)
+		}
+		if len(n.Args) < len(ft.Params) {
+			c.errorf(n.Pos(), "argumentos insuficientes: esperado %d, encontrado %d", len(ft.Params), len(n.Args))
+			return c.wrapOptionType(ft.Return)
+		}
+		for i, arg := range n.Args {
+			if af, ok2 := arg.(*parser.ArrowFunc); ok2 && i < len(ft.Params) {
+				if expectedFT, ok3 := ft.Params[i].(*FuncType); ok3 {
+					c.arrowFuncHints[af] = expectedFT.Params
+				}
+			}
+			at := c.checkNode(arg)
+			if !c.isAssignable(ft.Params[i], at) {
+				c.errorf(arg.Pos(), "incompatible argument %d: expected %s, got %s", i+1, ft.Params[i], at)
+			}
+		}
+		return c.wrapOptionType(ft.Return)
+	}
+
 	// M3 HOF: special-case for List[T] functional methods and Map[K,V] key/value extraction.
 	// Must run before generic overload resolution so we can return the correct concrete types.
 	if me, isME := n.Callee.(*parser.MemberExpr); isME {
@@ -592,6 +655,14 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				case "isEmpty":
 					c.specializations[n] = &FuncType{Return: BoolType}
 					return BoolType
+				case "iter":
+					if len(n.Args) == 0 {
+						if iterSym, ok2 := c.scope.Resolve("Iterator"); ok2 {
+							resultType := &SpecializedType{Base: iterSym.Type, Params: []Type{elemType}}
+							c.specializations[n] = &FuncType{Return: resultType}
+							return resultType
+						}
+					}
 				case "set":
 					if len(n.Args) == 2 {
 						c.checkNode(n.Args[0])
@@ -650,12 +721,37 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 						c.specializations[n] = &FuncType{Return: resultType}
 						return resultType
 					}
+				case "iter":
+					if len(n.Args) == 0 {
+						if iterSym, ok2 := c.scope.Resolve("Iterator"); ok2 {
+							resultType := &SpecializedType{Base: iterSym.Type, Params: []Type{st.Params[0]}}
+							c.specializations[n] = &FuncType{Return: resultType}
+							return resultType
+						}
+					}
+				}
+			}
+			if ct, isCT := st.Base.(*ClassType); isCT && ct.Name == "Iterator" && len(st.Params) > 0 {
+				elemType := st.Params[0]
+				switch me.Property {
+				case "next":
+					if len(n.Args) == 0 {
+						optBase := c.resolveTypeExpr(&parser.NamedType{Name: "Option"})
+						resultType := &SpecializedType{Base: optBase, Params: []Type{elemType}}
+						c.specializations[n] = &FuncType{Return: resultType}
+						return resultType
+					}
+				case "isEmpty":
+					if len(n.Args) == 0 {
+						c.specializations[n] = &FuncType{Return: BoolType}
+						return BoolType
+					}
 				}
 			}
 		}
 	}
 
-	// M5: overloaded method resolution — must happen before normal callee checking
+	// M5: overloaded method resolution
 	// so that we pick the correct variant by arity instead of defaulting to variants[0].
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
 		objType := c.nodeTypes[me.Object]
@@ -740,6 +836,8 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 			}
 		}
 	}
+
+	c.applyEnumParamSugar(n, ft)
 
 	// M4b: currying — detect _ placeholder in non-optional positions
 	if c.hasCurryPlaceholder(n, ft) {
@@ -971,8 +1069,15 @@ func (c *Checker) checkForStmt(n *parser.ForStmt) Type {
 	if _, ok := n.Iterable.(*parser.RangeExpr); !ok {
 		iterType := c.checkNode(n.Iterable)
 		if st, ok := iterType.(*SpecializedType); ok {
-			if ct, ok2 := st.Base.(*ClassType); ok2 && ct.Name == "List" && len(st.Params) > 0 {
-				bindingType = st.Params[0]
+			if ct, ok2 := st.Base.(*ClassType); ok2 && len(st.Params) > 0 {
+				switch ct.Name {
+				case "List", "Iterator":
+					bindingType = st.Params[0]
+				case "Map":
+					bindingType = st.Params[0] // iterate keys
+				default:
+					c.errorf(n.Iterable.Pos(), "for-in: tipo '%s' não é iterável", iterType)
+				}
 			} else {
 				c.errorf(n.Iterable.Pos(), "for-in: tipo '%s' não é iterável", iterType)
 			}
@@ -1101,6 +1206,11 @@ func (c *Checker) resolveTypeExpr(e parser.TypeExpr) Type {
 			return CharType
 		case "Unit":
 			return UnitType
+		case "Error":
+			if sym, ok := c.scope.Resolve("Error"); ok {
+				return sym.Type
+			}
+			return Unknown
 		}
 		if sym, ok := c.scope.Resolve(t.Name); ok {
 			c.checkGlobalAccess(t.Name, t.TypePos())
@@ -1130,6 +1240,77 @@ func (c *Checker) resolveTypeExpr(e parser.TypeExpr) Type {
 		return &TupleType{Elements: elems}
 	}
 	return Unknown
+}
+
+// enumParamInner reports whether param is Option[T] or Result[T] and returns the inner type T.
+func (c *Checker) enumParamInner(param Type, enumName string) (Type, bool) {
+	st, ok := param.(*SpecializedType)
+	if !ok {
+		return Unknown, false
+	}
+	et, ok := st.Base.(*EnumType)
+	if !ok || et.Name != enumName || len(st.Params) == 0 {
+		return Unknown, false
+	}
+	return st.Params[0], true
+}
+
+func (c *Checker) errorInterfaceType() Type {
+	if sym, ok := c.scope.Resolve("Error"); ok {
+		return sym.Type
+	}
+	return Unknown
+}
+
+func (c *Checker) implementsError(t Type) bool {
+	errType := c.errorInterfaceType()
+	if errType == Unknown || t == Unknown {
+		return false
+	}
+	if c.isAssignable(errType, t) {
+		return true
+	}
+	if it, ok := t.(*InterfaceType); ok && it.Name == "Error" {
+		return true
+	}
+	return false
+}
+
+// applyEnumParamSugar auto-wraps bare values for explicit Option[T] and Result[T] params.
+// T? params are handled separately via IsOptional.
+func (c *Checker) applyEnumParamSugar(n *parser.CallExpr, ft *FuncType) {
+	for i := range n.Args {
+		if i >= len(ft.Params) {
+			break
+		}
+		if i < len(ft.IsOptional) && ft.IsOptional[i] {
+			continue
+		}
+		param := ft.Params[i]
+		arg := n.Args[i]
+
+		if _, ok := c.enumParamInner(param, "Option"); ok {
+			switch arg.(type) {
+			case *parser.SomeExpr, *parser.NoneLiteral:
+			default:
+				n.Args[i] = &parser.SomeExpr{Value: arg}
+			}
+			continue
+		}
+
+		if _, ok := c.enumParamInner(param, "Result"); ok {
+			switch arg.(type) {
+			case *parser.OkExpr, *parser.ErrExpr:
+			default:
+				at := c.checkNode(arg)
+				if c.implementsError(at) {
+					n.Args[i] = &parser.ErrExpr{Value: arg}
+				} else {
+					n.Args[i] = &parser.OkExpr{Value: arg}
+				}
+			}
+		}
+	}
 }
 
 func (c *Checker) isAssignable(expected, actual Type) bool {

@@ -27,16 +27,6 @@ void soyuz_print(SoyuzString *s) {
     if (s) printf("%s", soyuz_str_data(s));
 }
 
-// Returns a heap-allocated SoyuzString.
-SoyuzString *soyuz_int_to_str(int64_t n) {
-    char *buf = (char *)malloc(32);
-    if (!buf) return soyuz_str_new("", 0);
-    snprintf(buf, 32, "%ld", (long)n);
-    SoyuzString *s = soyuz_str_from_cstr(buf);
-    free(buf);
-    return s;
-}
-
 SoyuzString *soyuz_float_to_str(double x) {
     char *buf = (char *)malloc(32);
     if (!buf) return soyuz_str_new("", 0);

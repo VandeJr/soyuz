@@ -1,6 +1,7 @@
 package checker
 
 import (
+	"fmt"
 	"strings"
 
 	"soyuz/internal/lexer"
@@ -144,8 +145,17 @@ var (
 
 type TypeError struct {
 	Pos     lexer.Position
+	End     lexer.Position
 	File    string // source file; empty in single-file mode
+	Code    string
 	Message string
+}
+
+func (e TypeError) Error() string {
+	if e.File != "" {
+		return fmt.Sprintf("[%s %v]: %s", e.File, e.Pos, e.Message)
+	}
+	return fmt.Sprintf("%v: %s", e.Pos, e.Message)
 }
 
 type Scope struct {

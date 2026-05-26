@@ -127,7 +127,6 @@ const (
 
 	// Keywords — OOP
 	SELF
-	IMPL
 
 	// Keywords — built-in types
 	INT_TYPE
@@ -226,7 +225,6 @@ func (t TokenType) String() string {
 		IMPORT:         "IMPORT",
 		PUB:            "PUB",
 		SELF:           "SELF",
-		IMPL:           "IMPL",
 		INT_TYPE:       "INT_TYPE",
 		FLOAT_TYPE:     "FLOAT_TYPE",
 		BOOL_TYPE:      "BOOL_TYPE",

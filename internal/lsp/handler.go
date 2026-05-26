@@ -8,6 +8,7 @@ import (
 	protocol "github.com/tliron/glsp/protocol_3_16"
 
 	"soyuz/internal/checker"
+	"soyuz/internal/diag"
 	"soyuz/internal/lexer"
 	"soyuz/internal/parser"
 )
@@ -141,25 +142,44 @@ func (h *Handler) publishDiagnostics(uri string, result *AnalysisResult) {
 	if serverNotify == nil {
 		return
 	}
+	file := filepathBase(uriToPath(uri))
+	parseDiags := diag.FromParseErrors(file, result.ParseErrors)
+	typeDiags := diag.FromTypeErrors(result.Check.Errors)
+	allDiags := diag.Merge(parseDiags, typeDiags)
+
 	serverNotify(string(protocol.ServerTextDocumentPublishDiagnostics),
 		protocol.PublishDiagnosticsParams{
 			URI:         uri,
-			Diagnostics: toDiagnostics(result.Check.Errors),
+			Diagnostics: toDiagnostics(allDiags),
 		})
 }
 
-func toDiagnostics(errors []checker.TypeError) []protocol.Diagnostic {
+func filepathBase(path string) string {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
+}
+
+func toDiagnostics(errors []diag.Diagnostic) []protocol.Diagnostic {
 	diags := make([]protocol.Diagnostic, len(errors))
 	for i, e := range errors {
-		start := toLSPPosition(e.Pos)
+		start := toLSPPosition(e.Start)
+		end := toLSPPosition(e.End)
+		if end.Line == start.Line && end.Character <= start.Character {
+			end.Character = start.Character + 1
+		}
+		msg := e.Message
+		if e.Code != "" {
+			msg = e.Code + ": " + msg
+		}
 		diags[i] = protocol.Diagnostic{
 			Range: protocol.Range{
 				Start: start,
-				// Underline one word (end-of-line marker for editors that do word expansion).
-				End: protocol.Position{Line: start.Line, Character: start.Character + 1},
+				End:   end,
 			},
 			Severity: severityPtr(protocol.DiagnosticSeverityError),
-			Message:  e.Message,
+			Message:  msg,
 			Source:   strPtr("soyuz"),
 		}
 	}
@@ -468,7 +488,7 @@ func identRange(pos lexer.Position, name string) protocol.Range {
 // ─── Completion ───────────────────────────────────────────────────────────────
 
 var soyuzKeywords = []string{
-	"val", "var", "fn", "extern", "return", "pub", "extend", "impl",
+	"val", "var", "fn", "extern", "return", "pub", "extend",
 	"record", "class", "interface", "enum",
 	"if", "else", "when", "match", "for", "while", "loop", "break", "continue", "in",
 	"import", "self",

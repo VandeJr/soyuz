@@ -27,6 +27,7 @@ type Checker struct {
 	symbolPub    map[string]bool        // global name → pub status
 	fileNamedImports     map[string]map[string]bool // file → imported symbol names
 	fileModuleNamespaces map[string]map[string]bool // file → imported module namespace names
+	preludeFiles         map[string]bool            // auto-imported prelude source files
 	currentFile          string
 	inTopLevel           bool
 	context              context
@@ -84,6 +85,7 @@ func New() *Checker {
 	scope.Define("Result", resultEnum, true)
 	scope.Define("Ok", resultEnum, true)
 	scope.Define("Err", resultEnum, true)
+	scope.Define("Error", errorIface, true)
 
 	listType := &ClassType{
 		Name:     "List",
@@ -120,6 +122,28 @@ func New() *Checker {
 		},
 	}
 	scope.Define("Map", mapType, true)
+
+	iteratorType := &ClassType{
+		Name:     "Iterator",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"next": {
+				{
+					Params: []Type{},
+					Return: &SpecializedType{
+						Base: optionEnum,
+						Params: []Type{&TypeParameter{Name: "T"}},
+					},
+				},
+			},
+			"isEmpty": {{Params: []Type{}, Return: BoolType}},
+		},
+	}
+	scope.Define("Iterator", iteratorType, true)
+
+	// iter() returns Iterator[T] for List and Iterator[K] for Map keys.
+	listType.Methods["iter"] = []*FuncType{{Params: []Type{}, Return: Unknown}}
+	mapType.Methods["iter"] = []*FuncType{{Params: []Type{}, Return: Unknown}}
 
 	printFunc := &FuncType{Params: []Type{Unknown}, Return: UnitType}
 	scope.Define("print", printFunc, true)
@@ -209,6 +233,14 @@ func builtinTypeExtensions() map[string]map[string][]*FuncType {
 // nodeFile maps each top-level AST node to the source file it was parsed from.
 func (c *Checker) SetNodeFiles(nf map[parser.Node]string) {
 	c.nodeFile = nf
+}
+
+// SetPreludeFiles marks files that are auto-imported via @soyuz/prelude.
+func (c *Checker) SetPreludeFiles(files []string) {
+	c.preludeFiles = make(map[string]bool, len(files))
+	for _, f := range files {
+		c.preludeFiles[f] = true
+	}
 }
 
 func (c *Checker) Check(prog *parser.Program) *CheckResult {
@@ -397,6 +429,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkMapExpr(n)
 	case *parser.MemberExpr:
 		return c.checkMemberExpr(n)
+	case *parser.SafeNavExpr:
+		return c.checkSafeNavExpr(n)
 	case *parser.SelfExpr:
 		return c.checkSelfExpr(n)
 	case *parser.ForStmt:
@@ -429,7 +463,9 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 func (c *Checker) errorf(pos lexer.Position, format string, args ...any) {
 	c.errors = append(c.errors, TypeError{
 		Pos:     pos,
+		End:     lexer.Position{Line: pos.Line, Column: pos.Column + 4},
 		File:    c.currentFile,
+		Code:    "E0200",
 		Message: fmt.Sprintf(format, args...),
 	})
 }
@@ -439,7 +475,13 @@ func (c *Checker) registerGlobalSymbol(name string, node parser.Node, pub bool) 
 	if c.nodeFile == nil {
 		return
 	}
-	c.symbolOrigin[name] = c.nodeFile[node]
+	origin := c.nodeFile[node]
+	if prev, exists := c.symbolOrigin[name]; exists {
+		if c.preludeFiles[prev] && !c.preludeFiles[origin] {
+			return
+		}
+	}
+	c.symbolOrigin[name] = origin
 	c.symbolPub[name] = pub
 }
 
@@ -488,6 +530,9 @@ func (c *Checker) checkGlobalAccess(name string, pos lexer.Position) {
 	}
 	if !c.symbolPub[name] {
 		c.errorf(pos, "símbolo '%s' não é público (defina com 'pub' em %s)", name, filepath.Base(origin))
+		return
+	}
+	if c.preludeFiles[origin] {
 		return
 	}
 	if c.fileNamedImports[c.currentFile][name] {

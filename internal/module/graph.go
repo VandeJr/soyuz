@@ -10,6 +10,7 @@ import (
 
 // Collect retorna todos os arquivos .sy necessários para compilar entryFile,
 // em ordem topológica (dependências antes dos arquivos que as importam).
+// O prelude @soyuz/prelude é incluído automaticamente quando a stdlib está disponível.
 // Detecta ciclos de import e retorna erro quando encontrado.
 func Collect(entryFile string, resolver *Resolver) ([]string, error) {
 	visited := make(map[string]bool)
@@ -60,8 +61,39 @@ func Collect(entryFile string, resolver *Resolver) ([]string, error) {
 		return nil
 	}
 
+	if preludeFiles, err := ResolvePrelude(resolver); err != nil {
+		return nil, err
+	} else {
+		for _, f := range preludeFiles {
+			if err := visit(f); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if err := visit(entryFile); err != nil {
 		return nil, err
 	}
 	return order, nil
+}
+
+// ResolvePrelude returns stdlib prelude files, or nil when stdlib/prelude is unavailable.
+func ResolvePrelude(resolver *Resolver) ([]string, error) {
+	if resolver.StdlibDir == "" {
+		return nil, nil
+	}
+	imp := &parser.ImportDecl{
+		Path:     "@soyuz/prelude",
+		PathKind: parser.ImportPathStdlib,
+	}
+	files, err := resolver.Resolve(imp)
+	if err != nil {
+		return nil, nil
+	}
+	return files, nil
+}
+
+// PreludeFiles is a convenience alias for ResolvePrelude.
+func PreludeFiles(resolver *Resolver) ([]string, error) {
+	return ResolvePrelude(resolver)
 }

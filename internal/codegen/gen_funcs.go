@@ -8,6 +8,7 @@ import (
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
@@ -28,6 +29,14 @@ func (g *Generator) generateFuncDecl(n *parser.FuncDecl) error {
 	}
 	fn := g.module.NewFunc(n.Name, retType, params...)
 	if n.Body != nil {
+		var checkerRetType checker.Type
+		if ft, ok := g.check.NodeTypes[n].(*checker.FuncType); ok {
+			checkerRetType = ft.Return
+		}
+		oldReturnType := g.currentReturnType
+		g.currentReturnType = checkerRetType
+		defer func() { g.currentReturnType = oldReturnType }()
+
 		g.blockNames = make(map[string]int)
 		g.current = g.newBlock("entry", fn)
 		for _, p := range params {
@@ -46,6 +55,10 @@ func (g *Generator) generateFuncDecl(n *parser.FuncDecl) error {
 				g.current.NewRet(nil)
 			}
 		} else if g.current.Term == nil {
+			val, err = g.coerceToInterfaceReturn(val, checkerRetType)
+			if err != nil {
+				return err
+			}
 			g.current.NewRet(val)
 		}
 	}
@@ -112,6 +125,7 @@ func (g *Generator) generateSpecializedFunc(name string, n *parser.FuncDecl, spe
 		return nil, err
 	}
 
+	val = g.prepareReturn(val)
 	g.releaseAllScopes()
 
 	if retType.Equal(types.Void) {
@@ -235,6 +249,7 @@ func (g *Generator) generateLambdaFunc(n *parser.ArrowFunc, ft *checker.FuncType
 		return nil, err
 	}
 
+	val = g.prepareReturn(val)
 	g.releaseAllScopes()
 
 	if retType.Equal(types.Void) {
@@ -259,8 +274,17 @@ func (g *Generator) buildClosureValue(fn *ir.Func, captures []string, envStructT
 		if envSize == 0 {
 			envSize = 8
 		}
+		envDtorArg := value.Value(constant.NewNull(types.I8Ptr))
+		for _, ft := range envFieldTypes {
+			if g.isHeapType(ft) {
+				g.envDtorCounter++
+				envDtor := g.generateEnvDtor(fmt.Sprintf("env_%d", g.envDtorCounter), envFieldTypes)
+				envDtorArg = g.current.NewBitCast(envDtor, types.I8Ptr)
+				break
+			}
+		}
 		envRaw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-			constant.NewInt(types.I64, envSize), constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
+			constant.NewInt(types.I64, envSize), envDtorArg, constant.NewNull(types.I8Ptr))
 		envStructPtr := g.current.NewBitCast(envRaw, types.NewPointer(envStructType))
 
 		for i, capName := range captures {
@@ -280,8 +304,10 @@ func (g *Generator) buildClosureValue(fn *ir.Func, captures []string, envStructT
 	}
 
 	// Allocate SoyuzClosure{ fn_ptr: i8*, env_ptr: i8* }
+	closureDtor := g.getOrCreateClosureDtor()
+	closureDtorArg := g.current.NewBitCast(closureDtor, types.I8Ptr)
 	closureRaw := g.current.NewCall(g.findBuiltin("soyuz_alloc"),
-		constant.NewInt(types.I64, 16), constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
+		constant.NewInt(types.I64, 16), closureDtorArg, constant.NewNull(types.I8Ptr))
 	closurePtr := g.current.NewBitCast(closureRaw, types.NewPointer(g.closureType))
 
 	fnRaw := g.current.NewBitCast(fn, types.I8Ptr)
@@ -345,6 +371,15 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 	if fn == nil {
 		return fmt.Errorf("function %s not declared", name)
 	}
+
+	var checkerRetType checker.Type
+	if ft, ok := g.check.NodeTypes[variants[0]].(*checker.FuncType); ok {
+		checkerRetType = ft.Return
+	}
+
+	oldReturnType := g.currentReturnType
+	g.currentReturnType = checkerRetType
+	defer func() { g.currentReturnType = oldReturnType }()
 
 	g.blockNames = make(map[string]int)
 	g.current = g.newBlock("entry", fn)
@@ -410,6 +445,11 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 			return err
 		}
 
+		val, err = g.coerceToInterfaceReturn(val, checkerRetType)
+		if err != nil {
+			return err
+		}
+		val = g.prepareReturn(val)
 		g.releaseAllScopes()
 
 		if retType.Equal(types.Void) {
@@ -437,4 +477,53 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 
 	g.popScopeAndRelease()
 	return nil
+}
+
+func (g *Generator) ensureClosureType() {
+	if g.closureType == nil {
+		g.closureType = g.module.NewTypeDef("SoyuzClosure",
+			types.NewStruct(types.I8Ptr, types.I8Ptr)).(*types.StructType)
+	}
+}
+
+func (g *Generator) getOrCreateClosureDtor() *ir.Func {
+	if g.closureDtor != nil {
+		return g.closureDtor
+	}
+	g.ensureClosureType()
+	dtor := g.module.NewFunc("__soyuz_dtor_closure", types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(g.closureType))
+	envField := entry.NewGetElementPtr(g.closureType, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	env := entry.NewLoad(types.I8Ptr, envField)
+	isNull := entry.NewICmp(enum.IPredEQ, env, constant.NewNull(types.I8Ptr))
+	releaseBlock := dtor.NewBlock("release")
+	doneBlock := dtor.NewBlock("done")
+	entry.NewCondBr(isNull, doneBlock, releaseBlock)
+	releaseBlock.NewCall(g.findFunc("soyuz_release"), env)
+	releaseBlock.NewBr(doneBlock)
+	doneBlock.NewRet(nil)
+	g.closureDtor = dtor
+	return dtor
+}
+
+func (g *Generator) generateEnvDtor(name string, fieldTypes []types.Type) *ir.Func {
+	dtor := g.module.NewFunc("__soyuz_dtor_"+name, types.Void, ir.NewParam("ptr", types.I8Ptr))
+	entry := dtor.NewBlock("entry")
+	envStruct := types.NewStruct(fieldTypes...)
+	typedPtr := entry.NewBitCast(dtor.Params[0], types.NewPointer(envStruct))
+	release := g.findFunc("soyuz_release")
+	for i, ft := range fieldTypes {
+		if !g.isHeapType(ft) {
+			continue
+		}
+		gep := entry.NewGetElementPtr(envStruct, typedPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+		fieldVal := entry.NewLoad(ft, gep)
+		rawPtr := entry.NewBitCast(fieldVal, types.I8Ptr)
+		entry.NewCall(release, rawPtr)
+	}
+	entry.NewRet(nil)
+	return dtor
 }

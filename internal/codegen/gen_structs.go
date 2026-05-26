@@ -586,6 +586,9 @@ func (g *Generator) generateEnumDecl(n *parser.EnumDecl) error {
 	ei := enumInfo{typ: st.(*types.StructType), variants: variants}
 	g.enums[n.Name] = ei
 	g.destructors[n.Name] = g.generateEnumDtor(n, ei)
+	if trace := g.generateEnumTrace(n.Name, n.Variants, ei); trace != nil {
+		g.traces[n.Name] = trace
+	}
 	return nil
 }
 
@@ -647,6 +650,62 @@ func (g *Generator) generateEnumDtor(n *parser.EnumDecl, ei enumInfo) *ir.Func {
 	return dtor
 }
 
+// generateEnumTrace emits an ORC trace function for enums with heap-typed payload fields.
+func (g *Generator) generateEnumTrace(name string, variants []parser.EnumVariant, ei enumInfo) *ir.Func {
+	type heapVariant struct {
+		name      string
+		tag       int
+		fieldType types.Type
+	}
+	var heapVariants []heapVariant
+	for i, v := range variants {
+		vi := ei.variants[v.Name]
+		if len(vi.fields) > 0 && g.isHeapType(vi.fields[0]) {
+			heapVariants = append(heapVariants, heapVariant{v.Name, i, vi.fields[0]})
+		}
+	}
+	if len(heapVariants) == 0 {
+		return nil
+	}
+
+	visitFnType := types.NewPointer(&types.FuncType{
+		RetType: types.Void,
+		Params:  []types.Type{types.I8Ptr},
+	})
+	trace := g.module.NewFunc("__soyuz_trace_"+name, types.Void,
+		ir.NewParam("ptr", types.I8Ptr),
+		ir.NewParam("visit", visitFnType))
+	entry := trace.NewBlock("entry")
+
+	typedPtr := entry.NewBitCast(trace.Params[0], types.NewPointer(ei.typ))
+	tagPtr := entry.NewGetElementPtr(ei.typ, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	tag := entry.NewLoad(types.I64, tagPtr)
+	payloadPtr := entry.NewGetElementPtr(ei.typ, typedPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+
+	doneBlock := trace.NewBlock("trace_done")
+	current := entry
+	for _, hv := range heapVariants {
+		visitBlock := trace.NewBlock("trace_" + hv.name)
+		skipBlock := trace.NewBlock("trace_" + hv.name + "_skip")
+
+		cond := current.NewICmp(enum.IPredEQ, tag, constant.NewInt(types.I64, int64(hv.tag)))
+		current.NewCondBr(cond, visitBlock, skipBlock)
+
+		castPtr := visitBlock.NewBitCast(payloadPtr, types.NewPointer(hv.fieldType))
+		fieldVal := visitBlock.NewLoad(hv.fieldType, castPtr)
+		rawPtr := visitBlock.NewBitCast(fieldVal, types.I8Ptr)
+		visitBlock.NewCall(trace.Params[1], rawPtr)
+		visitBlock.NewBr(skipBlock)
+
+		current = skipBlock
+	}
+	current.NewBr(doneBlock)
+	doneBlock.NewRet(nil)
+	return trace
+}
+
 // getOrCreateSpecializedEnum lazily generates a concrete LLVM type for a generic enum
 // instantiated with the given type substitution. All enums share the layout
 // { i64 tag, [64 x i8] payload } regardless of type parameters.
@@ -684,6 +743,9 @@ func (g *Generator) getOrCreateSpecializedEnum(decl *parser.EnumDecl, sub map[st
 	}
 	g.enums[mangled] = ei
 	g.destructors[mangled] = g.generateSpecializedEnumDtor(mangled, decl, ei)
+	if trace := g.generateEnumTrace(mangled, decl.Variants, ei); trace != nil {
+		g.traces[mangled] = trace
+	}
 	return ei, nil
 }
 
