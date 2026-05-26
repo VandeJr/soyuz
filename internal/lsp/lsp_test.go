@@ -148,6 +148,62 @@ fn main() {}`
 	}
 }
 
+// ─── Formatter: ExtendDecl ───────────────────────────────────────────────────
+
+func TestFormatExtendDecl(t *testing.T) {
+	src := `extend String {
+    fn shout(self) -> String = self
+}`
+	got := parseAndFormat(src)
+	if !strings.Contains(got, "extend String {") {
+		t.Fatalf("esperado 'extend String {' no output, obteve:\n%s", got)
+	}
+	if !strings.Contains(got, "fn shout") {
+		t.Fatalf("esperado 'fn shout' no output, obteve:\n%s", got)
+	}
+}
+
+func TestFormatExtendDeclIdempotent(t *testing.T) {
+	src := `extend Int {
+    fn double(self) -> Int = self * 2
+
+    fn triple(self) -> Int = self * 3
+}`
+	pass1 := parseAndFormat(src)
+	pass2 := parseAndFormat(pass1)
+	if pass1 != pass2 {
+		t.Fatalf("formato ExtendDecl não é idempotente:\npass1:\n%s\npass2:\n%s", pass1, pass2)
+	}
+}
+
+// ─── walkAST: ExtendDecl reachability ────────────────────────────────────────
+
+func TestWalkASTVisitsExtendDecl(t *testing.T) {
+	src := `extend Int {
+    fn doubled(self) -> Int = self + extra
+}`
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+
+	var idents []string
+	walkAST(prog, func(n parser.Node) {
+		if id, ok := n.(*parser.Identifier); ok {
+			idents = append(idents, id.Name)
+		}
+	})
+
+	found := false
+	for _, id := range idents {
+		if id == "extra" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("walkAST não visitou identifiers dentro de ExtendDecl; idents encontrados: %v", idents)
+	}
+}
+
 // ─── walkAST: param defaults reachability ────────────────────────────────────
 
 func TestWalkASTVisitsParamDefaults(t *testing.T) {

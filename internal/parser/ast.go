@@ -115,6 +115,7 @@ func (i *InterfaceDecl) Pos() lexer.Position { return i.pos }
 
 type InterfaceMethod struct {
 	Pos        lexer.Position
+	Pub        bool
 	Name       string
 	Params     []FuncParam
 	ReturnType TypeExpr

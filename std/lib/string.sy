@@ -46,7 +46,7 @@ pub class ParseError : Error {
     pub fn code(self) -> Int = 400
 }
 
-pub class StringExtensions {
+extend String {
     pub fn len(self) -> Int = soyuz_str_len(self)
 
     pub fn substring(self, start: Int, end: Int) -> String = soyuz_str_substring(self, start, end)
@@ -126,8 +126,7 @@ pub class StringBuilder {
     }
 
     pub fn appendLine(self, s: String) {
-        self._data = soyuz_str_concat(soyuz_str_concat(self._data, s), "
-")
+        self._data = soyuz_str_concat(soyuz_str_concat(self._data, s), "\n")
     }
 
     pub fn build(self) -> String = self._data

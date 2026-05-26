@@ -123,6 +123,8 @@ func (p *printer) printTopLevel(node parser.Node) {
 		p.printClassDecl(n)
 	case *parser.InterfaceDecl:
 		p.printInterfaceDecl(n)
+	case *parser.ExtendDecl:
+		p.printExtendDecl(n)
 	case *parser.ExprStmt:
 		p.writeln(p.expr(n.Expr))
 	default:
@@ -285,6 +287,19 @@ func (p *printer) printClassDecl(n *parser.ClassDecl) {
 	p.writeln("}")
 }
 
+func (p *printer) printExtendDecl(n *parser.ExtendDecl) {
+	p.writeln("extend " + n.TypeName + " {")
+	p.depth++
+	for i, m := range n.Methods {
+		if i > 0 {
+			p.nl()
+		}
+		p.printFuncDecl(m)
+	}
+	p.depth--
+	p.writeln("}")
+}
+
 func (p *printer) printInterfaceDecl(n *parser.InterfaceDecl) {
 	prefix := ""
 	if n.Pub {
@@ -302,7 +317,11 @@ func (p *printer) printInterfaceDecl(n *parser.InterfaceDecl) {
 		if m.ReturnType != nil {
 			ret = " -> " + p.typeExpr(m.ReturnType)
 		}
-		p.writeln(fmt.Sprintf("fn %s(%s)%s", m.Name, strings.Join(params, ", "), ret))
+		prefix := "fn "
+		if m.Pub {
+			prefix = "pub fn "
+		}
+		p.writeln(fmt.Sprintf("%s%s(%s)%s", prefix, m.Name, strings.Join(params, ", "), ret))
 	}
 	p.depth--
 	p.writeln("}")

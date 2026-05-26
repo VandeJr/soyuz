@@ -1,8 +1,8 @@
 // Soyuz language feature showcase — compiles with the soyuz compiler.
-// @soyuz/prelude é auto-importado; imports explícitos abaixo demonstram o sistema de módulos.
+// @soyuz/prelude é auto-importado; imports explícitos demonstram o sistema de módulos.
 
 import (
-    { range, readFile, args, Error, noneError } from @soyuz/prelude
+    { range, readFile, getenv, Error } from @soyuz/prelude
 )
 
 // ─── Types & Generics ───────────────────────────────────────────────────────
@@ -30,10 +30,10 @@ pub fn area(f: Forma) -> Float = match f {
     Invisivel => 0.0
 }
 
-// ─── Classes & Interfaces (class X : InterfaceY — sem keyword impl) ─────────
+// ─── Classes & Interfaces ───────────────────────────────────────────────────
 
 pub interface Identificavel {
-    fn id() -> Int
+    pub fn id() -> Int
 }
 
 pub class Usuario : Identificavel {
@@ -44,7 +44,36 @@ pub class Usuario : Identificavel {
     pub fn id(self) -> Int = self._id
 }
 
-// ─── Safe navigation & Elvis ──────────────────────────────────────────────────
+// ─── extend — adiciona métodos a tipos existentes ────────────────────────────
+
+extend String {
+    pub fn exclamar(self) -> String = "$(self)!"
+
+    pub fn repetir(self, n: Int) -> String {
+        var resultado = ""
+        for i in range(0, n) {
+            resultado = "$(resultado)$(self)"
+        }
+        return resultado
+    }
+
+    pub fn tamanho(self) -> String {
+        val n = self.len()
+        if n == 0 {
+            return "vazia"
+        }
+        return "$(n) chars"
+    }
+}
+
+fn demoExtend() {
+    print("exclamar:  $("Soyuz".exclamar())")
+    print("repetir:   $("ab".repetir(3))")
+    print("tamanho:   $("hello".tamanho())")
+    print("tamanho:   $("".tamanho())")
+}
+
+// ─── Safe navigation & Elvis ─────────────────────────────────────────────────
 
 fn demoSafeNav(u: Usuario?) -> String {
     return u?.nome ?: "anon"
@@ -54,7 +83,7 @@ fn demoElvis(x: Int?) -> Int {
     return x ?: 42
 }
 
-// ─── Collections & Iterators ────────────────────────────────────────────────
+// ─── Collections, Iterators & Range literals ─────────────────────────────────
 
 fn demoCollections() {
     val nums: List[Int] = range(1, 6)
@@ -69,6 +98,11 @@ fn demoCollections() {
         print("  chave: $(k)")
     }
 
+    // Range literal inclusivo (1..=3)
+    for i in 1..=3 {
+        print("  range: $(i)")
+    }
+
     var sum: Int = 0
     for n in nums {
         sum = sum + n
@@ -76,7 +110,7 @@ fn demoCollections() {
     print("Soma: $(sum)")
 }
 
-// ─── Option/Result call sugar (Some/Ok/Err opcionais) ───────────────────────
+// ─── Option / Result sugar ───────────────────────────────────────────────────
 
 fn unwrapResult(r: Result[Int]) -> Int = match r {
     Ok(v) => v
@@ -97,20 +131,15 @@ fn unwrapOptional(o: String?) -> String = match o {
 }
 
 fn demoCallSugar() {
-    // Result[T]: xxx(t) ou xxx(error) — Ok()/Err() ainda válidos
-    print("Result sugar Ok: $(unwrapResult(42))")
-    print("Result sugar Err: $(unwrapResult(noneError("falhou")))")
-
-    // Option[T]: yyy(t) ou yyy(None)
-    print("Option sugar Some: $(unwrapOption("hello"))")
-    print("Option sugar None: $(unwrapOption(None))")
-
-    // T?: auto-wrap Some, None explícito
-    print("T? sugar Some: $(unwrapOptional("mundo"))")
-    print("T? sugar None: $(unwrapOptional(None))")
+    print("Result Ok:   $(unwrapResult(42))")
+    print("Result Err:  $(unwrapResult(noneError("falhou")))")
+    print("Option Some: $(unwrapOption("hello"))")
+    print("Option None: $(unwrapOption(None))")
+    print("T? Some:     $(unwrapOptional("mundo"))")
+    print("T? None:     $(unwrapOptional(None))")
 }
 
-// ─── Pipes, currying & pipe-quest (|?>) ─────────────────────────────────────
+// ─── Pipes, lambdas & pipe-quest (|?>) ──────────────────────────────────────
 
 fn validarPositivo(n: Int) -> Result[Int] {
     if n > 0 {
@@ -126,12 +155,12 @@ fn validarNome(n: String) -> Result[String] {
     return Err(noneError("nome vazio"))
 }
 
-fn exclamar(n: String) -> Result[String] = Ok("$(n)!")
+fn exclamarResult(n: String) -> Result[String] = Ok("$(n)!")
 
 fn demoPipes() {
     val dobro = fn(x: Int) => x * 2
     val r = 5 |> dobro |> identidade
-    print("Pipe |> : $(r)")
+    print("Pipe |>: $(r)")
 }
 
 fn demoPipeQuest() {
@@ -146,17 +175,17 @@ fn demoPipeQuest() {
     val r2 = ausente |?> validarPositivo
     match r2 {
         Ok(v) => print("Inesperado: $(v)")
-        Err(e) => print("PipeQuest None propagado: $(e.message())")
+        Err(e) => print("PipeQuest None→Err: $(e.message())")
     }
 
-    val encadeado = buscarNome(1) |?> validarNome |?> exclamar
+    val encadeado = buscarNome(1) |?> validarNome |?> exclamarResult
     match encadeado {
         Ok(v) => print("PipeQuest encadeado: $(v)")
         Err(e) => print("Encadeado err: $(e.message())")
     }
 }
 
-// ─── Pattern matching & Option/Result ───────────────────────────────────────
+// ─── Pattern matching ────────────────────────────────────────────────────────
 
 fn buscarNome(id: Int) -> String? {
     if id == 1 {
@@ -172,12 +201,12 @@ fn demoMatch() {
     }
 
     match readFile("/etc/hostname") {
-        Ok(content) => print("Hostname file ok")
+        Ok(_) => print("Hostname file ok")
         Err(e) => print("Erro: $(e.message())")
     }
 }
 
-// ─── Function overloading & when guards ─────────────────────────────────────
+// ─── Function overloading & when guards ──────────────────────────────────────
 
 fn processar(n: Int) when n > 0 {
     print("Positivo: $(n)")
@@ -187,7 +216,25 @@ fn processar(n: Int) {
     print("Zero ou negativo: $(n)")
 }
 
-// ─── Strings & interpolation ──────────────────────────────────────────────────
+// ─── Default parameters ───────────────────────────────────────────────────────
+
+fn saudar(nome: String, saudacao: String = "Olá") {
+    print("$(saudacao), $(nome)!")
+}
+
+// ─── Bitwise operators ────────────────────────────────────────────────────────
+
+fn demoBitwise() {
+    val a = 5
+    val b = 3
+    print("AND: $(a & b)")
+    print("OR:  $(a | b)")
+    print("XOR: $(a ^ b)")
+    print("SHL: $(a << 1)")
+    print("SHR: $(a >> 1)")
+}
+
+// ─── Strings & interpolation ─────────────────────────────────────────────────
 
 fn demoStrings() {
     val msg = "Soyuz $(2026)"
@@ -209,6 +256,7 @@ fn main() {
     print(demoElvis(None))
     print(demoElvis(Some(10)))
 
+    demoExtend()
     demoCollections()
     demoCallSugar()
     demoPipes()
@@ -216,6 +264,9 @@ fn main() {
     demoMatch()
     processar(3)
     processar(-1)
+    saudar("Mundo")
+    saudar("Soyuz", "Bem-vindo")
+    demoBitwise()
     demoStrings()
 
     print("Forma área: $(area(Circulo(2.0)))")

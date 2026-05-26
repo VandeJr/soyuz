@@ -1,12 +1,7 @@
 import (
-    { range, Iteravel, List, Map } from @soyuz/collections
-    { StringExtensions } from @soyuz/string
-    { getenv, args } from @soyuz/os
-    { readFile } from @soyuz/fs
-    { Error } from @soyuz/error
+    { range, readFile, getenv, Error } from @soyuz/prelude
 )
 
-extern fn soyuz_print_str(s: String)
 
 pub record Ponto {
     x: Float,
@@ -14,7 +9,7 @@ pub record Ponto {
 }
 
 pub interface Identificavel {
-    fn id() -> Int
+    pub fn id() -> Int
 }
 
 pub class Usuario : Identificavel {

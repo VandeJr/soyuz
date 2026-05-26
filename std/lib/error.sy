@@ -1,8 +1,8 @@
 // @soyuz/error — compatibility shim; canonical definitions live in @soyuz/prelude.
 
 pub interface Error {
-    fn message() -> String
-    fn code() -> Int
+    pub fn message() -> String
+    pub fn code() -> Int
 }
 
 pub class NoneError : Error {

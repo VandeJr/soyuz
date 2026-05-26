@@ -386,6 +386,15 @@ func (g *Generator) declareBuiltins() {
 	g.module.NewFunc("soyuz_str_concat", g.soyuzStringPtrType,
 		ir.NewParam("s1", g.soyuzStringPtrType),
 		ir.NewParam("s2", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_split", types.I8Ptr,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("delim", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_byte_at", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("index", types.I64))
+	g.module.NewFunc("soyuz_str_unicode_at", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("char_index", types.I64))
 
 	// Shared closure fat-pointer layout: { fn_ptr: i8*, env_ptr: i8* }
 	g.closureType = g.module.NewTypeDef("SoyuzClosure",

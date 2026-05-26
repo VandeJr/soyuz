@@ -240,7 +240,7 @@ func formatHover(node parser.Node, t checker.Type, result *AnalysisResult) strin
 			for i, nm := range n.Names {
 				parts[i] = nm.Name
 			}
-			return fmt.Sprintf("```soyuz\n{ %s } from \"%s\"\n```", strings.Join(parts, ", "), n.Path)
+			return fmt.Sprintf("```soyuz\n{ %s } from %s\n```", strings.Join(parts, ", "), formatImportPath(n))
 		}
 		return fmt.Sprintf("```soyuz\n\"%s\"\n```", n.Path)
 	}
@@ -491,7 +491,7 @@ var soyuzKeywords = []string{
 	"val", "var", "fn", "extern", "return", "pub", "extend",
 	"record", "class", "interface", "enum",
 	"if", "else", "when", "match", "for", "while", "loop", "break", "continue", "in",
-	"import", "self",
+	"import", "from", "self",
 	"true", "false", "None",
 	"Ok", "Err", "Some",
 }

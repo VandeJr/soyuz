@@ -269,6 +269,7 @@ func (p *Parser) parseInterfaceDecl(pub bool) *InterfaceDecl {
 }
 
 func (p *Parser) parseInterfaceMethod() InterfaceMethod {
+	pub := p.consume(lexer.PUB)
 	pos := p.expect(lexer.FN).Position
 	name := p.expect(lexer.IDENT).Lexeme
 	params := p.parseFuncParams()
@@ -277,7 +278,7 @@ func (p *Parser) parseInterfaceMethod() InterfaceMethod {
 		returnType = p.parseTypeExpr()
 	}
 	p.consume(lexer.SEMICOLON)
-	return InterfaceMethod{Pos: pos, Name: name, Params: params, ReturnType: returnType}
+	return InterfaceMethod{Pos: pos, Pub: pub, Name: name, Params: params, ReturnType: returnType}
 }
 
 func (p *Parser) parseEnumDecl(pub bool) *EnumDecl {

@@ -196,6 +196,18 @@ func builtinTypeExtensions() map[string]map[string][]*FuncType {
 		Base:   resultEnum,
 		Params: []Type{FloatType},
 	}
+	optionBase := &EnumType{
+		Name:     "Option",
+		Generics: []string{"T"},
+		Variants: map[string][]Type{
+			"Some": {&TypeParameter{Name: "T"}},
+			"None": {},
+		},
+	}
+	optionInt := &SpecializedType{Base: optionBase, Params: []Type{IntType}}
+	optionChar := &SpecializedType{Base: optionBase, Params: []Type{CharType}}
+	listBase := &ClassType{Name: "List", Generics: []string{"T"}}
+	listOfString := &SpecializedType{Base: listBase, Params: []Type{StringType}}
 	return map[string]map[string][]*FuncType{
 		"String": {
 			"len":         {{Params: []Type{}, Return: IntType}},
@@ -206,8 +218,10 @@ func builtinTypeExtensions() map[string]map[string][]*FuncType {
 			"toLower":     {{Params: []Type{}, Return: StringType}},
 			"trim":        {{Params: []Type{}, Return: StringType}},
 			"contains":    {{Params: []Type{StringType}, Return: BoolType}},
-			"split":       {{Params: []Type{StringType}, Return: Unknown}},
+			"split":       {{Params: []Type{StringType}, Return: listOfString}},
 			"substring":   {{Params: []Type{IntType, IntType}, Return: StringType}},
+			"byteAt":      {{Params: []Type{IntType}, Return: optionInt}},
+			"unicodeAt":   {{Params: []Type{IntType}, Return: optionChar}},
 			"toInt":       {{Params: []Type{}, Return: resultInt}},
 			"toFloat":     {{Params: []Type{}, Return: resultFloat}},
 		},

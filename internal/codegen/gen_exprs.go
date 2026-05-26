@@ -1115,6 +1115,16 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 
 	// Primitive / extension method dispatch
 	if bt, ok := g.check.NodeTypes[me.Object].(*checker.BasicType); ok {
+		if bt.Name == "String" && (me.Property == "byteAt" || me.Property == "unicodeAt") {
+			cfn := "soyuz_str_byte_at"
+			asChar := false
+			if me.Property == "unicodeAt" {
+				cfn = "soyuz_str_unicode_at"
+				asChar = true
+			}
+			raw := g.current.NewCall(g.findFunc(cfn), obj, args[0])
+			return g.emitIntToOption(raw, asChar)
+		}
 		if cfn := primitiveMethodCFunc(bt.Name, me.Property); cfn != "" {
 			callArgs := append([]value.Value{obj}, args...)
 			return g.current.NewCall(g.findFunc(cfn), callArgs...), nil
@@ -2054,6 +2064,49 @@ func (g *Generator) generateMapValues(obj value.Value, st *checker.SpecializedTy
 	return g.current.NewBitCast(raw, listPtrType), nil
 }
 
+// emitIntToOption wraps a C int64 sentinel result (-1 = None, ≥0 = Some) into Option[Int|Char].
+// When asChar is true the payload is truncated to i32 (Char).
+func (g *Generator) emitIntToOption(raw value.Value, asChar bool) (value.Value, error) {
+	ei := g.enums["Option"]
+	someTag := ei.variants["Some"].tag
+	noneTag := ei.variants["None"].tag
+
+	fn := g.current.Parent
+	someBlock := g.newBlock("opt_some", fn)
+	noneBlock := g.newBlock("opt_none", fn)
+	mergeBlock := g.newBlock("opt_merge", fn)
+
+	cmp := g.current.NewICmp(enum.IPredSGE, raw, constant.NewInt(types.I64, 0))
+	g.current.NewCondBr(cmp, someBlock, noneBlock)
+
+	g.current = someBlock
+	var payload value.Value = raw
+	if asChar {
+		payload = g.current.NewTrunc(raw, types.I32)
+	}
+	someOpt, err := g.emitOptionResultAlloc("Option", someTag, payload)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	someBlockOut := g.current
+
+	g.current = noneBlock
+	noneOpt, err := g.emitOptionResultAlloc("Option", noneTag, nil)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	noneBlockOut := g.current
+
+	g.current = mergeBlock
+	phi := mergeBlock.NewPhi(
+		ir.NewIncoming(someOpt, someBlockOut),
+		ir.NewIncoming(noneOpt, noneBlockOut),
+	)
+	return phi, nil
+}
+
 func primitiveMethodCFunc(typeName, method string) string {
 	switch typeName {
 	case "String":
@@ -2070,6 +2123,8 @@ func primitiveMethodCFunc(typeName, method string) string {
 			return "soyuz_str_contains"
 		case "substring":
 			return "soyuz_str_substring"
+		case "split":
+			return "soyuz_str_split"
 		}
 	case "Int":
 		switch method {

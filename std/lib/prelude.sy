@@ -2,8 +2,8 @@
 // Re-exports common standard library conveniences via direct FFI wrappers.
 
 pub interface Error {
-    fn message() -> String
-    fn code() -> Int
+    pub fn message() -> String
+    pub fn code() -> Int
 }
 
 pub class NoneError : Error {
