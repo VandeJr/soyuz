@@ -442,6 +442,26 @@ type PipeQuestExpr struct {
 
 func (p *PipeQuestExpr) Pos() lexer.Position { return p.pos }
 
+// AsyncPipeExpr represents `a ~> f ~> g` — each step is spawned as a task
+// and awaited before passing the result to the next step.
+// Steps[0] is the initial value; Steps[1..] are the function steps.
+// The type of the whole expression is Task[ReturnTypeOfLastStep].
+type AsyncPipeExpr struct {
+	pos   lexer.Position
+	Steps []Node // [initialValue, step1, step2, ..., stepN]
+}
+
+func (a *AsyncPipeExpr) Pos() lexer.Position { return a.pos }
+
+// AsyncPipeQuestStep marks a step in an AsyncPipeExpr that uses ~?> (error-propagating).
+// It wraps the step function/expression and signals short-circuit on Err/None.
+type AsyncPipeQuestStep struct {
+	pos  lexer.Position
+	Step Node
+}
+
+func (a *AsyncPipeQuestStep) Pos() lexer.Position { return a.pos }
+
 type IndexExpr struct {
 	pos    lexer.Position
 	Object Node

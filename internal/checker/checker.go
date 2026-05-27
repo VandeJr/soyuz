@@ -573,6 +573,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkPipeExpr(n)
 	case *parser.PipeQuestExpr:
 		return c.checkPipeQuestExpr(n)
+	case *parser.AsyncPipeExpr:
+		return c.checkAsyncPipeExpr(n)
 	case *parser.ElvisExpr:
 		return c.checkElvisExpr(n)
 	case *parser.TupleExpr:

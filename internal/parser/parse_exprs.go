@@ -8,7 +8,8 @@ import "soyuz/internal/lexer"
 //   < EQUALS/NE < LT/GT/… < RANGE < SHL/SHR < PLUS/MINUS < MUL/DIV/MOD < DOT < CALL/INDEX
 func bindingPower(t lexer.TokenType) int {
 	switch t {
-	case lexer.PIPE, lexer.PIPE_QUEST:
+	case lexer.PIPE, lexer.PIPE_QUEST,
+		lexer.ASYNC_PIPE, lexer.ASYNC_PIPE_QUEST:
 		return 2
 	case lexer.ASSIGN:
 		return 4
@@ -211,6 +212,29 @@ func (p *Parser) parseInfix(left Node) Node {
 		p.advance()
 		right := p.parseExpression(bp)
 		return &PipeQuestExpr{pos: tok.Position, Left: left, Right: right}
+
+	case lexer.ASYNC_PIPE:
+		p.advance()
+		right := p.parseExpression(bp)
+		// Flatten into a single AsyncPipeExpr with all steps.
+		if ap, ok := left.(*AsyncPipeExpr); ok {
+			ap.Steps = append(ap.Steps, right)
+			return ap
+		}
+		return &AsyncPipeExpr{pos: tok.Position, Steps: []Node{left, right}}
+
+	case lexer.ASYNC_PIPE_QUEST:
+		// M-17: store as a tagged step. Reuse AsyncPipeExpr steps but wrap the
+		// step in a AsyncPipeQuestStep marker to distinguish error-propagating steps.
+		// For now, parse identically to ASYNC_PIPE and let the checker/codegen
+		// detect the step marker via the token type stored in the node.
+		p.advance()
+		right := p.parseExpression(bp)
+		if ap, ok := left.(*AsyncPipeExpr); ok {
+			ap.Steps = append(ap.Steps, &AsyncPipeQuestStep{pos: tok.Position, Step: right})
+			return ap
+		}
+		return &AsyncPipeExpr{pos: tok.Position, Steps: []Node{left, &AsyncPipeQuestStep{pos: tok.Position, Step: right}}}
 
 	case lexer.ELVIS:
 		p.advance()

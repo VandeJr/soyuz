@@ -484,6 +484,67 @@ func (c *Checker) checkPipeQuestExpr(n *parser.PipeQuestExpr) Type {
 	return outType
 }
 
+// checkAsyncPipeExpr type-checks `a ~> f ~> g` (and ~?> steps).
+// For each step the function's first parameter type is verified against the current
+// flowing type. The result type is Task[ReturnTypeOfLastStep].
+func (c *Checker) checkAsyncPipeExpr(n *parser.AsyncPipeExpr) Type {
+	if len(n.Steps) < 2 {
+		c.errorf(n.Pos(), "~> requer pelo menos um step além do valor inicial")
+		return Unknown
+	}
+
+	// Type of the "current" value flowing through the chain.
+	currentType := c.checkNode(n.Steps[0])
+
+	for _, rawStep := range n.Steps[1:] {
+		// Unwrap ~?> step marker if present.
+		isQuestStep := false
+		step := rawStep
+		if qs, ok := rawStep.(*parser.AsyncPipeQuestStep); ok {
+			isQuestStep = true
+			step = qs.Step
+			// ~?> requires the previous result to be Result[T] or Option[T].
+			inner, kind := c.unwrapResultOption(currentType)
+			if kind == "" {
+				c.errorf(qs.Pos(), "~?> requer Result ou Option à esquerda, obtido %s", currentType)
+				return Unknown
+			}
+			currentType = inner
+		}
+
+		// Resolve the step callee and check compatibility.
+		// Use a temporary synthetic identifier with the correct current type
+		// instead of re-using n.Steps[0] (which has the original type).
+		const tmpName = "__async_pipe_tmp__"
+		c.scope.Define(tmpName, currentType, true)
+		tmpIdent := &parser.Identifier{Name: tmpName}
+		c.nodeTypes[tmpIdent] = currentType
+
+		var call *parser.CallExpr
+		if rc, ok := step.(*parser.CallExpr); ok {
+			call = &parser.CallExpr{Callee: rc.Callee, Args: append([]parser.Node{tmpIdent}, rc.Args...)}
+		} else {
+			call = &parser.CallExpr{Callee: step, Args: []parser.Node{tmpIdent}}
+		}
+
+		retType := c.checkCallExpr(call)
+		if ft, ok := c.specializations[call]; ok {
+			c.specializations[rawStep] = ft
+		}
+
+		if isQuestStep {
+			// ~?> wraps the return type in Result if not already.
+			retType = c.asResultType(retType)
+		}
+		currentType = retType
+	}
+
+	// The whole expression produces Task[currentType].
+	base := c.resolveTypeExpr(&parser.NamedType{Name: "Task"})
+	taskType := &SpecializedType{Base: base, Params: []Type{currentType}}
+	return taskType
+}
+
 func (c *Checker) checkMatchExpr(n *parser.MatchExpr) Type {
 	subjectType := c.checkNode(n.Subject)
 	var armsType Type = Unknown

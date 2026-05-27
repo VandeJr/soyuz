@@ -198,6 +198,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 	case *parser.TaskExpr:
 		return g.generateTaskExpr(n)
 
+	case *parser.AsyncPipeExpr:
+		return g.generateAsyncPipeExpr(n)
+
 	case *parser.PipeQuestExpr:
 		return g.generatePipeQuestExpr(n)
 
@@ -2537,6 +2540,223 @@ func (g *Generator) generateTaskWrapperFunc(
 	g.currentReturnType = oldReturnType
 
 	return wrapperFn
+}
+
+// ── M-16 / M-17: ~> and ~?> async pipe ──────────────────────────────────────
+
+// generateAsyncPipeExpr emits code for `a ~> f ~> g` and `a ~> f ~?> g ~> h`.
+//
+// Architecture: the ENTIRE chain runs inside a single outer task wrapper.
+// The initial value is captured from the calling context and packed as an arg.
+// Inside the wrapper:
+//   - Each intermediate step is spawned as its own task and immediately awaited.
+//   - For ~?> steps: the enum tag is inspected; if Err/None (tag ≠ 0), the wrapper
+//     stores the error result and returns early (M-17 short-circuit).
+//   - After all steps, the final result is stored via srt_set_task_result.
+//
+// The outer context enqueues the chain wrapper and returns its handle as Task[T].
+func (g *Generator) generateAsyncPipeExpr(n *parser.AsyncPipeExpr) (value.Value, error) {
+	if len(n.Steps) < 2 {
+		return nil, fmt.Errorf("~>: ao menos um step é necessário")
+	}
+
+	// Evaluate the initial value in the current context.
+	initVal, err := g.generateExpr(n.Steps[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// Pack the initial value as a single-element args buffer.
+	initI64 := g.castToI64(initVal)
+	argsHeap := g.current.NewCall(g.findBuiltin("malloc"),
+		constant.NewInt(types.I64, 8))
+	arrType := types.NewArray(uint64(1), types.I64)
+	argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+	slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	g.current.NewStore(initI64, slotPtr)
+
+	// Generate the chain wrapper function.
+	chainFn, ferr := g.generateAsyncChainWrapper(n.Steps, initVal.Type())
+	if ferr != nil {
+		return nil, ferr
+	}
+
+	// Enqueue the chain wrapper.
+	chainPtr := g.current.NewBitCast(chainFn, types.I8Ptr)
+	handle := g.current.NewCall(g.findFunc("srt_enqueue"), chainPtr, argsHeap)
+	return handle, nil
+}
+
+// generateAsyncChainWrapper creates a `void @__async_chain_N(i8* raw_args)` function that:
+//  1. Unpacks the initial value from raw_args.
+//  2. For each step (in order), spawns a task and awaits the result.
+//  3. For ~?> steps, checks the enum tag; if Err/None → stores result + returns early.
+//  4. Stores the final result via srt_set_task_result.
+func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType types.Type) (*ir.Func, error) {
+	name := fmt.Sprintf("__async_chain_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+	fn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", fn)
+
+	// Unpack initial value from args buffer.
+	rawArgs := fn.Params[0]
+	arrType := types.NewArray(uint64(1), types.I64)
+	argsBuf := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+	slot := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	initI64 := g.current.NewLoad(types.I64, slot)
+	current := g.i64ToType(initI64, initType) // value.Value
+
+	// Process each step.
+	enqueue := g.findFunc("srt_enqueue")
+	await := g.findFunc("srt_await")
+
+	// Track the return type of the previous step so ~?> can inspect the right struct layout.
+	prevReturnType := initType
+
+	for i, rawStep := range steps[1:] {
+		isQuestStep := false
+		step := rawStep
+		if qs, ok := rawStep.(*parser.AsyncPipeQuestStep); ok {
+			isQuestStep = true
+			step = qs.Step
+		}
+
+		// Resolve the target function (plain ident or partial call).
+		var targetFn *ir.Func
+
+		if rc, ok := step.(*parser.CallExpr); ok {
+			if id, ok2 := rc.Callee.(*parser.Identifier); ok2 {
+				targetFn = g.findFunc(id.Name)
+			}
+			// Extra args: evaluate them (they reference outer-scope vars — not available here).
+			// For now, only plain function idents are supported.
+		} else if id, ok := step.(*parser.Identifier); ok {
+			targetFn = g.findFunc(id.Name)
+		}
+		if targetFn == nil {
+			// Restore state before returning error.
+			g.current = oldCurrent; g.vars = oldVars; g.heapVars = oldHeapVars
+			g.scopeStack = oldScopeStack; g.taskVarStack = oldTaskVarStack
+			g.syncGuardStack = oldSyncGuardStack; g.arcVarStack = oldArcVarStack
+			g.blockNames = oldBlockNames; g.currentReturnType = oldReturnType
+			return nil, fmt.Errorf("~>: step %d: não foi possível resolver função '%v'", i+1, step)
+		}
+
+		// M-17: ~?> short-circuit — inspect enum tag on the PREVIOUS step's result BEFORE
+		// calling this step. If the previous result is Err/None, propagate and return early.
+		if isQuestStep {
+			if retPtr, ok2 := prevReturnType.(*types.PointerType); ok2 {
+				if retST, ok3 := retPtr.ElemType.(*types.StructType); ok3 && len(retST.Fields) >= 2 {
+					// current is i8* (from previous srt_await); cast to *Result/*Option.
+					typedPtr := g.current.NewBitCast(current, retPtr)
+					tagPtr := g.current.NewGetElementPtr(retST, typedPtr,
+						constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+					tag := g.current.NewLoad(types.I64, tagPtr)
+					isErr := g.current.NewICmp(enum.IPredNE, tag, constant.NewInt(types.I64, 0))
+
+					errBlock := g.newBlock("chain_err", fn)
+					contBlock := g.newBlock("chain_ok", fn)
+					g.current.NewCondBr(isErr, errBlock, contBlock)
+
+					// Error path: propagate the Result/Option and return early.
+					g.current = errBlock
+					g.current.NewCall(g.findFunc("srt_set_task_result"), current)
+					g.current.NewRet(nil)
+
+					// Ok path: unwrap the payload (field 1) and use it as input to this step.
+					g.current = contBlock
+					payloadPtr := g.current.NewGetElementPtr(retST, typedPtr,
+						constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+					i64Ptr := g.current.NewBitCast(payloadPtr, types.NewPointer(types.I64))
+					innerI64 := g.current.NewLoad(types.I64, i64Ptr)
+					current = innerI64 // unwrapped value (i64)
+				}
+			}
+		}
+
+		var stepArgs []value.Value
+		stepArgs = append(stepArgs, current)
+
+		// Pack stepArgs into a buffer.
+		numArgs := len(stepArgs)
+		var stepArgsHeap value.Value
+		if numArgs > 0 {
+			stepArgsHeap = g.current.NewCall(g.findBuiltin("malloc"),
+				constant.NewInt(types.I64, int64(numArgs*8)))
+			sArrType := types.NewArray(uint64(numArgs), types.I64)
+			sArgsPtr := g.current.NewBitCast(stepArgsHeap, types.NewPointer(sArrType))
+			for si, a := range stepArgs {
+				sp := g.current.NewGetElementPtr(sArrType, sArgsPtr,
+					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(si)))
+				g.current.NewStore(g.castToI64(a), sp)
+			}
+		} else {
+			stepArgsHeap = constant.NewNull(types.I8Ptr)
+		}
+
+		origTypes := make([]types.Type, len(stepArgs))
+		for si, a := range stepArgs {
+			origTypes[si] = a.Type()
+		}
+		wrapperFn := g.generateTaskWrapperFunc(targetFn, origTypes, numArgs)
+		wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+		stepHandle := g.current.NewCall(enqueue, wrapperPtr, stepArgsHeap)
+
+		// Await the step result (even for the last step — see below).
+		rawResult := g.current.NewCall(await, stepHandle) // i8*
+
+		// Advance tracking for the next iteration's ~?> check.
+		prevReturnType = targetFn.Sig.RetType
+		current = rawResult
+	}
+
+	// Store the final result.
+	var finalI8 value.Value
+	if current == nil {
+		finalI8 = constant.NewNull(types.I8Ptr)
+	} else if current.Type().Equal(types.I8Ptr) {
+		finalI8 = current
+	} else {
+		finalI8 = g.castToI8Ptr(current)
+	}
+	g.current.NewCall(g.findFunc("srt_set_task_result"), finalI8)
+	if g.current.Term == nil {
+		g.current.NewRet(nil)
+	}
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return fn, nil
 }
 
 // ── M-15: task (pipe chain) support ─────────────────────────────────────────

@@ -82,16 +82,18 @@ const (
 	RBRACKET // ]
 
 	// Compound symbols
-	ARROW      // ->
-	FAT_ARROW  // =>
-	PIPE       // |>
-	PIPE_QUEST // |?>
-	RANGE      // ..
-	RANGE_INCL // ..=
-	SAFE_NAV   // ?.
-	ELVIS      // ?:
-	SHL        // <<
-	SHR        // >>
+	ARROW            // ->
+	FAT_ARROW        // =>
+	PIPE             // |>
+	PIPE_QUEST       // |?>
+	ASYNC_PIPE       // ~>
+	ASYNC_PIPE_QUEST // ~?>
+	RANGE            // ..
+	RANGE_INCL       // ..=
+	SAFE_NAV         // ?.
+	ELVIS            // ?:
+	SHL              // <<
+	SHR              // >>
 	CARET      // ^
 	TILDE      // ~
 
@@ -195,9 +197,11 @@ func (t TokenType) String() string {
 		RBRACKET:       "RBRACKET",
 		ARROW:          "ARROW",
 		FAT_ARROW:      "FAT_ARROW",
-		PIPE:           "PIPE",
-		PIPE_QUEST:     "PIPE_QUEST",
-		RANGE:          "RANGE",
+		PIPE:             "PIPE",
+		PIPE_QUEST:       "PIPE_QUEST",
+		ASYNC_PIPE:       "ASYNC_PIPE",
+		ASYNC_PIPE_QUEST: "ASYNC_PIPE_QUEST",
+		RANGE:            "RANGE",
 		RANGE_INCL:     "RANGE_INCL",
 		SAFE_NAV:       "SAFE_NAV",
 		ELVIS:          "ELVIS",

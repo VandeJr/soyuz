@@ -426,7 +426,16 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: CARET, Lexeme: "^", Position: pos}
 
 	case '~':
-		tok = Token{Type: TILDE, Lexeme: "~", Position: pos}
+		if l.peekChar() == '?' && l.peekCharN(2) == '>' {
+			l.readChar()
+			l.readChar()
+			tok = Token{Type: ASYNC_PIPE_QUEST, Lexeme: "~?>", Position: pos}
+		} else if l.peekChar() == '>' {
+			l.readChar()
+			tok = Token{Type: ASYNC_PIPE, Lexeme: "~>", Position: pos}
+		} else {
+			tok = Token{Type: TILDE, Lexeme: "~", Position: pos}
+		}
 
 	case '-':
 		if l.peekChar() == '>' {
