@@ -198,6 +198,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 	case *parser.TaskExpr:
 		return g.generateTaskExpr(n)
 
+	case *parser.SelectExpr:
+		return g.generateSelectExpr(n)
+
 	case *parser.AsyncPipeExpr:
 		return g.generateAsyncPipeExpr(n)
 

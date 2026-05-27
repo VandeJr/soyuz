@@ -35,7 +35,8 @@ var keywords = map[string]TokenType{
 	"self": SELF,
 
 	// Concurrency
-	"task": TASK,
+	"task":   TASK,
+	"select": SELECT,
 
 	// Tipos primitivos built-in
 	"Int":    INT_TYPE,

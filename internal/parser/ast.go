@@ -565,6 +565,31 @@ type TaskExpr struct {
 
 func (t *TaskExpr) Pos() lexer.Position { return t.pos }
 
+// SelectExpr multiplexes over multiple channels:
+//   select {
+//       msg = chA.recv() => processarA(msg)
+//       msg = chB.recv() => processarB(msg)
+//       default          => fazerOutraCoisa()
+//   }
+// Blocks until any recv arm is ready (or immediately executes default if present and no channel is ready).
+type SelectExpr struct {
+	pos  lexer.Position
+	Arms []SelectArm
+}
+
+func (s *SelectExpr) Pos() lexer.Position { return s.pos }
+
+// SelectArm is a single arm inside a SelectExpr.
+//   - Recv arm  : Binding = "msg", Chan = ch.recv() CallExpr
+//   - Default   : IsDefault = true, Chan = nil, Binding = ""
+type SelectArm struct {
+	Pos       lexer.Position
+	Binding   string // variable name for received value ("" = no binding)
+	Chan      Node   // ch.recv() or ch.tryRecv() call expression; nil for default
+	IsDefault bool
+	Body      Node
+}
+
 // ArrowFunc is an anonymous function: fn(x: Int) => x * 2
 type ArrowFunc struct {
 	pos        lexer.Position

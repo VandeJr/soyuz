@@ -170,3 +170,35 @@ void srt_sync_chan_close(void *sc_ptr) {
     pthread_cond_broadcast(&sc->receiver_go);
     pthread_mutex_unlock(&sc->mu);
 }
+
+// ── M-20: select { ch.recv() => body, default => body } ──────────────────────
+
+// srt_select_try: non-blocking poll over n channels.
+// On first channel that has a value, writes it to *out and returns its index.
+// Returns -1 if no channel is ready.
+int64_t srt_select_try(void **channels, int64_t n, int64_t *out) {
+    for (int64_t i = 0; i < n; i++) {
+        int64_t val;
+        if (srt_chan_try_recv(channels[i], &val)) {
+            *out = val;
+            return i;
+        }
+    }
+    return -1;
+}
+
+// srt_select: blocking select over n channels.
+// Polls with exponential-backoff until any channel has a value.
+// Returns the index of the ready channel and writes the value to *out.
+int64_t srt_select(void **channels, int64_t n, int64_t *out) {
+    struct timespec ts;
+    long delay_ns = 1000; /* start: 1 µs */
+    while (1) {
+        int64_t idx = srt_select_try(channels, n, out);
+        if (idx >= 0) return idx;
+        ts.tv_sec  = 0;
+        ts.tv_nsec = delay_ns;
+        nanosleep(&ts, NULL);
+        if (delay_ns < 1000000) delay_ns *= 2; /* cap at 1 ms */
+    }
+}

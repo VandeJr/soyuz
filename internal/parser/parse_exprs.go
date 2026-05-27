@@ -163,6 +163,9 @@ func (p *Parser) parsePrefix() Node {
 		inner := p.parseExpression(0)
 		return &TaskExpr{pos: pos, Inner: inner}
 
+	case lexer.SELECT:
+		return p.parseSelectExpr()
+
 	case lexer.FN:
 		if p.peekN(1).Type == lexer.IDENT {
 			p.errorf(pos, "declaração de função não é uma expressão — use fn(...) => expr para funções anônimas")

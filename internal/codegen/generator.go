@@ -666,6 +666,15 @@ func (g *Generator) declareBuiltins() {
 		ir.NewParam("out", types.NewPointer(types.I64)))
 	g.module.NewFunc("srt_sync_chan_close", types.Void,
 		ir.NewParam("ch", types.I8Ptr))
+	// M20: select { ch.recv() => ... }
+	g.module.NewFunc("srt_select", types.I64,
+		ir.NewParam("channels", types.NewPointer(types.I8Ptr)),
+		ir.NewParam("n", types.I64),
+		ir.NewParam("out", types.NewPointer(types.I64)))
+	g.module.NewFunc("srt_select_try", types.I64,
+		ir.NewParam("channels", types.NewPointer(types.I8Ptr)),
+		ir.NewParam("n", types.I64),
+		ir.NewParam("out", types.NewPointer(types.I64)))
 
 	// M14: Arc[T] with EBR
 	g.module.NewFunc("srt_arc_new", types.I8Ptr,

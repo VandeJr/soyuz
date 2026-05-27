@@ -132,6 +132,7 @@ const (
 
 	// Keywords — concurrency
 	TASK
+	SELECT
 
 	// Keywords — built-in types
 	INT_TYPE
@@ -233,6 +234,7 @@ func (t TokenType) String() string {
 		PUB:            "PUB",
 		SELF:           "SELF",
 		TASK:           "TASK",
+		SELECT:         "SELECT",
 		INT_TYPE:       "INT_TYPE",
 		FLOAT_TYPE:     "FLOAT_TYPE",
 		BOOL_TYPE:      "BOOL_TYPE",

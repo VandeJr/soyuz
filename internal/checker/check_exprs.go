@@ -65,6 +65,63 @@ func (c *Checker) checkTaskExpr(n *parser.TaskExpr) Type {
 	return &SpecializedType{Base: base, Params: []Type{innerType}}
 }
 
+// checkSelectExpr type-checks a select { ... } expression (M-20).
+//
+// Each recv arm: the Chan expression must be a ch.recv() / ch.tryRecv() call
+// on a Channel[T] or SyncChannel[T]; the binding (if given) gets type T.
+// Default arm: no channel needed.
+// Return type: the common type of all arm bodies (or Unit if bodies differ or there are no arms).
+func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
+	var resultType Type = UnitType
+	first := true
+
+	for i, arm := range n.Arms {
+		parentScope := c.scope
+		c.scope = NewScope(parentScope)
+
+		if arm.IsDefault {
+			// default arm — just type-check the body
+			bodyType := c.checkNode(arm.Body)
+			if first {
+				resultType = bodyType
+				first = false
+			} else if !c.isAssignable(resultType, bodyType) && !c.isAssignable(bodyType, resultType) {
+				c.errorf(arm.Pos, "select arm %d: tipo do corpo incompatível com arms anteriores (esperado %s, obtido %s)", i, resultType, bodyType)
+			}
+		} else {
+			// recv arm — Chan must be a ch.recv() or ch.tryRecv() call
+			if arm.Chan == nil {
+				c.errorf(arm.Pos, "select arm %d: expressão de canal ausente", i)
+				c.scope = parentScope
+				continue
+			}
+			chanCallType := c.checkNode(arm.Chan)
+			// chanCallType should be Option[T] (result of recv/tryRecv)
+			var innerType Type = Unknown
+			if st, ok := chanCallType.(*SpecializedType); ok {
+				if et, ok2 := st.Base.(*EnumType); ok2 && et.Name == "Option" && len(st.Params) > 0 {
+					innerType = st.Params[0]
+				}
+			}
+			// Bind the variable if given
+			if arm.Binding != "" {
+				c.scope.Define(arm.Binding, innerType, true)
+			}
+			bodyType := c.checkNode(arm.Body)
+			if first {
+				resultType = bodyType
+				first = false
+			} else if !c.isAssignable(resultType, bodyType) && !c.isAssignable(bodyType, resultType) {
+				c.errorf(arm.Pos, "select arm %d: tipo do corpo incompatível com arms anteriores (esperado %s, obtido %s)", i, resultType, bodyType)
+			}
+		}
+
+		c.scope = parentScope
+	}
+
+	return resultType
+}
+
 func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 	if id, ok := n.Object.(*parser.Identifier); ok {
 		if sym, exists := c.scope.Resolve(id.Name); exists {

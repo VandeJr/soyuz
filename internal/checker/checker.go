@@ -593,6 +593,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkSelfExpr(n)
 	case *parser.TaskExpr:
 		return c.checkTaskExpr(n)
+	case *parser.SelectExpr:
+		return c.checkSelectExpr(n)
 	case *parser.ForStmt:
 		return c.checkForStmt(n)
 	case *parser.WhileStmt:
