@@ -279,6 +279,18 @@ type ForStmt struct {
 
 func (f *ForStmt) Pos() lexer.Position { return f.pos }
 
+// ForTaskStmt is `for task binding in iterable { body }`.
+// Spawns a task per element, awaits all, collects results into List[U].
+// Body must be a call expression or pipe chain.
+type ForTaskStmt struct {
+	pos      lexer.Position
+	Binding  string
+	Iterable Node
+	Body     *BlockStmt
+}
+
+func (f *ForTaskStmt) Pos() lexer.Position { return f.pos }
+
 type WhileStmt struct {
 	pos       lexer.Position
 	Condition Node

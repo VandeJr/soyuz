@@ -93,8 +93,19 @@ func (p *Parser) parseIf() *IfStmt {
 	return node
 }
 
-func (p *Parser) parseFor() *ForStmt {
-	pos := p.advance().Position
+func (p *Parser) parseFor() Node {
+	pos := p.advance().Position // consume FOR
+
+	// Detect `for task binding in iterable { body }`
+	if p.check(lexer.TASK) {
+		p.advance() // consume TASK
+		binding := p.expect(lexer.IDENT).Lexeme
+		p.expect(lexer.IN)
+		iterable := p.parseExpression(0)
+		body := p.parseBlock()
+		return &ForTaskStmt{pos: pos, Binding: binding, Iterable: iterable, Body: body}
+	}
+
 	binding := p.expect(lexer.IDENT).Lexeme
 	p.expect(lexer.IN)
 	iterable := p.parseExpression(0)

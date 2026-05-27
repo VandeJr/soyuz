@@ -597,6 +597,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkSelectExpr(n)
 	case *parser.ForStmt:
 		return c.checkForStmt(n)
+	case *parser.ForTaskStmt:
+		return c.checkForTaskStmt(n)
 	case *parser.WhileStmt:
 		c.checkNode(n.Condition)
 		c.checkBlock(n.Body)

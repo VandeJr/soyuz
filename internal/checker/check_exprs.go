@@ -1469,6 +1469,54 @@ func (c *Checker) checkAssignExpr(n *parser.AssignExpr) Type {
 	return rightType
 }
 
+// checkForTaskStmt type-checks `for task binding in iterable { body }` (M-21).
+// Returns List[U] where U is the type of the body expression.
+func (c *Checker) checkForTaskStmt(n *parser.ForTaskStmt) Type {
+	iterType := c.checkNode(n.Iterable)
+	var elemType Type = Unknown
+	if st, ok := iterType.(*SpecializedType); ok {
+		if ct, ok2 := st.Base.(*ClassType); ok2 && ct.Name == "List" && len(st.Params) > 0 {
+			elemType = st.Params[0]
+		} else {
+			c.errorf(n.Iterable.Pos(), "for task: iterável deve ser List[T], obtido %s", iterType)
+		}
+	} else {
+		c.errorf(n.Iterable.Pos(), "for task: iterável deve ser List[T], obtido %s", iterType)
+	}
+
+	parentScope := c.scope
+	c.scope = NewScope(parentScope)
+	c.scope.Define(n.Binding, elemType, true)
+
+	// Validate body: must be a single call expression or pipe chain.
+	var bodyType Type = Unknown
+	if len(n.Body.Statements) == 1 {
+		stmt := n.Body.Statements[0]
+		var inner parser.Node
+		if es, ok := stmt.(*parser.ExprStmt); ok {
+			inner = es.Expr
+		} else {
+			inner = stmt
+		}
+		switch inner.(type) {
+		case *parser.CallExpr, *parser.PipeExpr, *parser.PipeQuestExpr:
+			bodyType = c.checkNode(inner)
+		default:
+			c.errorf(n.Body.Pos(), "for task: body deve ser uma call expression ou pipe chain")
+			bodyType = c.checkNode(inner)
+		}
+	} else {
+		c.errorf(n.Body.Pos(), "for task: body deve conter exatamente uma expressão")
+		bodyType = c.checkBlock(n.Body)
+	}
+
+	c.scope = parentScope
+
+	// Return type: List[bodyType]
+	listBase := c.resolveTypeExpr(&parser.NamedType{Name: "List"})
+	return &SpecializedType{Base: listBase, Params: []Type{bodyType}}
+}
+
 func (c *Checker) checkForStmt(n *parser.ForStmt) Type {
 	parent := c.scope
 	c.scope = NewScope(parent)

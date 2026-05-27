@@ -296,6 +296,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 	case *parser.ForStmt:
 		return g.generateForStmt(n)
 
+	case *parser.ForTaskStmt:
+		return g.generateForTaskStmt(n)
+
 	case *parser.BreakStmt:
 		if len(g.loops) == 0 {
 			return nil, fmt.Errorf("break outside of loop")
