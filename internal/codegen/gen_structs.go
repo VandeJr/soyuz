@@ -466,16 +466,25 @@ func (g *Generator) generateClassMethodBody(className string, si structInfo, fd 
 	oldVars := g.vars
 	oldHeapVars := g.heapVars
 	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
 	oldBlockNames := g.blockNames
 	g.vars = make(map[string]value.Value)
 	g.heapVars = make(map[string]bool)
 	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
 	g.blockNames = make(map[string]int)
 	defer func() {
 		g.current = oldCurrent
 		g.vars = oldVars
 		g.heapVars = oldHeapVars
 		g.scopeStack = oldScopeStack
+		g.taskVarStack = oldTaskVarStack
+		g.syncGuardStack = oldSyncGuardStack
+		g.arcVarStack = oldArcVarStack
 		g.blockNames = oldBlockNames
 	}()
 
@@ -926,6 +935,10 @@ func (g *Generator) emitRecordAlloc(n *parser.RecordLiteral, si structInfo, dtor
 }
 
 func (g *Generator) generateMemberExpr(n *parser.MemberExpr) (value.Value, error) {
+	// M8: sync guard value read — guard.value → T
+	if _, _, ok := g.isSyncGuardValueAccess(n); ok {
+		return g.generateSyncGuardRead(n)
+	}
 	ptr, err := g.generateMemberPtr(n)
 	if err != nil {
 		return nil, err
@@ -1054,16 +1067,25 @@ func (g *Generator) generateExtendMethodBody(pm pendingExtendMethodBody) error {
 	oldVars := g.vars
 	oldHeapVars := g.heapVars
 	oldScopeStack := g.scopeStack
+	oldTaskVarStack2 := g.taskVarStack
+	oldSyncGuardStack2 := g.syncGuardStack
+	oldArcVarStack2 := g.arcVarStack
 	oldBlockNames := g.blockNames
 	g.vars = make(map[string]value.Value)
 	g.heapVars = make(map[string]bool)
 	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
 	g.blockNames = make(map[string]int)
 	defer func() {
 		g.current = oldCurrent
 		g.vars = oldVars
 		g.heapVars = oldHeapVars
 		g.scopeStack = oldScopeStack
+		g.taskVarStack = oldTaskVarStack2
+		g.syncGuardStack = oldSyncGuardStack2
+		g.arcVarStack = oldArcVarStack2
 		g.blockNames = oldBlockNames
 	}()
 

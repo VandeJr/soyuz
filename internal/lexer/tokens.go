@@ -128,6 +128,9 @@ const (
 	// Keywords — OOP
 	SELF
 
+	// Keywords — concurrency
+	TASK
+
 	// Keywords — built-in types
 	INT_TYPE
 	FLOAT_TYPE
@@ -225,6 +228,7 @@ func (t TokenType) String() string {
 		IMPORT:         "IMPORT",
 		PUB:            "PUB",
 		SELF:           "SELF",
+		TASK:           "TASK",
 		INT_TYPE:       "INT_TYPE",
 		FLOAT_TYPE:     "FLOAT_TYPE",
 		BOOL_TYPE:      "BOOL_TYPE",

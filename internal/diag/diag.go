@@ -85,6 +85,29 @@ func FromTypeErrors(errs []checker.TypeError) []Diagnostic {
 	return out
 }
 
+func FromTypeWarnings(warns []checker.TypeWarning) []Diagnostic {
+	out := make([]Diagnostic, len(warns))
+	for i, w := range warns {
+		end := w.End
+		if end.Line == 0 && end.Column == 0 {
+			end = SpanEnd(w.Pos, 4)
+		}
+		code := w.Code
+		if code == "" {
+			code = "W0300"
+		}
+		out[i] = Diagnostic{
+			File:     w.File,
+			Start:    w.Pos,
+			End:      end,
+			Severity: SeverityWarning,
+			Code:     code,
+			Message:  w.Message,
+		}
+	}
+	return out
+}
+
 func Merge(all ...[]Diagnostic) []Diagnostic {
 	var merged []Diagnostic
 	for _, batch := range all {

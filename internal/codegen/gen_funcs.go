@@ -93,16 +93,25 @@ func (g *Generator) generateSpecializedFunc(name string, n *parser.FuncDecl, spe
 	oldVars := g.vars
 	oldHeapVars := g.heapVars
 	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
 	oldBlockNames := g.blockNames
 	g.vars = make(map[string]value.Value)
 	g.heapVars = make(map[string]bool)
 	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
 	g.blockNames = make(map[string]int)
 	defer func() {
 		g.current = oldCurrent
 		g.vars = oldVars
 		g.heapVars = oldHeapVars
 		g.scopeStack = oldScopeStack
+		g.taskVarStack = oldTaskVarStack
+		g.syncGuardStack = oldSyncGuardStack
+		g.arcVarStack = oldArcVarStack
 		g.blockNames = oldBlockNames
 	}()
 
@@ -196,16 +205,25 @@ func (g *Generator) generateLambdaFunc(n *parser.ArrowFunc, ft *checker.FuncType
 	oldVars := g.vars
 	oldHeapVars := g.heapVars
 	oldScopeStack := g.scopeStack
+	oldTaskVarStack2 := g.taskVarStack
+	oldSyncGuardStack2 := g.syncGuardStack
+	oldArcVarStack2 := g.arcVarStack
 	oldBlockNames := g.blockNames
 	g.vars = make(map[string]value.Value)
 	g.heapVars = make(map[string]bool)
 	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
 	g.blockNames = make(map[string]int)
 	defer func() {
 		g.current = oldCurrent
 		g.vars = oldVars
 		g.heapVars = oldHeapVars
 		g.scopeStack = oldScopeStack
+		g.taskVarStack = oldTaskVarStack2
+		g.syncGuardStack = oldSyncGuardStack2
+		g.arcVarStack = oldArcVarStack2
 		g.blockNames = oldBlockNames
 	}()
 
@@ -390,6 +408,9 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 
 	// Reset RC scope state for this function and push base scope for parameters.
 	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
 	g.pushScope()
 
 	for i, p := range params {

@@ -536,6 +536,15 @@ type MatchArm struct {
 	Body    Node // expression or *BlockStmt
 }
 
+// TaskExpr spawns a concurrent task: task callExpr(args)
+// Inner is typically a CallExpr; using a lambda (ArrowFunc) is a compile error.
+type TaskExpr struct {
+	pos   lexer.Position
+	Inner Node
+}
+
+func (t *TaskExpr) Pos() lexer.Position { return t.pos }
+
 // ArrowFunc is an anonymous function: fn(x: Int) => x * 2
 type ArrowFunc struct {
 	pos        lexer.Position

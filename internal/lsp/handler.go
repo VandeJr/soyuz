@@ -145,7 +145,8 @@ func (h *Handler) publishDiagnostics(uri string, result *AnalysisResult) {
 	file := filepathBase(uriToPath(uri))
 	parseDiags := diag.FromParseErrors(file, result.ParseErrors)
 	typeDiags := diag.FromTypeErrors(result.Check.Errors)
-	allDiags := diag.Merge(parseDiags, typeDiags)
+	warnDiags := diag.FromTypeWarnings(result.Check.Warnings)
+	allDiags := diag.Merge(parseDiags, typeDiags, warnDiags)
 
 	serverNotify(string(protocol.ServerTextDocumentPublishDiagnostics),
 		protocol.PublishDiagnosticsParams{
@@ -173,12 +174,16 @@ func toDiagnostics(errors []diag.Diagnostic) []protocol.Diagnostic {
 		if e.Code != "" {
 			msg = e.Code + ": " + msg
 		}
+		sev := protocol.DiagnosticSeverityError
+		if e.Severity == diag.SeverityWarning {
+			sev = protocol.DiagnosticSeverityWarning
+		}
 		diags[i] = protocol.Diagnostic{
 			Range: protocol.Range{
 				Start: start,
 				End:   end,
 			},
-			Severity: severityPtr(protocol.DiagnosticSeverityError),
+			Severity: severityPtr(sev),
 			Message:  msg,
 			Source:   strPtr("soyuz"),
 		}

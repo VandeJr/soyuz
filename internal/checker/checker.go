@@ -9,6 +9,7 @@ import (
 
 type Checker struct {
 	errors               []TypeError
+	warnings             []TypeWarning
 	scope                *Scope
 	nodeTypes            map[parser.Node]Type
 	specializations      map[parser.Node]*FuncType
@@ -38,6 +39,7 @@ type Checker struct {
 
 type CheckResult struct {
 	Errors              []TypeError
+	Warnings            []TypeWarning
 	NodeTypes           map[parser.Node]Type
 	Specializations     map[parser.Node]*FuncType
 	FuncVariants        map[string][]*parser.FuncDecl
@@ -144,6 +146,143 @@ func New() *Checker {
 	// iter() returns Iterator[T] for List and Iterator[K] for Map keys.
 	listType.Methods["iter"] = []*FuncType{{Params: []Type{}, Return: Unknown}}
 	mapType.Methods["iter"] = []*FuncType{{Params: []Type{}, Return: Unknown}}
+
+	taskType := &ClassType{
+		Name:     "Task",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"await":      {{Params: []Type{}, Return: &TypeParameter{Name: "T"}}},
+			"detach":     {{Params: []Type{}, Return: UnitType}},
+			"cancel":     {{Params: []Type{}, Return: UnitType}}, // M-10: cancel + propagate to children
+			"all":        {{Params: []Type{Unknown}, Return: Unknown}},
+			"any":        {{Params: []Type{Unknown}, Return: Unknown}},
+			"allSettled": {{Params: []Type{Unknown}, Return: Unknown}},
+		},
+		MethodPub: map[string]bool{"await": true, "detach": true, "cancel": true, "all": true, "any": true, "allSettled": true},
+	}
+	scope.Define("Task", taskType, true)
+
+	taskHandleType := &ClassType{
+		Name: "TaskHandle",
+		Methods: map[string][]*FuncType{
+			"current":   {{Params: []Type{}, Return: Unknown}}, // intercepted in checkCallExpr → Option[TaskHandle]
+			"cancelled": {{Params: []Type{}, Return: BoolType}},
+			"progress":  {{Params: []Type{FloatType}, Return: UnitType}},
+		},
+		MethodPub: map[string]bool{"current": true, "cancelled": true, "progress": true},
+	}
+	scope.Define("TaskHandle", taskHandleType, true)
+
+	// ── M-08: stdlib/sync ────────────────────────────────────────────────────
+
+	mutexGuardType := &ClassType{
+		Name:     "MutexGuard",
+		Generics: []string{"T"},
+		Fields:   map[string]Type{"value": &TypeParameter{Name: "T"}},
+		FieldPub: map[string]bool{"value": true},
+	}
+	scope.Define("MutexGuard", mutexGuardType, true)
+
+	readGuardType := &ClassType{
+		Name:     "ReadGuard",
+		Generics: []string{"T"},
+		Fields:   map[string]Type{"value": &TypeParameter{Name: "T"}},
+		FieldPub: map[string]bool{"value": true},
+	}
+	scope.Define("ReadGuard", readGuardType, true)
+
+	writeGuardType := &ClassType{
+		Name:     "WriteGuard",
+		Generics: []string{"T"},
+		Fields:   map[string]Type{"value": &TypeParameter{Name: "T"}},
+		FieldPub: map[string]bool{"value": true},
+	}
+	scope.Define("WriteGuard", writeGuardType, true)
+
+	mutexType := &ClassType{
+		Name:     "Mutex",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"new":  {{Params: []Type{Unknown}, Return: Unknown}}, // intercepted: Mutex.new(val) → Mutex[T]
+			"lock": {{Params: []Type{}, Return: &SpecializedType{Base: mutexGuardType, Params: []Type{&TypeParameter{Name: "T"}}}}},
+		},
+		MethodPub: map[string]bool{"new": true, "lock": true},
+	}
+	scope.Define("Mutex", mutexType, true)
+
+	rwlockType := &ClassType{
+		Name:     "RwLock",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"new":   {{Params: []Type{Unknown}, Return: Unknown}}, // intercepted: RwLock.new(val) → RwLock[T]
+			"read":  {{Params: []Type{}, Return: &SpecializedType{Base: readGuardType, Params: []Type{&TypeParameter{Name: "T"}}}}},
+			"write": {{Params: []Type{}, Return: &SpecializedType{Base: writeGuardType, Params: []Type{&TypeParameter{Name: "T"}}}}},
+		},
+		MethodPub: map[string]bool{"new": true, "read": true, "write": true},
+	}
+	scope.Define("RwLock", rwlockType, true)
+
+	atomicType := &ClassType{
+		Name:     "Atomic",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"new":            {{Params: []Type{Unknown}, Return: Unknown}},                                         // intercepted
+			"load":           {{Params: []Type{}, Return: &TypeParameter{Name: "T"}}},                              // intercepted
+			"store":          {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"add":            {{Params: []Type{&TypeParameter{Name: "T"}}, Return: &TypeParameter{Name: "T"}}},     // intercepted
+			"compareAndSwap": {{Params: []Type{&TypeParameter{Name: "T"}, &TypeParameter{Name: "T"}}, Return: BoolType}},
+		},
+		MethodPub: map[string]bool{"new": true, "load": true, "store": true, "add": true, "compareAndSwap": true},
+	}
+	scope.Define("Atomic", atomicType, true)
+
+	// ── M-14: stdlib/arc — Arc[T] com EBR ───────────────────────────────────
+
+	arcType := &ClassType{
+		Name:     "Arc",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"new":      {{Params: []Type{Unknown}, Return: Unknown}}, // intercepted → Arc[T]
+			"clone":    {{Params: []Type{}, Return: Unknown}},         // intercepted → Arc[T]
+			"get":      {{Params: []Type{}, Return: &TypeParameter{Name: "T"}}},
+			"refcount": {{Params: []Type{}, Return: IntType}},
+		},
+		MethodPub: map[string]bool{"new": true, "clone": true, "get": true, "refcount": true},
+	}
+	scope.Define("Arc", arcType, true)
+
+	// ── M-09: stdlib/channel ─────────────────────────────────────────────────
+
+	channelType := &ClassType{
+		Name:     "Channel",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"new":      {{Params: []Type{IntType}, Return: Unknown}}, // intercepted → Channel[T]
+			"send":     {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"recv":     {{Params: []Type{}, Return: Unknown}},         // intercepted → Option[T]
+			"tryRecv":  {{Params: []Type{}, Return: Unknown}},         // intercepted → Option[T]
+			"close":    {{Params: []Type{}, Return: UnitType}},
+			"isClosed": {{Params: []Type{}, Return: BoolType}},
+		},
+		MethodPub: map[string]bool{
+			"new": true, "send": true, "recv": true,
+			"tryRecv": true, "close": true, "isClosed": true,
+		},
+	}
+	scope.Define("Channel", channelType, true)
+
+	syncChannelType := &ClassType{
+		Name:     "SyncChannel",
+		Generics: []string{"T"},
+		Methods: map[string][]*FuncType{
+			"new":   {{Params: []Type{}, Return: Unknown}}, // intercepted → SyncChannel[T]
+			"send":  {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"recv":  {{Params: []Type{}, Return: Unknown}}, // intercepted → Option[T]
+			"close": {{Params: []Type{}, Return: UnitType}},
+		},
+		MethodPub: map[string]bool{"new": true, "send": true, "recv": true, "close": true},
+	}
+	scope.Define("SyncChannel", syncChannelType, true)
 
 	printFunc := &FuncType{Params: []Type{Unknown}, Return: UnitType}
 	scope.Define("print", printFunc, true)
@@ -346,6 +485,7 @@ func (c *Checker) Check(prog *parser.Program) *CheckResult {
 
 	return &CheckResult{
 		Errors:          c.errors,
+		Warnings:        c.warnings,
 		NodeTypes:       c.nodeTypes,
 		Specializations: c.specializations,
 		FuncVariants:    c.funcVariants,
@@ -447,6 +587,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkSafeNavExpr(n)
 	case *parser.SelfExpr:
 		return c.checkSelfExpr(n)
+	case *parser.TaskExpr:
+		return c.checkTaskExpr(n)
 	case *parser.ForStmt:
 		return c.checkForStmt(n)
 	case *parser.WhileStmt:
@@ -466,7 +608,13 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		}
 		return UnitType
 	case *parser.ExprStmt:
-		return c.checkNode(n.Expr)
+		t := c.checkNode(n.Expr)
+		// W0300: Task[T] must-use — emite warning se a task não for consumida.
+		// Exceção: val _ = task ... não é ExprStmt, então não chega aqui.
+		if c.isTaskType(t) {
+			c.warnf(n.Expr.Pos(), "W0300", "Task não consumida — use .await() ou .detach()")
+		}
+		return t
 	case *parser.BlockStmt:
 		return c.checkBlock(n)
 	default:
@@ -482,6 +630,26 @@ func (c *Checker) errorf(pos lexer.Position, format string, args ...any) {
 		Code:    "E0200",
 		Message: fmt.Sprintf(format, args...),
 	})
+}
+
+func (c *Checker) warnf(pos lexer.Position, code string, format string, args ...any) {
+	c.warnings = append(c.warnings, TypeWarning{
+		Pos:     pos,
+		End:     lexer.Position{Line: pos.Line, Column: pos.Column + 4},
+		File:    c.currentFile,
+		Code:    code,
+		Message: fmt.Sprintf(format, args...),
+	})
+}
+
+// isTaskType retorna true se o tipo é Task[T] (SpecializedType com base ClassType{Name:"Task"}).
+func (c *Checker) isTaskType(t Type) bool {
+	if st, ok := t.(*SpecializedType); ok {
+		if ct, ok2 := st.Base.(*ClassType); ok2 {
+			return ct.Name == "Task"
+		}
+	}
+	return false
 }
 
 // registerGlobalSymbol records the origin and pub status of a top-level symbol for M8.1.

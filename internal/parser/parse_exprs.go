@@ -154,6 +154,14 @@ func (p *Parser) parsePrefix() Node {
 	case lexer.LOOP:
 		return p.parseLoop()
 
+	case lexer.TASK:
+		p.advance()
+		if p.peek().Type == lexer.FN {
+			p.errorf(pos, "task não aceita lambda — extraia uma função nomeada")
+		}
+		inner := p.parseExpression(0)
+		return &TaskExpr{pos: pos, Inner: inner}
+
 	case lexer.FN:
 		if p.peekN(1).Type == lexer.IDENT {
 			p.errorf(pos, "declaração de função não é uma expressão — use fn(...) => expr para funções anônimas")

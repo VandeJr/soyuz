@@ -1,0 +1,38 @@
+// async.sy — Concurrent and parallel programming utilities.
+//
+// Channel[T]     — bounded MPSC ring-buffer channel (blocking send/recv).
+// SyncChannel[T] — rendezvous channel (send blocks until receiver is ready).
+//
+// Both types are compiler built-ins; this file provides higher-level helpers.
+
+// parallelMap executes transform on every element of items in a separate task
+// and collects all results in order.
+pub fn parallelMap[T](items: List[T], transform: (T) -> T) -> List[T] {
+  val n: Int = items.len()
+  val handles: List[Task[T]] = []
+  var i = 0
+  for i < n {
+    val item = items.get(i)
+    handles.append(task transform(item))
+    i = i + 1
+  }
+  val out: List[T] = List()
+  var j = 0
+  for j < n {
+    out.append(handles.get(j).await())
+    j = j + 1
+  }
+  return out
+}
+
+// pipeline sends every item from items into ch and then closes the channel.
+// Intended to be run inside a task so the consumer can recv concurrently.
+pub fn pipeline[T](items: List[T], ch: Channel[T]) {
+  val n = items.size()
+  var i = 0
+  for i < n {
+    ch.send(items.get(i))
+    i = i + 1
+  }
+  ch.close()
+}

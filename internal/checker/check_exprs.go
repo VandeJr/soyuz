@@ -59,6 +59,12 @@ func (c *Checker) checkMapExpr(n *parser.MapExpr) Type {
 	return &SpecializedType{Base: base, Params: []Type{keyType, valType}}
 }
 
+func (c *Checker) checkTaskExpr(n *parser.TaskExpr) Type {
+	innerType := c.checkNode(n.Inner)
+	base := c.resolveTypeExpr(&parser.NamedType{Name: "Task"})
+	return &SpecializedType{Base: base, Params: []Type{innerType}}
+}
+
 func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 	if id, ok := n.Object.(*parser.Identifier); ok {
 		if sym, exists := c.scope.Resolve(id.Name); exists {
@@ -91,6 +97,37 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 			return &FuncType{Params: fieldTypes, Return: retType, Generics: t.Generics}
 		}
 		c.errorf(pos, "enum %s não tem variante %s", t.Name, property)
+		return Unknown
+	case *SpecializedType:
+		if ct, ok := t.Base.(*ClassType); ok {
+			var sub map[string]Type
+			if len(ct.Generics) > 0 && len(t.Params) > 0 {
+				sub = make(map[string]Type)
+				for i, gname := range ct.Generics {
+					if i < len(t.Params) {
+						sub[gname] = t.Params[i]
+					}
+				}
+			}
+			if variants, ok2 := ct.Methods[property]; ok2 && len(variants) > 0 {
+				ft := variants[0]
+				if sub != nil {
+					newParams := make([]Type, len(ft.Params))
+					for i, p := range ft.Params {
+						newParams[i] = c.substitute(p, sub)
+					}
+					return &FuncType{Params: newParams, Return: c.substitute(ft.Return, sub)}
+				}
+				return ft
+			}
+			// Fields with type-parameter substitution (e.g. MutexGuard[T].value → T)
+			if ft, ok2 := ct.Fields[property]; ok2 {
+				if sub != nil {
+					return c.substitute(ft, sub)
+				}
+				return ft
+			}
+		}
 		return Unknown
 	case *ClassType:
 		if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
@@ -600,6 +637,192 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 			}
 		}
 		return c.wrapOptionType(ft.Return)
+	}
+
+	// M7: TaskHandle.current() — returns Option[TaskHandle].
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if ct, isCT := objType.(*ClassType); isCT && ct.Name == "TaskHandle" && me.Property == "current" {
+			optEnumRaw, _ := c.scope.Resolve("Option")
+			optEnum, _ := optEnumRaw.Type.(*EnumType)
+			retType := &SpecializedType{Base: optEnum, Params: []Type{ct}}
+			c.specializations[n] = &FuncType{Return: retType}
+			return retType
+		}
+	}
+
+	// M14: Arc.new — static constructor; Arc.clone/get/refcount — instance methods.
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		// Arc.new(val: T) → Arc[T]
+		if ct, isCT := objType.(*ClassType); isCT && ct.Name == "Arc" && me.Property == "new" && len(n.Args) == 1 {
+			argType := c.checkNode(n.Args[0])
+			sym, _ := c.scope.Resolve("Arc")
+			baseCT, _ := sym.Type.(*ClassType)
+			retType := &SpecializedType{Base: baseCT, Params: []Type{argType}}
+			c.specializations[n] = &FuncType{Return: retType}
+			return retType
+		}
+		// arc.clone() → Arc[T]; arc.get() → T; arc.refcount() → Int
+		if st, isST := objType.(*SpecializedType); isST {
+			if ct, isCT := st.Base.(*ClassType); isCT && ct.Name == "Arc" {
+				var innerType Type = Unknown
+				if len(st.Params) > 0 {
+					innerType = st.Params[0]
+				}
+				switch me.Property {
+				case "clone":
+					c.specializations[n] = &FuncType{Return: st}
+					return st
+				case "get":
+					c.specializations[n] = &FuncType{Return: innerType}
+					return innerType
+				case "refcount":
+					return IntType
+				}
+			}
+		}
+	}
+
+	// M9: Channel.new / SyncChannel.new — static constructors.
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if ct, isCT := objType.(*ClassType); isCT && me.Property == "new" {
+			switch ct.Name {
+			case "Channel":
+				if len(n.Args) == 1 {
+					c.checkNode(n.Args[0]) // capacity: Int
+					sym, _ := c.scope.Resolve("Channel")
+					baseCT, _ := sym.Type.(*ClassType)
+					retType := &SpecializedType{Base: baseCT, Params: []Type{Unknown}}
+					c.specializations[n] = &FuncType{Return: retType}
+					return retType
+				}
+			case "SyncChannel":
+				if len(n.Args) == 0 {
+					sym, _ := c.scope.Resolve("SyncChannel")
+					baseCT, _ := sym.Type.(*ClassType)
+					retType := &SpecializedType{Base: baseCT, Params: []Type{Unknown}}
+					c.specializations[n] = &FuncType{Return: retType}
+					return retType
+				}
+			}
+		}
+	}
+
+	// M9: Channel/SyncChannel instance methods — recv/tryRecv return Option[T].
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if st, isST := objType.(*SpecializedType); isST {
+			if ct, isCT := st.Base.(*ClassType); isCT {
+				switch ct.Name {
+				case "Channel", "SyncChannel":
+					var innerType Type = Unknown
+					if len(st.Params) > 0 {
+						innerType = st.Params[0]
+					}
+					switch me.Property {
+					case "recv", "tryRecv":
+						optEnumRaw, _ := c.scope.Resolve("Option")
+						optEnum, _ := optEnumRaw.Type.(*EnumType)
+						retType := &SpecializedType{Base: optEnum, Params: []Type{innerType}}
+						c.specializations[n] = &FuncType{Return: retType}
+						return retType
+					case "send":
+						if len(n.Args) == 1 {
+							c.checkNode(n.Args[0])
+						}
+						return UnitType
+					case "close":
+						return UnitType
+					case "isClosed":
+						return BoolType
+					}
+				}
+			}
+		}
+	}
+
+	// M8: Mutex.new / RwLock.new / Atomic.new — static constructors.
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if ct, isCT := objType.(*ClassType); isCT && me.Property == "new" && len(n.Args) == 1 {
+			switch ct.Name {
+			case "Mutex", "RwLock", "Atomic":
+				argType := c.checkNode(n.Args[0])
+				sym, _ := c.scope.Resolve(ct.Name)
+				baseCT, _ := sym.Type.(*ClassType)
+				retType := &SpecializedType{Base: baseCT, Params: []Type{argType}}
+				c.specializations[n] = &FuncType{Return: retType}
+				return retType
+			}
+		}
+	}
+
+	// M6: Task.all / Task.any / Task.allSettled — static combinators on the Task namespace.
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if ct, isCT := objType.(*ClassType); isCT && ct.Name == "Task" {
+			switch me.Property {
+			case "all", "allSettled":
+				innerTypes := make([]Type, len(n.Args))
+				for i, arg := range n.Args {
+					at := c.checkNode(arg)
+					if st, ok := at.(*SpecializedType); ok {
+						if baseCT, ok2 := st.Base.(*ClassType); ok2 && baseCT.Name == "Task" && len(st.Params) > 0 {
+							innerTypes[i] = st.Params[0]
+						} else {
+							c.errorf(arg.Pos(), "Task.%s espera Task[T], obtido %s", me.Property, at)
+							innerTypes[i] = Unknown
+						}
+					} else {
+						c.errorf(arg.Pos(), "Task.%s espera Task[T], obtido %s", me.Property, at)
+						innerTypes[i] = Unknown
+					}
+				}
+				retType := &TupleType{Elements: innerTypes}
+				c.specializations[n] = &FuncType{Return: retType}
+				return retType
+			case "any":
+				var innerType Type = Unknown
+				for i, arg := range n.Args {
+					at := c.checkNode(arg)
+					if st, ok := at.(*SpecializedType); ok {
+						if baseCT, ok2 := st.Base.(*ClassType); ok2 && baseCT.Name == "Task" && len(st.Params) > 0 {
+							if innerType == Unknown {
+								innerType = st.Params[0]
+							} else if innerType.String() != st.Params[0].String() {
+								c.errorf(arg.Pos(), "Task.any requer tasks do mesmo tipo: arg %d tem Task[%s], esperado Task[%s]", i+1, st.Params[0], innerType)
+							}
+						} else {
+							c.errorf(arg.Pos(), "Task.any espera Task[T], obtido %s", at)
+						}
+					} else {
+						c.errorf(arg.Pos(), "Task.any espera Task[T], obtido %s", at)
+					}
+				}
+				c.specializations[n] = &FuncType{Return: innerType}
+				return innerType
+			}
+		}
 	}
 
 	// M3 HOF: special-case for List[T] functional methods and Map[K,V] key/value extraction.

@@ -22,3 +22,18 @@ var StdOSSource []byte
 
 //go:embed src/std_collections.c
 var StdCollectionsSource []byte
+
+//go:embed src/soyuz_rt.h
+var SoyuzRTHeader []byte
+
+//go:embed src/soyuz_rt.c
+var SoyuzRTSource []byte
+
+//go:embed src/std_sync.c
+var StdSyncSource []byte
+
+//go:embed src/std_channel.c
+var StdChannelSource []byte
+
+//go:embed src/std_arc.c
+var StdArcSource []byte

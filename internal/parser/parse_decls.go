@@ -55,6 +55,11 @@ func (p *Parser) parseVarDecl(pub bool) *VarDecl {
 	var pattern Pattern
 	if p.check(lexer.LPAREN) {
 		pattern = p.parsePattern() // tuple destructuring: val (x, y) = expr
+	} else if p.check(lexer.UNDERSCORE) {
+		// val _ = expr — blank identifier (silencia must-use warnings, mas runtime ainda panica no drop)
+		tok := p.advance()
+		name = "_"
+		namePos = tok.Position
 	} else {
 		tok := p.expect(lexer.IDENT)
 		name = tok.Lexeme

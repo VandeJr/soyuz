@@ -149,6 +149,11 @@ func (g *Generator) mapTypeToLLVM(t checker.Type) types.Type {
 				if ct.Name == "Map" {
 					return types.NewPointer(g.structs["SoyuzMap"].typ)
 				}
+				switch ct.Name {
+				case "Mutex", "MutexGuard", "RwLock", "ReadGuard", "WriteGuard", "Atomic",
+					"Channel", "SyncChannel":
+					return types.I8Ptr
+				}
 			}
 		}
 		if si, ok := g.structs[t.String()]; ok {
@@ -163,7 +168,12 @@ func (g *Generator) mapTypeToLLVM(t checker.Type) types.Type {
 		if _, ok := t.(*checker.InterfaceType); ok {
 			return types.I8Ptr // interface values are fat pointers (SoyuzClosure{obj, vtable})
 		}
-		if _, ok := t.(*checker.ClassType); ok {
+		if ct, ok := t.(*checker.ClassType); ok {
+			switch ct.Name {
+			case "TaskHandle", "Mutex", "MutexGuard", "RwLock", "ReadGuard", "WriteGuard", "Atomic",
+				"Channel", "SyncChannel":
+				return types.I8Ptr
+			}
 			if si, ok2 := g.structs[t.String()]; ok2 {
 				return types.NewPointer(si.typ)
 			}

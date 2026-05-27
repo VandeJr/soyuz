@@ -194,6 +194,9 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		g.check.Specializations[call] = g.check.Specializations[n]
 		return g.generateCallExpr(call)
 
+	case *parser.TaskExpr:
+		return g.generateTaskExpr(n)
+
 	case *parser.PipeQuestExpr:
 		return g.generatePipeQuestExpr(n)
 
@@ -225,6 +228,13 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 
 			g.current.NewStore(val, alloc)
 		case *parser.MemberExpr:
+			// M8: sync guard value write — guard.value = expr
+			if _, _, ok := g.isSyncGuardValueAccess(l); ok {
+				if err2 := g.generateSyncGuardWrite(l, val); err2 != nil {
+					return nil, err2
+				}
+				return val, nil
+			}
 			ptr, err := g.generateMemberPtr(l)
 			if err != nil {
 				return nil, err
@@ -478,7 +488,59 @@ func (g *Generator) generateVarDecl(n *parser.VarDecl) (value.Value, error) {
 		g.heapVars[n.Name] = true
 		g.ownVar(n.Name)
 	}
+
+	// Track Task[T] variables so their handle is dropped at scope exit.
+	if g.isTaskType(g.check.NodeTypes[n]) {
+		g.ownTaskVar(n.Name)
+	}
+
+	// M8: Track sync guard variables so they are unlocked at scope exit.
+	if unlockFn := g.syncGuardUnlockFn(g.check.NodeTypes[n]); unlockFn != "" {
+		g.ownSyncGuard(n.Name, unlockFn)
+	}
+
+	// M14: Track Arc[T] variables so srt_arc_release is called at scope exit.
+	if g.isArcType(g.check.NodeTypes[n]) {
+		g.ownArcVar(n.Name)
+	}
+
 	return val, nil
+}
+
+// isArcType returns true when t is Arc[T] (SpecializedType with base ClassType "Arc").
+func (g *Generator) isArcType(t checker.Type) bool {
+	st, ok := t.(*checker.SpecializedType)
+	if !ok {
+		return false
+	}
+	ct, ok2 := st.Base.(*checker.ClassType)
+	return ok2 && ct.Name == "Arc"
+}
+
+// syncGuardUnlockFn returns the runtime unlock function name for a sync guard type,
+// or "" if the type is not a sync guard.
+func (g *Generator) syncGuardUnlockFn(t checker.Type) string {
+	if st, ok := t.(*checker.SpecializedType); ok {
+		if ct, ok2 := st.Base.(*checker.ClassType); ok2 {
+			switch ct.Name {
+			case "MutexGuard":
+				return "srt_mutex_unlock"
+			case "ReadGuard", "WriteGuard":
+				return "srt_rwlock_unlock"
+			}
+		}
+	}
+	return ""
+}
+
+// isTaskType returns true if the checker type is Task[T].
+func (g *Generator) isTaskType(t checker.Type) bool {
+	if st, ok := t.(*checker.SpecializedType); ok {
+		if ct, ok2 := st.Base.(*checker.ClassType); ok2 {
+			return ct.Name == "Task"
+		}
+	}
+	return false
 }
 
 // wrapInInterfaceFatPtr packs a class pointer and a vtable into a SoyuzClosure fat pointer,
@@ -652,6 +714,140 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 					return nil, err
 				}
 				return g.current.NewCall(fn, args...), nil
+			}
+		}
+	}
+
+	// M14: Arc static constructor Arc.new(val).
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && ct.Name == "Arc" && me.Property == "new" && len(n.Args) == 1 {
+			return g.generateArcNew(n)
+		}
+	}
+
+	// M14: Arc instance methods — clone, get, refcount.
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if st, ok2 := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok2 {
+			if ct, ok3 := st.Base.(*checker.ClassType); ok3 && ct.Name == "Arc" {
+				switch me.Property {
+				case "clone":
+					return g.generateArcClone(me.Object)
+				case "get":
+					return g.generateArcGet(me.Object, st)
+				case "refcount":
+					return g.generateArcRefcount(me.Object)
+				}
+			}
+		}
+	}
+
+	// M9: Channel/SyncChannel static constructors.
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && me.Property == "new" {
+			switch ct.Name {
+			case "Channel":
+				return g.generateChannelNew(n)
+			case "SyncChannel":
+				return g.generateSyncChannelNew()
+			}
+		}
+	}
+
+	// M9: Channel/SyncChannel instance methods.
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if st, ok2 := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok2 {
+			if ct, ok3 := st.Base.(*checker.ClassType); ok3 {
+				switch ct.Name {
+				case "Channel":
+					switch me.Property {
+					case "send":
+						return g.generateChannelSend(me.Object, n, false)
+					case "recv":
+						return g.generateChannelRecv(me.Object, st, false, false)
+					case "tryRecv":
+						return g.generateChannelRecv(me.Object, st, true, false)
+					case "close":
+						return g.generateChannelClose(me.Object, "srt_chan_close")
+					case "isClosed":
+						return g.generateChannelIsClosed(me.Object)
+					}
+				case "SyncChannel":
+					switch me.Property {
+					case "send":
+						return g.generateChannelSend(me.Object, n, true)
+					case "recv":
+						return g.generateChannelRecv(me.Object, st, false, true)
+					case "close":
+						return g.generateChannelClose(me.Object, "srt_sync_chan_close")
+					}
+				}
+			}
+		}
+	}
+
+	// M8: Sync constructors — Mutex.new, RwLock.new, Atomic.new.
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && me.Property == "new" {
+			switch ct.Name {
+			case "Mutex":
+				return g.generateMutexNew(n)
+			case "RwLock":
+				return g.generateRwLockNew(n)
+			case "Atomic":
+				return g.generateAtomicNew(n)
+			}
+		}
+	}
+
+	// M8: Sync instance methods — mutex.lock(), rwlock.read/write(), atomic.load/store/add/cas().
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if st, ok2 := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok2 {
+			if ct, ok3 := st.Base.(*checker.ClassType); ok3 {
+				switch ct.Name {
+				case "Mutex":
+					if me.Property == "lock" {
+						return g.generateMutexLock(me.Object)
+					}
+				case "RwLock":
+					switch me.Property {
+					case "read":
+						return g.generateRwLockRead(me.Object)
+					case "write":
+						return g.generateRwLockWrite(me.Object)
+					}
+				case "Atomic":
+					switch me.Property {
+					case "load":
+						return g.generateAtomicLoad(me.Object, st)
+					case "store":
+						return g.generateAtomicStore(me.Object, n)
+					case "add":
+						return g.generateAtomicAdd(me.Object, n, st)
+					case "compareAndSwap":
+						return g.generateAtomicCas(me.Object, n)
+					}
+				}
+			}
+		}
+	}
+
+	// M6: Task.all / Task.any / Task.allSettled — static combinators.
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && ct.Name == "Task" {
+			switch me.Property {
+			case "all", "allSettled":
+				return g.generateTaskAll(n)
+			case "any":
+				return g.generateTaskAny(n)
+			}
+		}
+	}
+
+	// M7: TaskHandle.current() — wraps srt_task_handle_current() in Option[TaskHandle].
+	if me, ok := n.Callee.(*parser.MemberExpr); ok {
+		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && ct.Name == "TaskHandle" {
+			if me.Property == "current" {
+				return g.generateTaskHandleCurrent()
 			}
 		}
 	}
@@ -1109,6 +1305,60 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 					return nil, err
 				}
 				return g.generateListIter(keys), nil
+			}
+		}
+	}
+
+	// M7: TaskHandle instance methods: cancelled() and progress(f).
+	if ct, ok := g.check.NodeTypes[me.Object].(*checker.ClassType); ok && ct.Name == "TaskHandle" {
+		switch me.Property {
+		case "cancelled":
+			raw := g.current.NewCall(g.findFunc("srt_task_cancelled"), obj)
+			return g.current.NewTrunc(raw, types.I1), nil
+		case "progress":
+			if len(args) >= 1 {
+				g.current.NewCall(g.findFunc("srt_task_set_progress"), obj, args[0])
+			}
+			return nil, nil
+		}
+	}
+
+	// Task[T] methods: await() and detach()
+	if st, ok := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok {
+		if ct, ok2 := st.Base.(*checker.ClassType); ok2 && ct.Name == "Task" {
+			switch me.Property {
+			case "await":
+				raw := g.current.NewCall(g.findFunc("srt_await"), obj)
+				// Null the alloca so srt_drop_task_handle is a no-op at scope exit.
+				if ident, ok3 := me.Object.(*parser.Identifier); ok3 {
+					if alloc, exists := g.vars[ident.Name]; exists {
+						g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+					}
+				}
+				retCheckerType := g.check.NodeTypes[n]
+				if retCheckerType == nil {
+					if ft, ok3 := g.check.Specializations[n]; ok3 {
+						retCheckerType = ft.Return
+					}
+				}
+				if retCheckerType == nil {
+					return raw, nil
+				}
+				retLLVMType := g.mapTypeToLLVM(retCheckerType)
+				return g.castFromI8Ptr(raw, retLLVMType), nil
+			case "detach":
+				g.current.NewCall(g.findFunc("srt_detach"), obj)
+				// Null the alloca so srt_drop_task_handle is a no-op at scope exit.
+				if ident, ok3 := me.Object.(*parser.Identifier); ok3 {
+					if alloc, exists := g.vars[ident.Name]; exists {
+						g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+					}
+				}
+				return nil, nil
+			case "cancel":
+				// M-10: cancel task + propagate to all non-detached children recursively.
+				g.current.NewCall(g.findFunc("srt_cancel"), obj)
+				return nil, nil
 			}
 		}
 	}
@@ -2139,5 +2389,325 @@ func primitiveMethodCFunc(typeName, method string) string {
 	return ""
 }
 
+// generateTaskExpr emits code for `task callExpr(args)`.
+// It packs the args into a heap-allocated i64 array, generates a wrapper function that
+// unpacks and calls the original function, and calls srt_enqueue returning an i8* handle.
+func (g *Generator) generateTaskExpr(n *parser.TaskExpr) (value.Value, error) {
+	call, ok := n.Inner.(*parser.CallExpr)
+	if !ok {
+		return nil, fmt.Errorf("task: expressão interna deve ser uma chamada de função")
+	}
+
+	// Evaluate args in current context.
+	args, err := g.generateCallArgs(call.Args)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the LLVM function to call inside the wrapper.
+	var targetFunc *ir.Func
+	if id, ok2 := call.Callee.(*parser.Identifier); ok2 {
+		targetFunc = g.findFunc(id.Name)
+		// Try specialized generic variant.
+		if targetFunc == nil {
+			if st, ok3 := g.check.Specializations[call]; ok3 {
+				mangled := id.Name
+				for _, p := range st.Params {
+					mangled += "__" + p.String()
+				}
+				targetFunc = g.specialized[mangled]
+			}
+		}
+	}
+	if targetFunc == nil {
+		return nil, fmt.Errorf("task: não foi possível resolver função para enfileirar")
+	}
+
+	// Pack args into a heap-allocated [N x i64] array.
+	// All arg types are normalized to i64 for uniform slot size.
+	numArgs := len(args)
+	var argsHeap value.Value
+	if numArgs > 0 {
+		argsHeap = g.current.NewCall(g.findBuiltin("malloc"),
+			constant.NewInt(types.I64, int64(numArgs*8)))
+		arrType := types.NewArray(uint64(numArgs), types.I64)
+		argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+		for i, a := range args {
+			slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+				constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+			g.current.NewStore(g.castToI64(a), slotPtr)
+		}
+	} else {
+		argsHeap = constant.NewNull(types.I8Ptr)
+	}
+
+	// Build the original arg LLVM types (needed by the wrapper).
+	origArgTypes := make([]types.Type, len(args))
+	for i, a := range args {
+		origArgTypes[i] = a.Type()
+	}
+
+	// Generate the wrapper function (saves/restores codegen state).
+	wrapperFn := g.generateTaskWrapperFunc(targetFunc, origArgTypes, numArgs)
+
+	// Call srt_enqueue in the current context.
+	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+	handle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+	return handle, nil
+}
+
+// generateTaskWrapperFunc emits a `void @__task_wrapper_N(i8* raw_args)` function that:
+// unpacks i64 slots from the args buffer, calls targetFunc, stores the result via
+// srt_set_task_result, and frees the buffer.
+func (g *Generator) generateTaskWrapperFunc(
+	targetFunc *ir.Func,
+	origArgTypes []types.Type,
+	numArgs int,
+) *ir.Func {
+	name := fmt.Sprintf("__task_wrapper_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+
+	wrapperFn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", wrapperFn)
+
+	rawArgs := wrapperFn.Params[0]
+
+	// Unpack args from i64 array.
+	var callArgs []value.Value
+	if numArgs > 0 {
+		arrType := types.NewArray(uint64(numArgs), types.I64)
+		argsPtr := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+		for i, origType := range origArgTypes {
+			slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+				constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+			slot := g.current.NewLoad(types.I64, slotPtr)
+			callArgs = append(callArgs, g.i64ToType(slot, origType))
+		}
+		// Free the args buffer before calling the function (no further use after unpack).
+		g.current.NewCall(g.findBuiltin("free"), rawArgs)
+	}
+
+	// Call the original function.
+	callInst := g.current.NewCall(targetFunc, callArgs...)
+
+	// Store result via srt_set_task_result.
+	retType := targetFunc.Sig.RetType
+	var resultI8 value.Value
+	if retType == nil || retType.Equal(types.Void) {
+		resultI8 = constant.NewNull(types.I8Ptr)
+	} else {
+		resultI8 = g.castToI8Ptr(callInst)
+	}
+	g.current.NewCall(g.findFunc("srt_set_task_result"), resultI8)
+
+	g.current.NewRet(nil)
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return wrapperFn
+}
+
+// castToI64 converts any LLVM value to i64 for uniform storage in task arg buffers.
+func (g *Generator) castToI64(v value.Value) value.Value {
+	t := v.Type()
+	if t.Equal(types.I64) {
+		return v
+	}
+	if t.Equal(types.I1) {
+		return g.current.NewZExt(v, types.I64)
+	}
+	if t.Equal(types.I32) {
+		return g.current.NewZExt(v, types.I64)
+	}
+	if t.Equal(types.Double) {
+		return g.current.NewBitCast(v, types.I64)
+	}
+	// Pointer types.
+	if _, ok := t.(*types.PointerType); ok {
+		return g.current.NewPtrToInt(v, types.I64)
+	}
+	return g.current.NewPtrToInt(v, types.I64)
+}
+
+// i64ToType converts an i64 value back to the original LLVM type after loading from a task arg buffer.
+func (g *Generator) i64ToType(v value.Value, target types.Type) value.Value {
+	if target.Equal(types.I64) {
+		return v
+	}
+	if target.Equal(types.I1) {
+		return g.current.NewTrunc(v, types.I1)
+	}
+	if target.Equal(types.I32) {
+		return g.current.NewTrunc(v, types.I32)
+	}
+	if target.Equal(types.Double) {
+		return g.current.NewBitCast(v, types.Double)
+	}
+	// Pointer types.
+	if _, ok := target.(*types.PointerType); ok {
+		return g.current.NewIntToPtr(v, target)
+	}
+	return g.current.NewIntToPtr(v, types.I8Ptr)
+}
+
 // Ensure checker import is used (for FuncType in generateArrowFunc and generateSpecializedFunc).
 var _ = (*checker.FuncType)(nil)
+
+// generateTaskAll emits IR for Task.all(t1, t2, ...) and Task.allSettled(t1, t2, ...).
+// Awaits each task in order and packs the results into a heap-allocated tuple.
+func (g *Generator) generateTaskAll(n *parser.CallExpr) (value.Value, error) {
+	ft := g.check.Specializations[n]
+	tupleCheckerType, _ := ft.Return.(*checker.TupleType)
+
+	elems := make([]value.Value, len(n.Args))
+	elemTypes := make([]types.Type, len(n.Args))
+
+	for i, arg := range n.Args {
+		handle, err := g.generateExpr(arg)
+		if err != nil {
+			return nil, err
+		}
+		raw := g.current.NewCall(g.findFunc("srt_await"), handle)
+		// Null the task var alloca so srt_drop_task_handle is a no-op at scope exit.
+		if id, ok2 := arg.(*parser.Identifier); ok2 {
+			if alloc, exists := g.vars[id.Name]; exists {
+				g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+			}
+		}
+		var elemCheckerType checker.Type = checker.Unknown
+		if tupleCheckerType != nil && i < len(tupleCheckerType.Elements) {
+			elemCheckerType = tupleCheckerType.Elements[i]
+		}
+		llvmT := g.mapTypeToLLVM(elemCheckerType)
+		elems[i] = g.castFromI8Ptr(raw, llvmT)
+		elemTypes[i] = elems[i].Type()
+	}
+
+	// Pack into a heap-allocated struct (same layout as generateTupleExpr).
+	st := types.NewStruct(elemTypes...)
+	size := constant.NewInt(types.I64, int64(len(elems))*8)
+	rawPtr := g.current.NewCall(g.findBuiltin("soyuz_alloc"), size, constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
+	structPtr := g.current.NewBitCast(rawPtr, types.NewPointer(st))
+	for i, v := range elems {
+		fieldPtr := g.current.NewGetElementPtr(st, structPtr,
+			constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(i)))
+		g.current.NewStore(v, fieldPtr)
+	}
+	return structPtr, nil
+}
+
+// generateTaskAny emits IR for Task.any(t1, t2, ...).
+// Builds a stack array of handles, calls srt_await_any (which awaits the winner and detaches
+// the rest), and returns the result cast to the common inner type.
+func (g *Generator) generateTaskAny(n *parser.CallExpr) (value.Value, error) {
+	nTasks := len(n.Args)
+	if nTasks == 0 {
+		return constant.NewNull(types.I8Ptr), nil
+	}
+
+	handles := make([]value.Value, nTasks)
+	for i, arg := range n.Args {
+		h, err := g.generateExpr(arg)
+		if err != nil {
+			return nil, err
+		}
+		handles[i] = h
+	}
+
+	// Build [N x i8*] array on the stack.
+	arrType := types.NewArray(uint64(nTasks), types.I8Ptr)
+	arrAlloca := g.newAlloca(arrType)
+	for i, h := range handles {
+		ptr := g.current.NewGetElementPtr(arrType, arrAlloca,
+			constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(i)))
+		g.current.NewStore(h, ptr)
+	}
+
+	// Pointer to first element (i8**).
+	firstPtr := g.current.NewGetElementPtr(arrType, arrAlloca,
+		constant.NewInt(types.I32, 0), constant.NewInt(types.I32, 0))
+	handlesI8PP := g.current.NewBitCast(firstPtr, types.NewPointer(types.I8Ptr))
+
+	raw := g.current.NewCall(g.findFunc("srt_await_any"), handlesI8PP, constant.NewInt(types.I64, int64(nTasks)))
+
+	// Null all task var allocas (all handles consumed by srt_await_any).
+	for _, arg := range n.Args {
+		if id, ok2 := arg.(*parser.Identifier); ok2 {
+			if alloc, exists := g.vars[id.Name]; exists {
+				g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+			}
+		}
+	}
+
+	ft := g.check.Specializations[n]
+	if ft == nil || ft.Return == nil || ft.Return == checker.Unknown {
+		return raw, nil
+	}
+	llvmT := g.mapTypeToLLVM(ft.Return)
+	return g.castFromI8Ptr(raw, llvmT), nil
+}
+
+// generateTaskHandleCurrent emits IR for TaskHandle.current().
+// Calls srt_task_handle_current() and wraps the result in Option[TaskHandle]:
+// Some(handle) if non-null, None otherwise.
+func (g *Generator) generateTaskHandleCurrent() (value.Value, error) {
+	raw := g.current.NewCall(g.findFunc("srt_task_handle_current"))
+
+	isNull := g.current.NewICmp(enum.IPredEQ, raw, constant.NewNull(types.I8Ptr))
+	fn := g.current.Parent
+	someBlock := g.newBlock("task_handle_some", fn)
+	noneBlock := g.newBlock("task_handle_none", fn)
+	mergeBlock := g.newBlock("task_handle_merge", fn)
+	g.current.NewCondBr(isNull, noneBlock, someBlock)
+
+	g.current = someBlock
+	someVal, err := g.emitOptionResultAllocNoRetain("Option", 0, raw)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	someEnd := g.current
+
+	g.current = noneBlock
+	noneVal, err := g.emitOptionResultAllocNoRetain("Option", 1, nil)
+	if err != nil {
+		return nil, err
+	}
+	g.current.NewBr(mergeBlock)
+	noneEnd := g.current
+
+	g.current = mergeBlock
+	phi := g.current.NewPhi(
+		ir.NewIncoming(someVal, someEnd),
+		ir.NewIncoming(noneVal, noneEnd),
+	)
+	return phi, nil
+}

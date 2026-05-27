@@ -158,6 +158,22 @@ func (e TypeError) Error() string {
 	return fmt.Sprintf("%v: %s", e.Pos, e.Message)
 }
 
+// TypeWarning is a non-fatal diagnostic (e.g., must-use violations).
+type TypeWarning struct {
+	Pos     lexer.Position
+	End     lexer.Position
+	File    string
+	Code    string
+	Message string
+}
+
+func (w TypeWarning) String() string {
+	if w.File != "" {
+		return fmt.Sprintf("[%s %v]: aviso: %s", w.File, w.Pos, w.Message)
+	}
+	return fmt.Sprintf("%v: aviso: %s", w.Pos, w.Message)
+}
+
 type Scope struct {
 	Parent  *Scope
 	Symbols map[string]Symbol

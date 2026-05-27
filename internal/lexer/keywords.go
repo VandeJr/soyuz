@@ -34,6 +34,9 @@ var keywords = map[string]TokenType{
 	// OOP
 	"self": SELF,
 
+	// Concurrency
+	"task": TASK,
+
 	// Tipos primitivos built-in
 	"Int":    INT_TYPE,
 	"Float":  FLOAT_TYPE,

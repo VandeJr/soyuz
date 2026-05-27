@@ -74,10 +74,15 @@ type Generator struct {
 	// RC fields
 	destructors map[string]*ir.Func // record name → generated destructor function
 	traces      map[string]*ir.Func // record name → ORC trace function
-	heapVars    map[string]bool     // which in-scope named vars hold RC-managed pointers
-	scopeStack  [][]string          // stack of owned heap var names, one slice per scope level
+	heapVars     map[string]bool     // which in-scope named vars hold RC-managed pointers
+	scopeStack   [][]string          // stack of owned heap var names, one slice per scope level
+	taskVarStack [][]string          // stack of task variable names per scope (for drop-on-exit)
+	syncGuardStack [][]syncGuardEntry // stack of sync-guard variables per scope (for unlock-on-exit)
+	arcVarStack  [][]string          // stack of Arc[T] variable names per scope (for srt_arc_release on exit)
 	// block name deduplication within the current function
 	blockNames  map[string]int
+	// counter for unique task wrapper function names
+	taskWrapperCounter int
 	closureType *types.StructType // { i8*, i8* } — shared closure fat-pointer layout
 	closureDtor *ir.Func           // releases captured env when closure is freed
 	envDtorCounter int
@@ -133,9 +138,48 @@ func (g *Generator) emitRelease(v value.Value) {
 	g.current.NewCall(g.findFunc("soyuz_release"), cast)
 }
 
-// pushScope begins a new ownership scope.
+type syncGuardEntry struct {
+	name     string
+	unlockFn string // "srt_mutex_unlock" or "srt_rwlock_unlock"
+}
+
+// pushScope begins a new ownership scope (RC heap vars + task vars + sync guards + Arc vars).
 func (g *Generator) pushScope() {
 	g.scopeStack = append(g.scopeStack, nil)
+	g.taskVarStack = append(g.taskVarStack, nil)
+	g.syncGuardStack = append(g.syncGuardStack, nil)
+	g.arcVarStack = append(g.arcVarStack, nil)
+}
+
+// ownArcVar records that the current scope owns an Arc[T] variable by name.
+// At scope exit, srt_arc_release will be emitted for it.
+func (g *Generator) ownArcVar(name string) {
+	n := len(g.arcVarStack)
+	if n > 0 {
+		g.arcVarStack[n-1] = append(g.arcVarStack[n-1], name)
+	}
+}
+
+// emitArcDrops emits srt_arc_release for each Arc variable in the given list.
+func (g *Generator) emitArcDrops(names []string) {
+	releaseFn := g.findFunc("srt_arc_release")
+	if releaseFn == nil {
+		return
+	}
+	for _, name := range names {
+		if alloc, ok := g.vars[name]; ok {
+			if ptr, ok2 := alloc.Type().(*types.PointerType); ok2 {
+				loaded := g.current.NewLoad(ptr.ElemType, alloc)
+				var handleI8 value.Value
+				if loaded.Type().Equal(types.I8Ptr) {
+					handleI8 = loaded
+				} else {
+					handleI8 = g.current.NewBitCast(loaded, types.I8Ptr)
+				}
+				g.current.NewCall(releaseFn, handleI8)
+			}
+		}
+	}
 }
 
 // ownVar records that the current scope owns a heap variable by name.
@@ -143,6 +187,71 @@ func (g *Generator) ownVar(name string) {
 	n := len(g.scopeStack)
 	if n > 0 {
 		g.scopeStack[n-1] = append(g.scopeStack[n-1], name)
+	}
+}
+
+// ownTaskVar records that the current scope owns a Task[T] variable.
+// At scope exit, srt_drop_task_handle will be emitted for it unless consumed.
+func (g *Generator) ownTaskVar(name string) {
+	n := len(g.taskVarStack)
+	if n > 0 {
+		g.taskVarStack[n-1] = append(g.taskVarStack[n-1], name)
+	}
+}
+
+// ownSyncGuard records that the current scope owns a sync guard variable.
+// At scope exit, the appropriate unlock function is emitted.
+func (g *Generator) ownSyncGuard(name, unlockFn string) {
+	n := len(g.syncGuardStack)
+	if n > 0 {
+		g.syncGuardStack[n-1] = append(g.syncGuardStack[n-1], syncGuardEntry{name: name, unlockFn: unlockFn})
+	}
+}
+
+// emitSyncGuardDrops emits unlock calls for each sync guard in the list.
+// Null-checks guard: if the alloca holds null, the guard was already released.
+func (g *Generator) emitSyncGuardDrops(guards []syncGuardEntry) {
+	for _, ge := range guards {
+		unlockFn := g.findFunc(ge.unlockFn)
+		if unlockFn == nil {
+			continue
+		}
+		if alloc, ok := g.vars[ge.name]; ok {
+			if ptr, ok2 := alloc.Type().(*types.PointerType); ok2 {
+				loaded := g.current.NewLoad(ptr.ElemType, alloc)
+				var handleI8 value.Value
+				if loaded.Type().Equal(types.I8Ptr) {
+					handleI8 = loaded
+				} else {
+					handleI8 = g.current.NewBitCast(loaded, types.I8Ptr)
+				}
+				g.current.NewCall(unlockFn, handleI8)
+			}
+		}
+	}
+}
+
+// emitTaskDrops emits srt_drop_task_handle for each task variable in the given list.
+// The alloca stores the raw i8* handle; loading NULL means the task was already consumed.
+func (g *Generator) emitTaskDrops(names []string) {
+	dropFn := g.findFunc("srt_drop_task_handle")
+	if dropFn == nil {
+		return
+	}
+	for _, name := range names {
+		if alloc, ok := g.vars[name]; ok {
+			if ptr, ok2 := alloc.Type().(*types.PointerType); ok2 {
+				loaded := g.current.NewLoad(ptr.ElemType, alloc)
+				// Cast to i8* if needed (task handles are stored as i8*)
+				var handleI8 value.Value
+				if loaded.Type().Equal(types.I8Ptr) {
+					handleI8 = loaded
+				} else {
+					handleI8 = g.current.NewBitCast(loaded, types.I8Ptr)
+				}
+				g.current.NewCall(dropFn, handleI8)
+			}
+		}
 	}
 }
 
@@ -156,8 +265,31 @@ func (g *Generator) popScopeAndRelease() {
 	owned := g.scopeStack[n-1]
 	g.scopeStack = g.scopeStack[:n-1]
 
+	var taskOwned []string
+	if len(g.taskVarStack) > 0 {
+		taskOwned = g.taskVarStack[len(g.taskVarStack)-1]
+		g.taskVarStack = g.taskVarStack[:len(g.taskVarStack)-1]
+	}
+
+	var guardOwned []syncGuardEntry
+	if len(g.syncGuardStack) > 0 {
+		guardOwned = g.syncGuardStack[len(g.syncGuardStack)-1]
+		g.syncGuardStack = g.syncGuardStack[:len(g.syncGuardStack)-1]
+	}
+
+	var arcOwned []string
+	if len(g.arcVarStack) > 0 {
+		arcOwned = g.arcVarStack[len(g.arcVarStack)-1]
+		g.arcVarStack = g.arcVarStack[:len(g.arcVarStack)-1]
+	}
+
 	// Skip instruction emission if the block is already terminated (e.g. after break/return).
 	blocked := g.current == nil || g.current.Term != nil
+	if !blocked {
+		g.emitSyncGuardDrops(guardOwned)
+		g.emitTaskDrops(taskOwned)
+		g.emitArcDrops(arcOwned)
+	}
 	for _, name := range owned {
 		if !blocked {
 			if alloc, ok := g.vars[name]; ok {
@@ -192,7 +324,16 @@ func (g *Generator) releaseAllScopes() {
 	if g.current == nil || g.current.Term != nil {
 		return
 	}
-	// We iterate backwards through the stack to release inner scopes first.
+	// Iterate backwards: inner scopes first.
+	for i := len(g.syncGuardStack) - 1; i >= 0; i-- {
+		g.emitSyncGuardDrops(g.syncGuardStack[i])
+	}
+	for i := len(g.taskVarStack) - 1; i >= 0; i-- {
+		g.emitTaskDrops(g.taskVarStack[i])
+	}
+	for i := len(g.arcVarStack) - 1; i >= 0; i-- {
+		g.emitArcDrops(g.arcVarStack[i])
+	}
 	for i := len(g.scopeStack) - 1; i >= 0; i-- {
 		owned := g.scopeStack[i]
 		for _, name := range owned {
@@ -435,6 +576,108 @@ func (g *Generator) declareBuiltins() {
 			"index": 1,
 		},
 	}
+
+	// Task runtime — soyuz_rt.c
+	g.module.NewFunc("srt_enqueue", types.I8Ptr,
+		ir.NewParam("fn", types.I8Ptr),
+		ir.NewParam("args", types.I8Ptr))
+	g.module.NewFunc("srt_await", types.I8Ptr,
+		ir.NewParam("handle", types.I8Ptr))
+	g.module.NewFunc("srt_detach", types.Void,
+		ir.NewParam("handle", types.I8Ptr))
+	g.module.NewFunc("srt_set_task_result", types.Void,
+		ir.NewParam("result", types.I8Ptr))
+	g.module.NewFunc("srt_drop_task_handle", types.Void,
+		ir.NewParam("handle", types.I8Ptr))
+	g.module.NewFunc("srt_cancel", types.Void,
+		ir.NewParam("handle", types.I8Ptr))
+	g.module.NewFunc("srt_await_any", types.I8Ptr,
+		ir.NewParam("handles", types.NewPointer(types.I8Ptr)),
+		ir.NewParam("n", types.I64))
+	g.module.NewFunc("srt_task_handle_current", types.I8Ptr)
+	g.module.NewFunc("srt_task_cancelled", types.I64,
+		ir.NewParam("handle", types.I8Ptr))
+	g.module.NewFunc("srt_task_set_progress", types.Void,
+		ir.NewParam("handle", types.I8Ptr),
+		ir.NewParam("progress", types.Double))
+
+	// M8: stdlib/sync — Mutex[T], RwLock[T], Atomic[T]
+	g.module.NewFunc("srt_mutex_new", types.I8Ptr,
+		ir.NewParam("initial", types.I64))
+	g.module.NewFunc("srt_mutex_lock", types.I8Ptr,
+		ir.NewParam("mx", types.I8Ptr))
+	g.module.NewFunc("srt_mutex_unlock", types.Void,
+		ir.NewParam("guard", types.I8Ptr))
+	g.module.NewFunc("srt_mutex_guard_get", types.I64,
+		ir.NewParam("guard", types.I8Ptr))
+	g.module.NewFunc("srt_mutex_guard_set", types.Void,
+		ir.NewParam("guard", types.I8Ptr),
+		ir.NewParam("val", types.I64))
+	g.module.NewFunc("srt_rwlock_new", types.I8Ptr,
+		ir.NewParam("initial", types.I64))
+	g.module.NewFunc("srt_rwlock_read", types.I8Ptr,
+		ir.NewParam("rw", types.I8Ptr))
+	g.module.NewFunc("srt_rwlock_write", types.I8Ptr,
+		ir.NewParam("rw", types.I8Ptr))
+	g.module.NewFunc("srt_rwlock_unlock", types.Void,
+		ir.NewParam("guard", types.I8Ptr))
+	g.module.NewFunc("srt_rwlock_guard_get", types.I64,
+		ir.NewParam("guard", types.I8Ptr))
+	g.module.NewFunc("srt_rwlock_guard_set", types.Void,
+		ir.NewParam("guard", types.I8Ptr),
+		ir.NewParam("val", types.I64))
+	g.module.NewFunc("srt_atomic_new", types.I8Ptr,
+		ir.NewParam("initial", types.I64))
+	g.module.NewFunc("srt_atomic_load", types.I64,
+		ir.NewParam("a", types.I8Ptr))
+	g.module.NewFunc("srt_atomic_store", types.Void,
+		ir.NewParam("a", types.I8Ptr),
+		ir.NewParam("val", types.I64))
+	g.module.NewFunc("srt_atomic_add", types.I64,
+		ir.NewParam("a", types.I8Ptr),
+		ir.NewParam("delta", types.I64))
+	g.module.NewFunc("srt_atomic_cas", types.I64,
+		ir.NewParam("a", types.I8Ptr),
+		ir.NewParam("expected", types.I64),
+		ir.NewParam("desired", types.I64))
+
+	// M9: Channel[T], SyncChannel[T]
+	g.module.NewFunc("srt_chan_new", types.I8Ptr,
+		ir.NewParam("capacity", types.I64))
+	g.module.NewFunc("srt_chan_send", types.Void,
+		ir.NewParam("ch", types.I8Ptr),
+		ir.NewParam("val", types.I64))
+	g.module.NewFunc("srt_chan_recv", types.I64,
+		ir.NewParam("ch", types.I8Ptr),
+		ir.NewParam("out", types.NewPointer(types.I64)))
+	g.module.NewFunc("srt_chan_try_recv", types.I64,
+		ir.NewParam("ch", types.I8Ptr),
+		ir.NewParam("out", types.NewPointer(types.I64)))
+	g.module.NewFunc("srt_chan_close", types.Void,
+		ir.NewParam("ch", types.I8Ptr))
+	g.module.NewFunc("srt_chan_is_closed", types.I64,
+		ir.NewParam("ch", types.I8Ptr))
+	g.module.NewFunc("srt_sync_chan_new", types.I8Ptr)
+	g.module.NewFunc("srt_sync_chan_send", types.Void,
+		ir.NewParam("ch", types.I8Ptr),
+		ir.NewParam("val", types.I64))
+	g.module.NewFunc("srt_sync_chan_recv", types.I64,
+		ir.NewParam("ch", types.I8Ptr),
+		ir.NewParam("out", types.NewPointer(types.I64)))
+	g.module.NewFunc("srt_sync_chan_close", types.Void,
+		ir.NewParam("ch", types.I8Ptr))
+
+	// M14: Arc[T] with EBR
+	g.module.NewFunc("srt_arc_new", types.I8Ptr,
+		ir.NewParam("value", types.I64))
+	g.module.NewFunc("srt_arc_clone", types.I8Ptr,
+		ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("srt_arc_release", types.Void,
+		ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("srt_arc_get", types.I64,
+		ir.NewParam("ptr", types.I8Ptr))
+	g.module.NewFunc("srt_arc_refcount", types.I64,
+		ir.NewParam("ptr", types.I8Ptr))
 
 	// Pre-register builtin Option and Result enum types so mapSoyuzTypeToLLVM can use them
 	// before any user source generates a Some/None/Ok/Err expression.

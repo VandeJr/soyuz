@@ -136,6 +136,14 @@ func build(inputFile, outputFile string) {
 		c.SetPreludeFiles(preludeFiles)
 	}
 	result := c.Check(mergedProg)
+	// Imprime warnings (não interrompe a compilação).
+	for _, w := range result.Warnings {
+		if w.File != "" {
+			fmt.Fprintf(os.Stderr, "aviso [%s %v]: %s (%s)\n", filepath.Base(w.File), w.Pos, w.Message, w.Code)
+		} else {
+			fmt.Fprintf(os.Stderr, "aviso %v: %s (%s)\n", w.Pos, w.Message, w.Code)
+		}
+	}
 	if len(result.Errors) > 0 {
 		fmt.Println("Erros de tipo encontrados:")
 		for _, e := range result.Errors {
@@ -175,6 +183,11 @@ func build(inputFile, outputFile string) {
 		{"std_fs.c", soyuzruntime.StdFSSource},
 		{"std_os.c", soyuzruntime.StdOSSource},
 		{"std_collections.c", soyuzruntime.StdCollectionsSource},
+		{"soyuz_rt.h", soyuzruntime.SoyuzRTHeader},
+		{"soyuz_rt.c", soyuzruntime.SoyuzRTSource},
+		{"std_sync.c", soyuzruntime.StdSyncSource},
+		{"std_channel.c", soyuzruntime.StdChannelSource},
+		{"std_arc.c", soyuzruntime.StdArcSource},
 	}
 	clangArgs := []string{llFile}
 	for _, src := range cSources {
@@ -211,7 +224,7 @@ func build(inputFile, outputFile string) {
 		}
 	}
 
-	clangArgs = append(clangArgs, "-I", tmpDir, "-o", outputFile)
+	clangArgs = append(clangArgs, "-I", tmpDir, "-pthread", "-o", outputFile)
 	cmd := exec.Command("clang", clangArgs...)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout

@@ -475,9 +475,12 @@ func (c *Checker) checkVarDecl(decl *parser.VarDecl) Type {
 		c.checkPattern(decl.Pattern, initType)
 		return initType
 	}
-	c.scope.Define(decl.Name, initType, decl.Kind != parser.KindVar)
-	if c.inTopLevel {
-		c.registerGlobalSymbol(decl.Name, decl, decl.Pub)
+	// "_" é blank identifier: sempre redefinível, sem registro global.
+	if decl.Name != "_" {
+		c.scope.Define(decl.Name, initType, decl.Kind != parser.KindVar)
+		if c.inTopLevel {
+			c.registerGlobalSymbol(decl.Name, decl, decl.Pub)
+		}
 	}
 	return initType
 }
