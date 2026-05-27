@@ -836,6 +836,7 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 	}
 
 	// M6: Task.all / Task.any / Task.allSettled — static combinators.
+	// M18: Task.fan — fan-out paralelo.
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
 		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && ct.Name == "Task" {
 			switch me.Property {
@@ -843,6 +844,8 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				return g.generateTaskAll(n)
 			case "any":
 				return g.generateTaskAny(n)
+			case "fan":
+				return g.generateTaskFan(n)
 			}
 		}
 	}
@@ -3085,6 +3088,72 @@ func (g *Generator) generateTaskAny(n *parser.CallExpr) (value.Value, error) {
 	}
 	llvmT := g.mapTypeToLLVM(ft.Return)
 	return g.castFromI8Ptr(raw, llvmT), nil
+}
+
+// generateTaskFan emits IR for Task.fan(input, f, g, h, ...) — fan-out paralelo.
+// Spawns a task for each function with the same input value and packs the resulting
+// handles into a heap-allocated struct (same layout as a tuple).
+// Typical usage: `entrada |> Task.fan(f, g, h)` (pipe injects entrada as first arg).
+func (g *Generator) generateTaskFan(n *parser.CallExpr) (value.Value, error) {
+	if len(n.Args) < 2 {
+		return constant.NewNull(types.I8Ptr), nil
+	}
+
+	// First arg is the input value shared across all spawned tasks.
+	inputVal, err := g.generateExpr(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+	inputI64 := g.castToI64(inputVal)
+	origInputType := inputVal.Type()
+
+	nFuncs := len(n.Args) - 1
+	handles := make([]value.Value, nFuncs)
+
+	for i, arg := range n.Args[1:] {
+		// Each fan-out argument must be a named function identifier.
+		id, ok := arg.(*parser.Identifier)
+		if !ok {
+			return nil, fmt.Errorf("Task.fan: argumento %d deve ser uma função (identifier)", i+1)
+		}
+		targetFunc := g.findFunc(id.Name)
+		if targetFunc == nil {
+			return nil, fmt.Errorf("Task.fan: função '%s' não encontrada", id.Name)
+		}
+
+		// Allocate a per-task args buffer with a single i64 slot for the input value.
+		argsHeap := g.current.NewCall(g.findBuiltin("malloc"),
+			constant.NewInt(types.I64, 8))
+		arrType := types.NewArray(uint64(1), types.I64)
+		argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+		slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+		g.current.NewStore(inputI64, slotPtr)
+
+		// Generate a wrapper function that unpacks the input and calls fn.
+		wrapperFn := g.generateTaskWrapperFunc(targetFunc, []types.Type{origInputType}, 1)
+
+		// Enqueue the task; collect its handle.
+		wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+		handle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+		handles[i] = handle
+	}
+
+	// Pack all handles into a heap-allocated struct (same layout as a tuple).
+	handleTypes := make([]types.Type, nFuncs)
+	for i := range handles {
+		handleTypes[i] = types.I8Ptr
+	}
+	st := types.NewStruct(handleTypes...)
+	size := constant.NewInt(types.I64, int64(nFuncs)*8)
+	rawPtr := g.current.NewCall(g.findBuiltin("soyuz_alloc"), size, constant.NewNull(types.I8Ptr), constant.NewNull(types.I8Ptr))
+	structPtr := g.current.NewBitCast(rawPtr, types.NewPointer(st))
+	for i, h := range handles {
+		fieldPtr := g.current.NewGetElementPtr(st, structPtr,
+			constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(i)))
+		g.current.NewStore(h, fieldPtr)
+	}
+	return structPtr, nil
 }
 
 // generateTaskHandleCurrent emits IR for TaskHandle.current().

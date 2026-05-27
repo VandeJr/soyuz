@@ -882,6 +882,35 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				}
 				c.specializations[n] = &FuncType{Return: innerType}
 				return innerType
+			case "fan":
+				// M-18: Task.fan(input, f, g, h, ...) — fan-out paralelo.
+				// Primeiro argumento: valor de entrada (não função).
+				// Argumentos restantes: funções T -> Ai.
+				// Uso típico: entrada |> Task.fan(f, g, h)
+				if len(n.Args) < 2 {
+					c.errorf(n.Pos(), "Task.fan requer ao menos um valor de entrada e uma função")
+					return Unknown
+				}
+				firstType := c.checkNode(n.Args[0])
+				if _, isFn := firstType.(*FuncType); isFn {
+					c.errorf(n.Args[0].Pos(), "Task.fan: use entrada |> Task.fan(f, g, ...) — primeiro argumento deve ser o valor de entrada, não uma função")
+					return Unknown
+				}
+				taskBase := c.resolveTypeExpr(&parser.NamedType{Name: "Task"})
+				taskTypes := make([]Type, len(n.Args)-1)
+				for i, arg := range n.Args[1:] {
+					ft := c.checkNode(arg)
+					fnType, ok := ft.(*FuncType)
+					if !ok {
+						c.errorf(arg.Pos(), "Task.fan: argumento %d deve ser uma função, obtido %s", i+1, ft)
+						taskTypes[i] = Unknown
+						continue
+					}
+					taskTypes[i] = &SpecializedType{Base: taskBase, Params: []Type{fnType.Return}}
+				}
+				retType := &TupleType{Elements: taskTypes}
+				c.specializations[n] = &FuncType{Return: retType}
+				return retType
 			}
 		}
 	}
