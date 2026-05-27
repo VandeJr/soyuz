@@ -837,6 +837,7 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 
 	// M6: Task.all / Task.any / Task.allSettled — static combinators.
 	// M18: Task.fan — fan-out paralelo.
+	// M19: Task.pipe — pipeline paralelo com channels.
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
 		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && ct.Name == "Task" {
 			switch me.Property {
@@ -846,6 +847,8 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				return g.generateTaskAny(n)
 			case "fan":
 				return g.generateTaskFan(n)
+			case "pipe":
+				return g.generateTaskPipeline(n)
 			}
 		}
 	}
@@ -3154,6 +3157,203 @@ func (g *Generator) generateTaskFan(n *parser.CallExpr) (value.Value, error) {
 		g.current.NewStore(h, fieldPtr)
 	}
 	return structPtr, nil
+}
+
+// ── M-19: Task.pipe — pipeline paralelo com channels ────────────────────────
+
+// generateTaskPipeline emits IR for Task.pipe(input, f, g, h, ...).
+// Architecture:
+//   - If input is a plain value T: creates a 1-capacity channel, sends the value, closes it.
+//   - If input is Channel[T]: uses it directly (stream mode).
+//   - Creates N output channels (one per stage).
+//   - Spawns one task per stage via generatePipelineStageWrapper; each task loops:
+//     recv(in_ch) → call fn → send(out_ch) until in_ch is closed, then closes out_ch.
+//   - All tasks are detached — they drain the pipeline autonomously.
+//   - Returns Channel[R] (output channel of the last stage).
+func (g *Generator) generateTaskPipeline(n *parser.CallExpr) (value.Value, error) {
+	if len(n.Args) < 2 {
+		return constant.NewNull(types.I8Ptr), nil
+	}
+
+	// Evaluate first argument.
+	firstVal, err := g.generateExpr(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the first arg is already a Channel[T].
+	firstCheckerType := g.check.NodeTypes[n.Args[0]]
+	isInputChannel := false
+	if st, isST := firstCheckerType.(*checker.SpecializedType); isST {
+		if ct, isCT := st.Base.(*checker.ClassType); isCT && ct.Name == "Channel" {
+			isInputChannel = true
+			_ = ct
+		}
+	}
+
+	var inCh value.Value
+	if isInputChannel {
+		inCh = firstVal
+	} else {
+		// Wrap single value in a 1-capacity channel: send and immediately close.
+		inCh = g.current.NewCall(g.findFunc("srt_chan_new"), constant.NewInt(types.I64, 1))
+		valI64 := g.castToI64(firstVal)
+		g.current.NewCall(g.findFunc("srt_chan_send"), inCh, valI64)
+		g.current.NewCall(g.findFunc("srt_chan_close"), inCh)
+	}
+
+	nStages := len(n.Args) - 1
+
+	// Create one output channel per stage. channels[0] is the input; channels[i+1] is the output of stage i.
+	channels := make([]value.Value, nStages+1)
+	channels[0] = inCh
+	pipelineCap := constant.NewInt(types.I64, 16)
+	for i := 1; i <= nStages; i++ {
+		channels[i] = g.current.NewCall(g.findFunc("srt_chan_new"), pipelineCap)
+	}
+
+	// Spawn one detached task per stage.
+	for i, arg := range n.Args[1:] {
+		id, ok := arg.(*parser.Identifier)
+		if !ok {
+			return nil, fmt.Errorf("Task.pipe: argumento %d deve ser uma função (identifier)", i+1)
+		}
+		targetFunc := g.findFunc(id.Name)
+		if targetFunc == nil {
+			return nil, fmt.Errorf("Task.pipe: função '%s' não encontrada", id.Name)
+		}
+
+		stageWrapper := g.generatePipelineStageWrapper(targetFunc)
+
+		// Pack (in_ch: i64, out_ch: i64) into a 2-slot i64 heap buffer.
+		argsHeap := g.current.NewCall(g.findBuiltin("malloc"), constant.NewInt(types.I64, 16))
+		arrType := types.NewArray(uint64(2), types.I64)
+		argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+
+		inSlot := g.current.NewGetElementPtr(arrType, argsPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+		g.current.NewStore(g.castToI64(channels[i]), inSlot)
+
+		outSlot := g.current.NewGetElementPtr(arrType, argsPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+		g.current.NewStore(g.castToI64(channels[i+1]), outSlot)
+
+		wrapperPtr := g.current.NewBitCast(stageWrapper, types.I8Ptr)
+		handle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+		g.current.NewCall(g.findFunc("srt_detach"), handle)
+	}
+
+	// Return the final output channel (last one).
+	return channels[nStages], nil
+}
+
+// generatePipelineStageWrapper emits a void @__pipe_stage_N(i8* raw_args) function.
+// The wrapper:
+//  1. Unpacks in_ch and out_ch from the i64[2] args buffer.
+//  2. Loops: recv(in_ch) → call targetFunc → send(out_ch).
+//  3. On channel close: close out_ch, set task result null, return.
+func (g *Generator) generatePipelineStageWrapper(targetFunc *ir.Func) *ir.Func {
+	name := fmt.Sprintf("__pipe_stage_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+
+	wrapperFn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", wrapperFn)
+
+	rawArgs := wrapperFn.Params[0]
+
+	// Unpack in_ch and out_ch from i64[2] buffer.
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsPtr := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+
+	inChSlot := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	inChI64 := g.current.NewLoad(types.I64, inChSlot)
+	inCh := g.current.NewIntToPtr(inChI64, types.I8Ptr)
+
+	outChSlot := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	outChI64 := g.current.NewLoad(types.I64, outChSlot)
+	outCh := g.current.NewIntToPtr(outChI64, types.I8Ptr)
+
+	g.current.NewCall(g.findBuiltin("free"), rawArgs)
+
+	// Create loop blocks.
+	fn := wrapperFn
+	loopBlock := g.newBlock("pipe_loop", fn)
+	loopBody := g.newBlock("pipe_body", fn)
+	loopDone := g.newBlock("pipe_done", fn)
+
+	g.current.NewBr(loopBlock)
+
+	// Loop header: recv from in_ch.
+	g.current = loopBlock
+	outAlloc := g.newAlloca(types.I64)
+	g.current.NewStore(constant.NewInt(types.I64, 0), outAlloc)
+	recvOk := g.current.NewCall(g.findFunc("srt_chan_recv"), inCh, outAlloc)
+	cond := g.current.NewICmp(enum.IPredNE, recvOk, constant.NewInt(types.I64, 0))
+	g.current.NewCondBr(cond, loopBody, loopDone)
+
+	// Loop body: call targetFunc, send result.
+	g.current = loopBody
+	rawVal := g.current.NewLoad(types.I64, outAlloc)
+
+	// Determine the input LLVM type from the target function's first parameter.
+	var inputLLVMType types.Type = types.I64
+	if len(targetFunc.Params) > 0 {
+		inputLLVMType = targetFunc.Params[0].Type()
+	}
+	typedVal := g.i64ToType(rawVal, inputLLVMType)
+
+	callResult := g.current.NewCall(targetFunc, typedVal)
+
+	// Convert result to i64 and send to out_ch.
+	retLLVMType := targetFunc.Sig.RetType
+	var resultI64 value.Value
+	if retLLVMType == nil || retLLVMType.Equal(types.Void) {
+		resultI64 = constant.NewInt(types.I64, 0)
+	} else {
+		resultI64 = g.castToI64(callResult)
+	}
+	g.current.NewCall(g.findFunc("srt_chan_send"), outCh, resultI64)
+	g.current.NewBr(loopBlock)
+
+	// Done block: close out_ch, set task result null, return.
+	g.current = loopDone
+	g.current.NewCall(g.findFunc("srt_chan_close"), outCh)
+	g.current.NewCall(g.findFunc("srt_set_task_result"), constant.NewNull(types.I8Ptr))
+	g.current.NewRet(nil)
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return wrapperFn
 }
 
 // generateTaskHandleCurrent emits IR for TaskHandle.current().

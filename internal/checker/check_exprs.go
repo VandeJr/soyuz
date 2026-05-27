@@ -911,6 +911,45 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				retType := &TupleType{Elements: taskTypes}
 				c.specializations[n] = &FuncType{Return: retType}
 				return retType
+			case "pipe":
+				// M-19: Task.pipe(input, f, g, h, ...) — pipeline paralelo com channels.
+				// Task.pipe(inCh: Channel[T], f, g, h) também aceita Channel[T] como input.
+				// Retorna Channel[R] onde R é o tipo de retorno do último stage.
+				if len(n.Args) < 2 {
+					c.errorf(n.Pos(), "Task.pipe requer ao menos um valor de entrada e uma função de stage")
+					return Unknown
+				}
+				firstType := c.checkNode(n.Args[0])
+				// Determine input element type: Channel[T] → T, plain value → keep type.
+				var elemType Type
+				if st, isST := firstType.(*SpecializedType); isST {
+					if ct2, isCT2 := st.Base.(*ClassType); isCT2 && ct2.Name == "Channel" && len(st.Params) > 0 {
+						elemType = st.Params[0]
+					} else {
+						elemType = firstType
+					}
+				} else {
+					elemType = firstType
+				}
+				currentType := elemType
+				for i, arg := range n.Args[1:] {
+					ft := c.checkNode(arg)
+					fnType, ok := ft.(*FuncType)
+					if !ok {
+						c.errorf(arg.Pos(), "Task.pipe: argumento %d deve ser uma função, obtido %s", i+1, ft)
+						return Unknown
+					}
+					if len(fnType.Params) > 0 && currentType != Unknown &&
+						!c.isAssignable(fnType.Params[0], currentType) {
+						c.errorf(arg.Pos(), "Task.pipe: tipo de entrada %s incompatível com parâmetro %s da função no stage %d",
+							currentType, fnType.Params[0], i+1)
+					}
+					currentType = fnType.Return
+				}
+				chanBase := c.resolveTypeExpr(&parser.NamedType{Name: "Channel"})
+				retType := &SpecializedType{Base: chanBase, Params: []Type{currentType}}
+				c.specializations[n] = &FuncType{Return: retType}
+				return retType
 			}
 		}
 	}
