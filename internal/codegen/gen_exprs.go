@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"soyuz/internal/checker"
@@ -2389,13 +2390,16 @@ func primitiveMethodCFunc(typeName, method string) string {
 	return ""
 }
 
-// generateTaskExpr emits code for `task callExpr(args)`.
-// It packs the args into a heap-allocated i64 array, generates a wrapper function that
-// unpacks and calls the original function, and calls srt_enqueue returning an i8* handle.
+// generateTaskExpr emits code for `task callExpr(args)` or `task (pipeExpr)`.
+// For a direct call, it packs the args into a heap-allocated i64 array, generates a
+// wrapper function that unpacks and calls the original function, and calls srt_enqueue.
+// For a pipe chain, it captures free variables and generates a wrapper that evaluates
+// the full chain inside the worker thread.
 func (g *Generator) generateTaskExpr(n *parser.TaskExpr) (value.Value, error) {
 	call, ok := n.Inner.(*parser.CallExpr)
 	if !ok {
-		return nil, fmt.Errorf("task: expressão interna deve ser uma chamada de função")
+		// M-15: pipe chain or other expression — generate a closure-style wrapper.
+		return g.generateTaskPipeExpr(n)
 	}
 
 	// Evaluate args in current context.
@@ -2520,6 +2524,194 @@ func (g *Generator) generateTaskWrapperFunc(
 	g.current.NewCall(g.findFunc("srt_set_task_result"), resultI8)
 
 	g.current.NewRet(nil)
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return wrapperFn
+}
+
+// ── M-15: task (pipe chain) support ─────────────────────────────────────────
+
+// generateTaskPipeExpr emits code for `task (pipeExpr)` or any task whose inner
+// expression is not a bare CallExpr (e.g. a PipeExpr chain).
+// It identifies free variables used in the pipe chain, packs them into a heap
+// buffer as i64 slots, generates a wrapper function that unpacks and evaluates
+// the full chain, and enqueues the wrapper via srt_enqueue.
+func (g *Generator) generateTaskPipeExpr(n *parser.TaskExpr) (value.Value, error) {
+	// 1. Collect free variable names (local vars referenced inside the chain).
+	capturedNames := g.collectTaskCaptures(n.Inner)
+
+	// 2. Evaluate each captured variable in the current context.
+	capVals := make([]value.Value, 0, len(capturedNames))
+	filtered := capturedNames[:0]
+	for _, name := range capturedNames {
+		alloc, ok := g.vars[name]
+		if !ok {
+			continue
+		}
+		ptr, ok2 := alloc.Type().(*types.PointerType)
+		if !ok2 {
+			continue
+		}
+		val := g.current.NewLoad(ptr.ElemType, alloc)
+		capVals = append(capVals, val)
+		filtered = append(filtered, name)
+	}
+	capturedNames = filtered
+
+	// 3. Pack captured values into a heap-allocated [N x i64] args buffer.
+	numCaps := len(capturedNames)
+	var argsHeap value.Value
+	if numCaps > 0 {
+		argsHeap = g.current.NewCall(g.findBuiltin("malloc"),
+			constant.NewInt(types.I64, int64(numCaps*8)))
+		arrType := types.NewArray(uint64(numCaps), types.I64)
+		argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+		for i, v := range capVals {
+			slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+				constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+			g.current.NewStore(g.castToI64(v), slotPtr)
+		}
+	} else {
+		argsHeap = constant.NewNull(types.I8Ptr)
+	}
+
+	// 4. Generate the wrapper function.
+	wrapperFn := g.generateTaskPipeWrapperFunc(n.Inner, capturedNames, capVals)
+
+	// 5. Enqueue.
+	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+	handle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+	return handle, nil
+}
+
+// collectTaskCaptures walks the AST of a task inner expression and returns all
+// local variable names (i.e. names present in g.vars) that are referenced.
+// Function names resolved at module level are NOT in g.vars, so they are ignored.
+// The returned slice is sorted for deterministic codegen.
+func (g *Generator) collectTaskCaptures(node parser.Node) []string {
+	seen := make(map[string]bool)
+	var walk func(parser.Node)
+	walk = func(n parser.Node) {
+		if n == nil {
+			return
+		}
+		switch v := n.(type) {
+		case *parser.Identifier:
+			if _, inVars := g.vars[v.Name]; inVars {
+				seen[v.Name] = true
+			}
+		case *parser.PipeExpr:
+			walk(v.Left)
+			// Right is the pipe step — a plain function ident doesn't need capture;
+			// if it's a partial call, collect any extra args.
+			if call, ok := v.Right.(*parser.CallExpr); ok {
+				for _, arg := range call.Args {
+					walk(arg)
+				}
+			}
+			// plain ident (function ref) needs no capture
+		case *parser.PipeQuestExpr:
+			walk(v.Left)
+			if call, ok := v.Right.(*parser.CallExpr); ok {
+				for _, arg := range call.Args {
+					walk(arg)
+				}
+			}
+		case *parser.CallExpr:
+			for _, arg := range v.Args {
+				walk(arg)
+			}
+		case *parser.MemberExpr:
+			walk(v.Object)
+		case *parser.BinaryExpr:
+			walk(v.Left)
+			walk(v.Right)
+		case *parser.UnaryExpr:
+			walk(v.Operand)
+		}
+	}
+	walk(node)
+	result := make([]string, 0, len(seen))
+	for name := range seen {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// generateTaskPipeWrapperFunc emits a `void @__task_wrapper_N(i8* raw_args)` function
+// that unpacks captured local variables, evaluates the full pipe chain expression,
+// and stores the result via srt_set_task_result.
+func (g *Generator) generateTaskPipeWrapperFunc(
+	inner parser.Node,
+	capturedNames []string,
+	capturedVals []value.Value,
+) *ir.Func {
+	name := fmt.Sprintf("__task_wrapper_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+	wrapperFn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", wrapperFn)
+
+	rawArgs := wrapperFn.Params[0]
+
+	// Unpack captured variables from the i64 args buffer.
+	if len(capturedNames) > 0 {
+		arrType := types.NewArray(uint64(len(capturedNames)), types.I64)
+		argsPtr := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+		for i, capName := range capturedNames {
+			slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+				constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+			slot := g.current.NewLoad(types.I64, slotPtr)
+			restored := g.i64ToType(slot, capturedVals[i].Type())
+			alloc := g.newAlloca(restored.Type())
+			g.current.NewStore(restored, alloc)
+			g.vars[capName] = alloc
+		}
+		g.current.NewCall(g.findBuiltin("free"), rawArgs)
+	}
+
+	// Evaluate the pipe chain expression inside the worker thread.
+	result, err := g.generateExpr(inner)
+
+	var resultI8 value.Value
+	if err != nil || result == nil {
+		resultI8 = constant.NewNull(types.I8Ptr)
+	} else {
+		resultI8 = g.castToI8Ptr(result)
+	}
+	g.current.NewCall(g.findFunc("srt_set_task_result"), resultI8)
+	if g.current.Term == nil {
+		g.current.NewRet(nil)
+	}
 
 	// Restore generator state.
 	g.current = oldCurrent
