@@ -1072,6 +1072,16 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 					c.checkNode(n.Args[0])
 					c.specializations[n] = &FuncType{Return: st}
 					return st
+				case "always":
+					// M-24: .always(fn: Unit -> Unit) -> Task[T]
+					// Callback recebe Unit (sem args) — roda independente de Ok, Err ou cancel.
+					if len(n.Args) != 1 {
+						c.errorf(n.Pos(), ".always espera exatamente um argumento (fn: Unit -> Unit)")
+						return Unknown
+					}
+					c.checkNode(n.Args[0])
+					c.specializations[n] = &FuncType{Return: st}
+					return st
 				}
 			}
 		}

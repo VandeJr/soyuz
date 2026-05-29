@@ -1380,6 +1380,9 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 			case "tap":
 				// M-22: .tap(fn) — side-effect callback, returns same Task[T].
 				return g.generateTaskTap(me, n, obj)
+			case "always":
+				// M-24: .always(fn) — finalizador garantido, roda em Done e Cancelled.
+				return g.generateTaskAlways(me, n, obj)
 			}
 		}
 	}
@@ -3666,6 +3669,131 @@ func (g *Generator) generateListenWrapperFunc() *ir.Func {
 	// Convert result (i8*) to i64 for srt_chan_send — channel stores raw i64.
 	raw := g.current.NewPtrToInt(result, types.I64)
 	g.current.NewCall(g.findFunc("srt_chan_send"), chanPtr, raw)
+
+	g.current.NewRet(nil)
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return fn
+}
+
+// generateTaskAlways implements Task[T].always(fn: Unit -> Unit) -> Task[T].
+//
+// Unlike .tap(fn) which only fires on completion, .always fires on BOTH SRT_DONE
+// and SRT_CANCELLED — because M-12's wake_waiters fires in both states, any task
+// doing srt_await on the source is woken up regardless of the outcome.
+//
+// The callback receives no meaningful args (Unit). The original result is
+// re-stored unchanged so any downstream .await() retrieves the correct value.
+func (g *Generator) generateTaskAlways(me *parser.MemberExpr, n *parser.CallExpr, srcHandle value.Value) (value.Value, error) {
+	if len(n.Args) == 0 {
+		return nil, fmt.Errorf(".always: esperado argumento callback")
+	}
+
+	// Evaluate the callback in the current context (lambda or named fn).
+	callbackVal, err := g.generateExpr(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// Pack [srcHandle, callback] as a 2-slot i64 buffer.
+	argsHeap := g.current.NewCall(g.findBuiltin("malloc"), constant.NewInt(types.I64, 16))
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+
+	slot0 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	g.current.NewStore(g.castToI64(srcHandle), slot0)
+
+	slot1 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	g.current.NewStore(g.castToI64(callbackVal), slot1)
+
+	// Generate the always wrapper and enqueue it.
+	wrapperFn := g.generateAlwaysWrapperFunc()
+	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+	newHandle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+
+	// Null the source alloca — ownership transferred to the wrapper.
+	if ident, ok := me.Object.(*parser.Identifier); ok {
+		if alloc, exists := g.vars[ident.Name]; exists {
+			g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+		}
+	}
+
+	return newHandle, nil
+}
+
+// generateAlwaysWrapperFunc emits `void @__always_wrapper_N(i8* raw_args)`.
+//
+// The wrapper:
+//  1. Unpacks srcHandle (slot 0) and closure (slot 1) from the args buffer.
+//  2. Calls srt_await(srcHandle) — returns on SRT_DONE OR SRT_CANCELLED.
+//  3. Calls the closure with no additional args (fn: Unit → only implicit env ptr).
+//  4. Re-stores original result (or null for cancelled) via srt_set_task_result.
+func (g *Generator) generateAlwaysWrapperFunc() *ir.Func {
+	name := fmt.Sprintf("__always_wrapper_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+
+	// Ensure closure type is initialized (needed by callClosureDirect).
+	g.getOrCreateClosureDtor()
+
+	fn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", fn)
+
+	// Unpack args buffer.
+	rawArgs := fn.Params[0]
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsBuf := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+
+	// Slot 0: source task handle (i8*)
+	slot0 := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	handleI64 := g.current.NewLoad(types.I64, slot0)
+	alwaysSrcHandle := g.current.NewIntToPtr(handleI64, types.I8Ptr)
+
+	// Slot 1: callback closure (i8*)
+	slot1 := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	closureI64 := g.current.NewLoad(types.I64, slot1)
+	closurePtr := g.current.NewIntToPtr(closureI64, types.I8Ptr)
+
+	// Await source — returns on both SRT_DONE and SRT_CANCELLED (M-12 guarantee).
+	result := g.current.NewCall(g.findFunc("srt_await"), alwaysSrcHandle) // i8*
+
+	// Call closure with no additional args (Unit → only implicit env pointer).
+	g.callClosureDirect(closurePtr, types.Void, []value.Value{})
+
+	// Re-store original result so the chain continues with the correct value.
+	g.current.NewCall(g.findFunc("srt_set_task_result"), result)
 
 	g.current.NewRet(nil)
 
