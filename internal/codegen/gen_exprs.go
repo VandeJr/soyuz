@@ -855,6 +855,8 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				return g.generateTaskFan(n)
 			case "pipe":
 				return g.generateTaskPipeline(n)
+			case "listen":
+				return g.generateTaskListen(n)
 			}
 		}
 	}
@@ -3538,6 +3540,132 @@ func (g *Generator) generateTapWrapperFunc(innerType types.Type) *ir.Func {
 
 	// Re-store the original result so the new task carries the same value.
 	g.current.NewCall(g.findFunc("srt_set_task_result"), result)
+
+	g.current.NewRet(nil)
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return fn
+}
+
+// generateTaskListen implements Task.listen(t: Task[T], ch: Channel[T]) -> Unit.
+//
+// Spawns a fire-and-forget listener wrapper that:
+//  1. Awaits the source task handle.
+//  2. Sends the result to the channel via srt_chan_send.
+//
+// The listener handle is immediately detached. The source handle alloca is
+// nulled out so its taskVarStack destructor is a no-op.
+func (g *Generator) generateTaskListen(n *parser.CallExpr) (value.Value, error) {
+	if len(n.Args) < 2 {
+		return nil, fmt.Errorf("Task.listen: esperado 2 argumentos")
+	}
+
+	// Evaluate task handle (arg0) and channel (arg1).
+	taskHandle, err := g.generateExpr(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+	chanVal, err := g.generateExpr(n.Args[1])
+	if err != nil {
+		return nil, err
+	}
+
+	// Pack [taskHandle, chanPtr] as a 2-slot i64 buffer.
+	argsHeap := g.current.NewCall(g.findBuiltin("malloc"), constant.NewInt(types.I64, 16))
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+
+	slot0 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	g.current.NewStore(g.castToI64(taskHandle), slot0)
+
+	slot1 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	g.current.NewStore(g.castToI64(chanVal), slot1)
+
+	// Generate the listener wrapper and enqueue it.
+	wrapperFn := g.generateListenWrapperFunc()
+	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+	listenerHandle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+
+	// Immediately detach the listener — it is fire-and-forget.
+	g.current.NewCall(g.findFunc("srt_detach"), listenerHandle)
+
+	// Null the source task alloca so the taskVarStack destructor is a no-op.
+	if id, ok := n.Args[0].(*parser.Identifier); ok {
+		if alloc, exists := g.vars[id.Name]; exists {
+			g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+		}
+	}
+
+	return nil, nil
+}
+
+// generateListenWrapperFunc emits `void @__listen_wrapper_N(i8* raw_args)`.
+//
+// The wrapper:
+//  1. Unpacks srcHandle (slot 0) and chanPtr (slot 1) from the args buffer.
+//  2. Calls srt_await(srcHandle) to get the result (i8*).
+//  3. Converts the result to i64 via ptrtoint and calls srt_chan_send(chan, raw).
+func (g *Generator) generateListenWrapperFunc() *ir.Func {
+	name := fmt.Sprintf("__listen_wrapper_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+
+	fn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", fn)
+
+	// Unpack args buffer.
+	rawArgs := fn.Params[0]
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsBuf := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+
+	// Slot 0: source task handle (i8*)
+	slot0 := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	handleI64 := g.current.NewLoad(types.I64, slot0)
+	listenSrcHandle := g.current.NewIntToPtr(handleI64, types.I8Ptr)
+
+	// Slot 1: channel pointer (i8*)
+	slot1 := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	chanI64 := g.current.NewLoad(types.I64, slot1)
+	chanPtr := g.current.NewIntToPtr(chanI64, types.I8Ptr)
+
+	// Await the source task.
+	result := g.current.NewCall(g.findFunc("srt_await"), listenSrcHandle) // i8*
+
+	// Convert result (i8*) to i64 for srt_chan_send — channel stores raw i64.
+	raw := g.current.NewPtrToInt(result, types.I64)
+	g.current.NewCall(g.findFunc("srt_chan_send"), chanPtr, raw)
 
 	g.current.NewRet(nil)
 

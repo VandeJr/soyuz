@@ -943,6 +943,42 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				}
 				c.specializations[n] = &FuncType{Return: innerType}
 				return innerType
+			case "listen":
+				// M-23: Task.listen(t: Task[T], ch: Channel[T]) -> Unit
+				if len(n.Args) != 2 {
+					c.errorf(n.Pos(), "Task.listen requer exatamente 2 argumentos: Task[T] e Channel[T]")
+					return Unknown
+				}
+				taskArgType := c.checkNode(n.Args[0])
+				chanArgType := c.checkNode(n.Args[1])
+				// Validate task arg
+				var taskInner Type = Unknown
+				if st, ok := taskArgType.(*SpecializedType); ok {
+					if ct2, ok2 := st.Base.(*ClassType); ok2 && ct2.Name == "Task" && len(st.Params) > 0 {
+						taskInner = st.Params[0]
+					} else {
+						c.errorf(n.Args[0].Pos(), "Task.listen: primeiro argumento deve ser Task[T], obtido %s", taskArgType)
+					}
+				} else {
+					c.errorf(n.Args[0].Pos(), "Task.listen: primeiro argumento deve ser Task[T], obtido %s", taskArgType)
+				}
+				// Validate channel arg
+				var chanInner Type = Unknown
+				if st, ok := chanArgType.(*SpecializedType); ok {
+					if ct2, ok2 := st.Base.(*ClassType); ok2 && (ct2.Name == "Channel" || ct2.Name == "SyncChannel") && len(st.Params) > 0 {
+						chanInner = st.Params[0]
+					} else {
+						c.errorf(n.Args[1].Pos(), "Task.listen: segundo argumento deve ser Channel[T], obtido %s", chanArgType)
+					}
+				} else {
+					c.errorf(n.Args[1].Pos(), "Task.listen: segundo argumento deve ser Channel[T], obtido %s", chanArgType)
+				}
+				// Check type compatibility
+				if taskInner != Unknown && chanInner != Unknown && taskInner.String() != chanInner.String() {
+					c.errorf(n.Pos(), "Task.listen: Task[%s] incompatível com Channel[%s]", taskInner, chanInner)
+				}
+				c.specializations[n] = &FuncType{Return: UnitType}
+				return UnitType
 			case "fan":
 				// M-18: Task.fan(input, f, g, h, ...) — fan-out paralelo.
 				// Primeiro argumento: valor de entrada (não função).
