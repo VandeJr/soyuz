@@ -1383,6 +1383,12 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 			case "always":
 				// M-24: .always(fn) — finalizador garantido, roda em Done e Cancelled.
 				return g.generateTaskAlways(me, n, obj)
+			case "then":
+				// M-25: .then(fn: T -> U) -> Task[U] — continuação assíncrona tipada.
+				return g.generateTaskThen(me, n, obj)
+			case "catch":
+				// M-25: Task[Result[T]].catch(fn: Err -> T) -> Task[Result[T]].
+				return g.generateTaskCatch(me, n, obj)
 			}
 		}
 	}

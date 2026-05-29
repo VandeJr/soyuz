@@ -162,8 +162,10 @@ func New() *Checker {
 			"tap":    {{Params: []Type{Unknown}, Return: Unknown}},    // M-22: intercepted in checkCallExpr
 			"listen": {{Params: []Type{Unknown}, Return: Unknown}},    // M-23: intercepted in checkCallExpr
 			"always": {{Params: []Type{Unknown}, Return: Unknown}},    // M-24: intercepted in checkCallExpr
+			"then":   {{Params: []Type{Unknown}, Return: Unknown}},    // M-25: intercepted in checkCallExpr
+			"catch":  {{Params: []Type{Unknown}, Return: Unknown}},    // M-25: intercepted in checkCallExpr
 		},
-		MethodPub: map[string]bool{"await": true, "detach": true, "cancel": true, "all": true, "any": true, "allSettled": true, "fan": true, "pipe": true, "tap": true, "listen": true, "always": true},
+		MethodPub: map[string]bool{"await": true, "detach": true, "cancel": true, "all": true, "any": true, "allSettled": true, "fan": true, "pipe": true, "tap": true, "listen": true, "always": true, "then": true, "catch": true},
 	}
 	scope.Define("Task", taskType, true)
 

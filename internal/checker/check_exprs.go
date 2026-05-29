@@ -1082,6 +1082,47 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 					c.checkNode(n.Args[0])
 					c.specializations[n] = &FuncType{Return: st}
 					return st
+				case "then":
+					// M-25: .then(fn: T -> U) -> Task[U]
+					// Transforma o resultado e retorna uma nova task com tipo U.
+					if len(n.Args) != 1 {
+						c.errorf(n.Pos(), ".then espera exatamente um argumento (fn: T -> U)")
+						return Unknown
+					}
+					innerType := st.Params[0] // T
+					if af, ok2 := n.Args[0].(*parser.ArrowFunc); ok2 {
+						c.arrowFuncHints[af] = []Type{innerType}
+					}
+					lambdaType := c.checkNode(n.Args[0])
+					var retType Type = Unknown
+					if ft, ok2 := lambdaType.(*FuncType); ok2 {
+						retType = ft.Return
+					}
+					taskBase := c.resolveTypeExpr(&parser.NamedType{Name: "Task"})
+					retTaskType := &SpecializedType{Base: taskBase, Params: []Type{retType}}
+					c.specializations[n] = &FuncType{Return: retTaskType}
+					return retTaskType
+				case "catch":
+					// M-25: Task[Result[T]].catch(fn: Err -> T) -> Task[Result[T]]
+					// Intercepta o caminho de erro, oferece recuperação tipada.
+					if len(n.Args) != 1 {
+						c.errorf(n.Pos(), ".catch espera exatamente um argumento")
+						return Unknown
+					}
+					// Validar que source é Task[Result[T]]
+					resultParam := st.Params[0]
+					resultST, isResultST := resultParam.(*SpecializedType)
+					if !isResultST {
+						c.errorf(n.Pos(), ".catch só pode ser usado em Task[Result[T]], obtido Task[%s]", resultParam)
+						return st
+					}
+					if et, isET := resultST.Base.(*EnumType); !isET || et.Name != "Result" {
+						c.errorf(n.Pos(), ".catch só pode ser usado em Task[Result[T]], obtido Task[%s]", resultParam)
+						return st
+					}
+					c.checkNode(n.Args[0])
+					c.specializations[n] = &FuncType{Return: st}
+					return st
 				}
 			}
 		}
