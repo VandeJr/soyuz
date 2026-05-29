@@ -65,12 +65,12 @@ func (c *Checker) checkTaskExpr(n *parser.TaskExpr) Type {
 	return &SpecializedType{Base: base, Params: []Type{innerType}}
 }
 
-// checkSelectExpr type-checks a select { ... } expression (M-20).
+// checkSelectExpr type-checks a select { ... } expression.
 //
-// Each recv arm: the Chan expression must be a ch.recv() / ch.tryRecv() call
-// on a Channel[T] or SyncChannel[T]; the binding (if given) gets type T.
+// Recv arms accept either:
+//   - ch.recv() / ch.tryRecv() on Channel[T]  → binding gets T
+//   - t.await() on Task[T]                    → binding gets T (synthesized bridge channel in codegen)
 // Default arm: no channel needed.
-// Return type: the common type of all arm bodies (or Unit if bodies differ or there are no arms).
 func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
 	var resultType Type = UnitType
 	first := true
@@ -80,7 +80,6 @@ func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
 		c.scope = NewScope(parentScope)
 
 		if arm.IsDefault {
-			// default arm — just type-check the body
 			bodyType := c.checkNode(arm.Body)
 			if first {
 				resultType = bodyType
@@ -89,21 +88,32 @@ func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
 				c.errorf(arm.Pos, "select arm %d: tipo do corpo incompatível com arms anteriores (esperado %s, obtido %s)", i, resultType, bodyType)
 			}
 		} else {
-			// recv arm — Chan must be a ch.recv() or ch.tryRecv() call
 			if arm.Chan == nil {
 				c.errorf(arm.Pos, "select arm %d: expressão de canal ausente", i)
 				c.scope = parentScope
 				continue
 			}
-			chanCallType := c.checkNode(arm.Chan)
-			// chanCallType should be Option[T] (result of recv/tryRecv)
+			// Check if this is a task await arm: t.await()
 			var innerType Type = Unknown
-			if st, ok := chanCallType.(*SpecializedType); ok {
-				if et, ok2 := st.Base.(*EnumType); ok2 && et.Name == "Option" && len(st.Params) > 0 {
-					innerType = st.Params[0]
+			if isTaskAwaitCall(arm.Chan) {
+				// t.await() arm — unwrap Task[T] → T
+				if call, ok := arm.Chan.(*parser.CallExpr); ok {
+					if me, ok2 := call.Callee.(*parser.MemberExpr); ok2 {
+						taskType := c.checkNode(me.Object)
+						if st, ok3 := taskType.(*SpecializedType); ok3 && len(st.Params) > 0 {
+							innerType = st.Params[0]
+						}
+					}
+				}
+			} else {
+				// ch.recv() / ch.tryRecv() arm
+				chanCallType := c.checkNode(arm.Chan)
+				if st, ok := chanCallType.(*SpecializedType); ok {
+					if et, ok2 := st.Base.(*EnumType); ok2 && et.Name == "Option" && len(st.Params) > 0 {
+						innerType = st.Params[0]
+					}
 				}
 			}
-			// Bind the variable if given
 			if arm.Binding != "" {
 				c.scope.Define(arm.Binding, innerType, true)
 			}
@@ -120,6 +130,19 @@ func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
 	}
 
 	return resultType
+}
+
+// isTaskAwaitCall reports whether node is a t.await() call expression.
+func isTaskAwaitCall(node parser.Node) bool {
+	call, ok := node.(*parser.CallExpr)
+	if !ok {
+		return false
+	}
+	me, ok := call.Callee.(*parser.MemberExpr)
+	if !ok {
+		return false
+	}
+	return me.Property == "await"
 }
 
 func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
@@ -812,36 +835,25 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 		}
 	}
 
-	// M9: Channel.new / SyncChannel.new — static constructors.
+	// Channel.new(capacity) — static constructor. capacity=0 → rendezvous.
 	if me, isME := n.Callee.(*parser.MemberExpr); isME {
 		objType := c.nodeTypes[me.Object]
 		if objType == nil {
 			objType = c.checkNode(me.Object)
 		}
-		if ct, isCT := objType.(*ClassType); isCT && me.Property == "new" {
-			switch ct.Name {
-			case "Channel":
-				if len(n.Args) == 1 {
-					c.checkNode(n.Args[0]) // capacity: Int
-					sym, _ := c.scope.Resolve("Channel")
-					baseCT, _ := sym.Type.(*ClassType)
-					retType := &SpecializedType{Base: baseCT, Params: []Type{Unknown}}
-					c.specializations[n] = &FuncType{Return: retType}
-					return retType
-				}
-			case "SyncChannel":
-				if len(n.Args) == 0 {
-					sym, _ := c.scope.Resolve("SyncChannel")
-					baseCT, _ := sym.Type.(*ClassType)
-					retType := &SpecializedType{Base: baseCT, Params: []Type{Unknown}}
-					c.specializations[n] = &FuncType{Return: retType}
-					return retType
-				}
+		if ct, isCT := objType.(*ClassType); isCT && me.Property == "new" && ct.Name == "Channel" {
+			if len(n.Args) == 1 {
+				c.checkNode(n.Args[0]) // capacity: Int
+				sym, _ := c.scope.Resolve("Channel")
+				baseCT, _ := sym.Type.(*ClassType)
+				retType := &SpecializedType{Base: baseCT, Params: []Type{Unknown}}
+				c.specializations[n] = &FuncType{Return: retType}
+				return retType
 			}
 		}
 	}
 
-	// M9: Channel/SyncChannel instance methods — recv/tryRecv return Option[T].
+	// Channel[T] instance methods — recv/tryRecv return Option[T].
 	if me, isME := n.Callee.(*parser.MemberExpr); isME {
 		objType := c.nodeTypes[me.Object]
 		if objType == nil {
@@ -850,7 +862,7 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 		if st, isST := objType.(*SpecializedType); isST {
 			if ct, isCT := st.Base.(*ClassType); isCT {
 				switch ct.Name {
-				case "Channel", "SyncChannel":
+				case "Channel":
 					var innerType Type = Unknown
 					if len(st.Params) > 0 {
 						innerType = st.Params[0]
@@ -923,62 +935,6 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				retType := &TupleType{Elements: innerTypes}
 				c.specializations[n] = &FuncType{Return: retType}
 				return retType
-			case "any":
-				var innerType Type = Unknown
-				for i, arg := range n.Args {
-					at := c.checkNode(arg)
-					if st, ok := at.(*SpecializedType); ok {
-						if baseCT, ok2 := st.Base.(*ClassType); ok2 && baseCT.Name == "Task" && len(st.Params) > 0 {
-							if innerType == Unknown {
-								innerType = st.Params[0]
-							} else if innerType.String() != st.Params[0].String() {
-								c.errorf(arg.Pos(), "Task.any requer tasks do mesmo tipo: arg %d tem Task[%s], esperado Task[%s]", i+1, st.Params[0], innerType)
-							}
-						} else {
-							c.errorf(arg.Pos(), "Task.any espera Task[T], obtido %s", at)
-						}
-					} else {
-						c.errorf(arg.Pos(), "Task.any espera Task[T], obtido %s", at)
-					}
-				}
-				c.specializations[n] = &FuncType{Return: innerType}
-				return innerType
-			case "listen":
-				// M-23: Task.listen(t: Task[T], ch: Channel[T]) -> Unit
-				if len(n.Args) != 2 {
-					c.errorf(n.Pos(), "Task.listen requer exatamente 2 argumentos: Task[T] e Channel[T]")
-					return Unknown
-				}
-				taskArgType := c.checkNode(n.Args[0])
-				chanArgType := c.checkNode(n.Args[1])
-				// Validate task arg
-				var taskInner Type = Unknown
-				if st, ok := taskArgType.(*SpecializedType); ok {
-					if ct2, ok2 := st.Base.(*ClassType); ok2 && ct2.Name == "Task" && len(st.Params) > 0 {
-						taskInner = st.Params[0]
-					} else {
-						c.errorf(n.Args[0].Pos(), "Task.listen: primeiro argumento deve ser Task[T], obtido %s", taskArgType)
-					}
-				} else {
-					c.errorf(n.Args[0].Pos(), "Task.listen: primeiro argumento deve ser Task[T], obtido %s", taskArgType)
-				}
-				// Validate channel arg
-				var chanInner Type = Unknown
-				if st, ok := chanArgType.(*SpecializedType); ok {
-					if ct2, ok2 := st.Base.(*ClassType); ok2 && (ct2.Name == "Channel" || ct2.Name == "SyncChannel") && len(st.Params) > 0 {
-						chanInner = st.Params[0]
-					} else {
-						c.errorf(n.Args[1].Pos(), "Task.listen: segundo argumento deve ser Channel[T], obtido %s", chanArgType)
-					}
-				} else {
-					c.errorf(n.Args[1].Pos(), "Task.listen: segundo argumento deve ser Channel[T], obtido %s", chanArgType)
-				}
-				// Check type compatibility
-				if taskInner != Unknown && chanInner != Unknown && taskInner.String() != chanInner.String() {
-					c.errorf(n.Pos(), "Task.listen: Task[%s] incompatível com Channel[%s]", taskInner, chanInner)
-				}
-				c.specializations[n] = &FuncType{Return: UnitType}
-				return UnitType
 			case "fan":
 				// M-18: Task.fan(input, f, g, h, ...) — fan-out paralelo.
 				// Primeiro argumento: valor de entrada (não função).
@@ -1047,11 +1003,43 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				retType := &SpecializedType{Base: chanBase, Params: []Type{currentType}}
 				c.specializations[n] = &FuncType{Return: retType}
 				return retType
+			case "gather":
+				// Task.gather(list: List[T], fn: T -> U) -> List[U]
+				// Parallel map: spawns fn(item) for each item, awaits all, returns List[U].
+				if len(n.Args) != 2 {
+					c.errorf(n.Pos(), "Task.gather requer exatamente 2 argumentos: Task.gather(list, fn)")
+					return Unknown
+				}
+				listType := c.checkNode(n.Args[0])
+				var elemType Type = Unknown
+				if st, ok := listType.(*SpecializedType); ok {
+					if ct2, ok2 := st.Base.(*ClassType); ok2 && ct2.Name == "List" && len(st.Params) > 0 {
+						elemType = st.Params[0]
+					} else {
+						c.errorf(n.Args[0].Pos(), "Task.gather: primeiro argumento deve ser List[T], obtido %s", listType)
+					}
+				} else {
+					c.errorf(n.Args[0].Pos(), "Task.gather: primeiro argumento deve ser List[T], obtido %s", listType)
+				}
+				if af, ok := n.Args[1].(*parser.ArrowFunc); ok {
+					c.arrowFuncHints[af] = []Type{elemType}
+				}
+				fnType2 := c.checkNode(n.Args[1])
+				var retElemType Type = Unknown
+				if ft, ok := fnType2.(*FuncType); ok {
+					retElemType = ft.Return
+				} else {
+					c.errorf(n.Args[1].Pos(), "Task.gather: segundo argumento deve ser uma função T -> U, obtido %s", fnType2)
+				}
+				listBase2 := c.resolveTypeExpr(&parser.NamedType{Name: "List"})
+				retType := &SpecializedType{Base: listBase2, Params: []Type{retElemType}}
+				c.specializations[n] = &FuncType{Return: retType}
+				return retType
 			}
 		}
 	}
 
-	// M-22: Task[T] instance callbacks — .tap(fn: T -> Unit) -> Task[T]
+	// Task[T] instance callbacks — .tap(fn: T -> Unit) -> Task[T]
 	if me, isME := n.Callee.(*parser.MemberExpr); isME {
 		objType := c.nodeTypes[me.Object]
 		if objType == nil {
@@ -1073,52 +1061,10 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 					c.specializations[n] = &FuncType{Return: st}
 					return st
 				case "always":
-					// M-24: .always(fn: Unit -> Unit) -> Task[T]
-					// Callback recebe Unit (sem args) — roda independente de Ok, Err ou cancel.
+					// .always(fn: Unit -> Unit) -> Task[T]
 					if len(n.Args) != 1 {
 						c.errorf(n.Pos(), ".always espera exatamente um argumento (fn: Unit -> Unit)")
 						return Unknown
-					}
-					c.checkNode(n.Args[0])
-					c.specializations[n] = &FuncType{Return: st}
-					return st
-				case "then":
-					// M-25: .then(fn: T -> U) -> Task[U]
-					// Transforma o resultado e retorna uma nova task com tipo U.
-					if len(n.Args) != 1 {
-						c.errorf(n.Pos(), ".then espera exatamente um argumento (fn: T -> U)")
-						return Unknown
-					}
-					innerType := st.Params[0] // T
-					if af, ok2 := n.Args[0].(*parser.ArrowFunc); ok2 {
-						c.arrowFuncHints[af] = []Type{innerType}
-					}
-					lambdaType := c.checkNode(n.Args[0])
-					var retType Type = Unknown
-					if ft, ok2 := lambdaType.(*FuncType); ok2 {
-						retType = ft.Return
-					}
-					taskBase := c.resolveTypeExpr(&parser.NamedType{Name: "Task"})
-					retTaskType := &SpecializedType{Base: taskBase, Params: []Type{retType}}
-					c.specializations[n] = &FuncType{Return: retTaskType}
-					return retTaskType
-				case "catch":
-					// M-25: Task[Result[T]].catch(fn: Err -> T) -> Task[Result[T]]
-					// Intercepta o caminho de erro, oferece recuperação tipada.
-					if len(n.Args) != 1 {
-						c.errorf(n.Pos(), ".catch espera exatamente um argumento")
-						return Unknown
-					}
-					// Validar que source é Task[Result[T]]
-					resultParam := st.Params[0]
-					resultST, isResultST := resultParam.(*SpecializedType)
-					if !isResultST {
-						c.errorf(n.Pos(), ".catch só pode ser usado em Task[Result[T]], obtido Task[%s]", resultParam)
-						return st
-					}
-					if et, isET := resultST.Base.(*EnumType); !isET || et.Name != "Result" {
-						c.errorf(n.Pos(), ".catch só pode ser usado em Task[Result[T]], obtido Task[%s]", resultParam)
-						return st
 					}
 					c.checkNode(n.Args[0])
 					c.specializations[n] = &FuncType{Return: st}
@@ -1586,53 +1532,6 @@ func (c *Checker) checkAssignExpr(n *parser.AssignExpr) Type {
 	return rightType
 }
 
-// checkForTaskStmt type-checks `for task binding in iterable { body }` (M-21).
-// Returns List[U] where U is the type of the body expression.
-func (c *Checker) checkForTaskStmt(n *parser.ForTaskStmt) Type {
-	iterType := c.checkNode(n.Iterable)
-	var elemType Type = Unknown
-	if st, ok := iterType.(*SpecializedType); ok {
-		if ct, ok2 := st.Base.(*ClassType); ok2 && ct.Name == "List" && len(st.Params) > 0 {
-			elemType = st.Params[0]
-		} else {
-			c.errorf(n.Iterable.Pos(), "for task: iterável deve ser List[T], obtido %s", iterType)
-		}
-	} else {
-		c.errorf(n.Iterable.Pos(), "for task: iterável deve ser List[T], obtido %s", iterType)
-	}
-
-	parentScope := c.scope
-	c.scope = NewScope(parentScope)
-	c.scope.Define(n.Binding, elemType, true)
-
-	// Validate body: must be a single call expression or pipe chain.
-	var bodyType Type = Unknown
-	if len(n.Body.Statements) == 1 {
-		stmt := n.Body.Statements[0]
-		var inner parser.Node
-		if es, ok := stmt.(*parser.ExprStmt); ok {
-			inner = es.Expr
-		} else {
-			inner = stmt
-		}
-		switch inner.(type) {
-		case *parser.CallExpr, *parser.PipeExpr, *parser.PipeQuestExpr:
-			bodyType = c.checkNode(inner)
-		default:
-			c.errorf(n.Body.Pos(), "for task: body deve ser uma call expression ou pipe chain")
-			bodyType = c.checkNode(inner)
-		}
-	} else {
-		c.errorf(n.Body.Pos(), "for task: body deve conter exatamente uma expressão")
-		bodyType = c.checkBlock(n.Body)
-	}
-
-	c.scope = parentScope
-
-	// Return type: List[bodyType]
-	listBase := c.resolveTypeExpr(&parser.NamedType{Name: "List"})
-	return &SpecializedType{Base: listBase, Params: []Type{bodyType}}
-}
 
 func (c *Checker) checkForStmt(n *parser.ForStmt) Type {
 	parent := c.scope

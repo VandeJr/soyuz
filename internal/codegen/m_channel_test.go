@@ -86,50 +86,29 @@ fn checkClosed(ch: Channel[Int]) -> Bool = ch.isClosed()
 	}
 }
 
-// ── M-09: SyncChannel[T] ─────────────────────────────────────────────────────
+// Channel.new(0) = rendezvous (M-27: SyncChannel eliminado)
 
-func TestSyncChannelNewEmitsSrtSyncChanNew(t *testing.T) {
+func TestChannelZeroCapacityEmitsSrtChanNew(t *testing.T) {
 	src := `
 fn main() {
-  val sc = SyncChannel.new()
-}
-`
-	ir := compileTask(t, src)
-	if !strings.Contains(ir, "srt_sync_chan_new") {
-		t.Error("expected srt_sync_chan_new in IR")
-	}
-}
-
-func TestSyncChannelSendEmitsSrtSyncChanSend(t *testing.T) {
-	src := `
-fn sendSync(sc: SyncChannel[Int]) {
-  sc.send(99)
-}
-`
-	ir := compileTask(t, src)
-	if !strings.Contains(ir, "srt_sync_chan_send") {
-		t.Error("expected srt_sync_chan_send in IR")
-	}
-}
-
-func TestSyncChannelRecvEmitsSrtSyncChanRecv(t *testing.T) {
-	src := `
-fn recvSync(sc: SyncChannel[Int]) -> Option[Int] = sc.recv()
-`
-	ir := compileTask(t, src)
-	if !strings.Contains(ir, "srt_sync_chan_recv") {
-		t.Error("expected srt_sync_chan_recv in IR")
-	}
-}
-
-func TestSyncChannelCloseEmitsSrtSyncChanClose(t *testing.T) {
-	src := `
-fn closeSync(sc: SyncChannel[Int]) {
+  val sc = Channel.new(0)
   sc.close()
 }
 `
 	ir := compileTask(t, src)
-	if !strings.Contains(ir, "srt_sync_chan_close") {
-		t.Error("expected srt_sync_chan_close in IR")
+	if !strings.Contains(ir, "srt_chan_new") {
+		t.Error("expected srt_chan_new for Channel.new(0)")
+	}
+}
+
+func TestChannelZeroCapacitySendEmitsSrtChanSend(t *testing.T) {
+	src := `
+fn sendRendezvous(ch: Channel[Int]) {
+  ch.send(42)
+}
+`
+	ir := compileTask(t, src)
+	if !strings.Contains(ir, "srt_chan_send") {
+		t.Error("expected srt_chan_send for Channel[T].send on rendezvous channel")
 	}
 }

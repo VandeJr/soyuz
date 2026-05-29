@@ -70,50 +70,29 @@ fn checkClosed(ch: Channel[Int]) -> Bool = ch.isClosed()
 	}
 }
 
-// ── M-09: SyncChannel[T] ─────────────────────────────────────────────────────
+// Channel.new(0) = rendezvous (M-27: SyncChannel eliminado)
 
-func TestSyncChannelNewReturnsSpecializedType(t *testing.T) {
+func TestChannelZeroCapacityIsRendezvous(t *testing.T) {
+	src := `
+fn main() {
+  val sc = Channel.new(0)
+  val _ = task fn() => sc.send(42)
+}
+`
+	result := checkSrc(src)
+	if len(result.Errors) > 0 {
+		t.Fatalf("Channel.new(0) não deve gerar erros: %v", result.Errors)
+	}
+}
+
+func TestSyncChannelIsUndefined(t *testing.T) {
 	src := `
 fn main() {
   val sc = SyncChannel.new()
 }
 `
 	result := checkSrc(src)
-	if len(result.Errors) > 0 {
-		t.Fatalf("SyncChannel.new() não deve gerar erros, obtido: %v", result.Errors)
-	}
-}
-
-func TestSyncChannelSendAcceptsValue(t *testing.T) {
-	src := `
-fn sendSync(sc: SyncChannel[Int]) {
-  sc.send(99)
-}
-`
-	result := checkSrc(src)
-	if len(result.Errors) > 0 {
-		t.Fatalf("sc.send(99) não deve gerar erros, obtido: %v", result.Errors)
-	}
-}
-
-func TestSyncChannelRecvReturnsOptionT(t *testing.T) {
-	src := `
-fn recvSync(sc: SyncChannel[Int]) -> Option[Int] = sc.recv()
-`
-	result := checkSrc(src)
-	if len(result.Errors) > 0 {
-		t.Fatalf("sc.recv() deve retornar Option[Int], obtido: %v", result.Errors)
-	}
-}
-
-func TestSyncChannelCloseIsUnit(t *testing.T) {
-	src := `
-fn closeSync(sc: SyncChannel[Int]) {
-  sc.close()
-}
-`
-	result := checkSrc(src)
-	if len(result.Errors) > 0 {
-		t.Fatalf("sc.close() não deve gerar erros, obtido: %v", result.Errors)
+	if len(result.Errors) == 0 {
+		t.Fatal("SyncChannel deve ser undefined após M-27")
 	}
 }

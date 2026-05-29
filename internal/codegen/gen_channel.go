@@ -26,14 +26,8 @@ func (g *Generator) generateChannelNew(n *parser.CallExpr) (value.Value, error) 
 	return g.current.NewCall(fn, cap), nil
 }
 
-// generateSyncChannelNew emits SyncChannel.new() → i8* (srt_sync_chan_t*).
-func (g *Generator) generateSyncChannelNew() (value.Value, error) {
-	fn := g.findFunc("srt_sync_chan_new")
-	return g.current.NewCall(fn), nil
-}
-
 // generateChannelSend emits ch.send(value) → void.
-func (g *Generator) generateChannelSend(obj parser.Node, n *parser.CallExpr, isSyncChan bool) (value.Value, error) {
+func (g *Generator) generateChannelSend(obj parser.Node, n *parser.CallExpr) (value.Value, error) {
 	ch, err := g.generateExpr(obj)
 	if err != nil {
 		return nil, err
@@ -46,19 +40,13 @@ func (g *Generator) generateChannelSend(obj parser.Node, n *parser.CallExpr, isS
 		return nil, err
 	}
 	raw := g.coerceToI64(val)
-	var fnName string
-	if isSyncChan {
-		fnName = "srt_sync_chan_send"
-	} else {
-		fnName = "srt_chan_send"
-	}
-	g.current.NewCall(g.findFunc(fnName), ch, raw)
+	g.current.NewCall(g.findFunc("srt_chan_send"), ch, raw)
 	return constant.NewInt(types.I64, 0), nil
 }
 
 // generateChannelRecv emits ch.recv() or ch.tryRecv() → Option[T].
 // tryMode selects srt_chan_try_recv (non-blocking) vs srt_chan_recv (blocking).
-func (g *Generator) generateChannelRecv(obj parser.Node, st *checker.SpecializedType, tryMode bool, isSyncChan bool) (value.Value, error) {
+func (g *Generator) generateChannelRecv(obj parser.Node, st *checker.SpecializedType, tryMode bool) (value.Value, error) {
 	ch, err := g.generateExpr(obj)
 	if err != nil {
 		return nil, err
@@ -69,17 +57,13 @@ func (g *Generator) generateChannelRecv(obj parser.Node, st *checker.Specialized
 		innerType = st.Params[0]
 	}
 
-	// Alloca for the out-param (i64*)
 	outAlloc := g.newAlloca(types.I64)
 	g.current.NewStore(constant.NewInt(types.I64, 0), outAlloc)
 
 	var fnName string
-	switch {
-	case isSyncChan:
-		fnName = "srt_sync_chan_recv"
-	case tryMode:
+	if tryMode {
 		fnName = "srt_chan_try_recv"
-	default:
+	} else {
 		fnName = "srt_chan_recv"
 	}
 	ok := g.current.NewCall(g.findFunc(fnName), ch, outAlloc)
@@ -162,33 +146,38 @@ func extractChannelFromRecvCall(node parser.Node) parser.Node {
 	return nil
 }
 
-// innerTypeFromChannelType returns the element type T from Channel[T] or SyncChannel[T].
+// innerTypeFromChannelType returns the element type T from Channel[T].
 func innerTypeFromChannelType(t checker.Type) checker.Type {
 	if st, ok := t.(*checker.SpecializedType); ok {
-		if ct, ok2 := st.Base.(*checker.ClassType); ok2 {
-			if (ct.Name == "Channel" || ct.Name == "SyncChannel") && len(st.Params) > 0 {
-				return st.Params[0]
-			}
+		if ct, ok2 := st.Base.(*checker.ClassType); ok2 && ct.Name == "Channel" && len(st.Params) > 0 {
+			return st.Params[0]
 		}
 	}
 	return checker.Unknown
 }
 
+// isTaskAwaitCall reports whether node is a t.await() call on a Task[T].
+func isTaskAwaitCall(node parser.Node) bool {
+	call, ok := node.(*parser.CallExpr)
+	if !ok {
+		return false
+	}
+	me, ok := call.Callee.(*parser.MemberExpr)
+	return ok && me.Property == "await"
+}
+
 // generateSelectExpr emits LLVM IR for:
-//   select {
-//       binding = ch.recv() => body
-//       default             => body
-//   }
 //
-// Strategy:
-//   1. For each recv arm, extract the channel object from ch.recv().
-//   2. Store channel pointers into a stack-allocated i8* array.
-//   3. Call srt_select (blocking) or srt_select_try (non-blocking when default is present).
-//   4. Use a switch on the returned index to branch to the matching arm block.
-//   5. Each arm block: load the raw i64, coerce to T, bind it, execute body, br merge.
-//   6. Default arm: execute body when srt_select_try returns -1.
+//	select {
+//	    binding = ch.recv()  => body   // channel arm
+//	    binding = t.await()  => body   // task arm (M-28: synthesizes bridge channel)
+//	    default               => body
+//	}
+//
+// Task arms: a temp Channel[T](1) is created and a fire-and-forget listener
+// task is spawned that awaits the task and sends the result to the channel.
+// The channel is then selected alongside regular channel arms.
 func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error) {
-	// Separate recv arms from the optional default arm.
 	var recvArms []parser.SelectArm
 	var defaultArm *parser.SelectArm
 	for i := range n.Arms {
@@ -204,7 +193,6 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 	fn := g.current.Parent
 	mergeBlock := g.newBlock("sel_merge", fn)
 
-	// Edge case: only a default arm (no recv arms).
 	if numRecv == 0 {
 		if defaultArm != nil {
 			bodyVal, err := g.generateExpr(defaultArm.Body)
@@ -221,37 +209,57 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 		return constant.NewInt(types.I64, 0), nil
 	}
 
-	// Build channel pointer array on the stack.
-	// Each element is i8* (the opaque channel pointer).
 	i8PtrType := types.I8Ptr
 	arrType := types.NewArray(uint64(numRecv), i8PtrType)
 	chanArr := g.newAlloca(arrType)
 
-	// Track inner element types per arm (for binding coercion later).
 	armInnerTypes := make([]checker.Type, numRecv)
 
 	for i, arm := range recvArms {
-		// Extract channel object from ch.recv() / ch.tryRecv().
-		chanObj := extractChannelFromRecvCall(arm.Chan)
-		if chanObj == nil {
-			return nil, fmt.Errorf("select arm %d: Chan deve ser ch.recv() ou ch.tryRecv()", i)
+		var chVal value.Value
+
+		if isTaskAwaitCall(arm.Chan) {
+			// Task arm: spawn a bridge listener then select on a temp channel.
+			call := arm.Chan.(*parser.CallExpr)
+			me := call.Callee.(*parser.MemberExpr)
+			taskVal, err := g.generateExpr(me.Object)
+			if err != nil {
+				return nil, err
+			}
+			// Determine Task[T] inner type.
+			taskType := g.check.NodeTypes[me.Object]
+			if st, ok := taskType.(*checker.SpecializedType); ok && len(st.Params) > 0 {
+				armInnerTypes[i] = st.Params[0]
+			}
+			// Create a temp channel with capacity 1.
+			tmpCh := g.current.NewCall(g.findFunc("srt_chan_new"), constant.NewInt(types.I64, 1))
+			// Spawn a fire-and-forget listener: await task → send to tmpCh.
+			g.emitInternalListenerTask(taskVal, tmpCh)
+			// Zero the task handle alloca so taskVarStack destructor is a no-op.
+			if id, ok := me.Object.(*parser.Identifier); ok {
+				if alloc, ok2 := g.vars[id.Name]; ok2 {
+					g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+				}
+			}
+			chVal = tmpCh
+		} else {
+			// Channel arm: ch.recv() or ch.tryRecv().
+			chanObj := extractChannelFromRecvCall(arm.Chan)
+			if chanObj == nil {
+				return nil, fmt.Errorf("select arm %d: Chan deve ser ch.recv(), ch.tryRecv() ou t.await()", i)
+			}
+			chanType := g.check.NodeTypes[chanObj]
+			armInnerTypes[i] = innerTypeFromChannelType(chanType)
+			var err error
+			chVal, err = g.generateExpr(chanObj)
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		// Determine inner type from the channel's type annotation.
-		chanType := g.check.NodeTypes[chanObj]
-		armInnerTypes[i] = innerTypeFromChannelType(chanType)
-
-		// Generate the channel pointer value.
-		chVal, err := g.generateExpr(chanObj)
-		if err != nil {
-			return nil, err
-		}
-		// Ensure it's stored as i8*.
 		if chVal.Type() != i8PtrType {
 			chVal = g.current.NewBitCast(chVal, i8PtrType)
 		}
-
-		// Store into the array slot.
 		elemPtr := g.current.NewGetElementPtr(arrType, chanArr,
 			constant.NewInt(types.I32, 0),
 			constant.NewInt(types.I32, int64(i)),
@@ -298,8 +306,11 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 		readyIdx = g.current.NewCall(g.findFunc("srt_select"), chanPtrCast, nConst, outAlloc)
 	}
 
+	// Allocate a result slot before the switch so arm values don't violate SSA dominance.
+	resultAlloc := g.newAlloca(types.I64)
+	g.current.NewStore(constant.NewInt(types.I64, 0), resultAlloc)
+
 	// Switch on the ready index to jump to the correct arm block.
-	// switchDefault is armBlocks[0] as a fallback (srt_select guarantees a valid index).
 	switchDefault := armBlocks[0]
 	cases := make([]*ir.Case, numRecv)
 	for i := range recvArms {
@@ -308,15 +319,11 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 	g.current.NewSwitch(readyIdx, switchDefault, cases...)
 
 	// Generate each recv arm block.
-	var lastVal value.Value = constant.NewInt(types.I64, 0)
-
 	for i, arm := range recvArms {
 		g.current = armBlocks[i]
 
-		// Load the raw i64 value from the out-param.
 		rawRecv := g.current.NewLoad(types.I64, outAlloc)
 
-		// Bind the value to the arm's variable if requested.
 		if arm.Binding != "" {
 			innerType := armInnerTypes[i]
 			var bindVal value.Value
@@ -334,12 +341,11 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 		if err != nil {
 			return nil, err
 		}
-		if bv != nil {
-			lastVal = bv
-		}
-		// Remove binding from scope when arm exits.
 		if arm.Binding != "" {
 			delete(g.vars, arm.Binding)
+		}
+		if bv != nil {
+			g.current.NewStore(g.castToI64(bv), resultAlloc)
 		}
 		if g.current.Term == nil {
 			g.current.NewBr(mergeBlock)
@@ -354,7 +360,7 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 			return nil, err
 		}
 		if dv != nil {
-			lastVal = dv
+			g.current.NewStore(g.castToI64(dv), resultAlloc)
 		}
 		if g.current.Term == nil {
 			g.current.NewBr(mergeBlock)
@@ -362,5 +368,95 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 	}
 
 	g.current = mergeBlock
-	return lastVal, nil
+	return g.current.NewLoad(types.I64, resultAlloc), nil
+}
+
+// emitInternalListenerTask spawns a fire-and-forget wrapper task that:
+//   1. awaits srcHandle
+//   2. sends the raw result to dstChan
+//
+// Used by the polymorphic select when a t.await() arm is encountered.
+func (g *Generator) emitInternalListenerTask(srcHandle value.Value, dstChan value.Value) {
+	// Pack [srcHandle, dstChan] into a 2-slot heap buffer.
+	argsHeap := g.current.NewCall(g.findBuiltin("malloc"), constant.NewInt(types.I64, 16))
+	arrType := types.NewArray(2, types.I64)
+	argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+
+	slot0 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	g.current.NewStore(g.current.NewPtrToInt(srcHandle, types.I64), slot0)
+
+	slot1 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	g.current.NewStore(g.current.NewPtrToInt(dstChan, types.I64), slot1)
+
+	// Generate the wrapper function and enqueue+detach.
+	wrapperFn := g.generateSelectListenerWrapper()
+	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+	handle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+	g.current.NewCall(g.findFunc("srt_detach"), handle)
+
+	// Zero the srcHandle alloca so the taskVarStack destructor is a no-op.
+	if alloc, ok := srcHandle.(*ir.InstGetElementPtr); ok {
+		_ = alloc
+	}
+}
+
+// generateSelectListenerWrapper emits void @__sel_listener_N(i8* raw_args) that:
+//   1. unpacks [srcHandle i64, dstChan i64]
+//   2. awaits srcHandle
+//   3. sends the raw result to dstChan
+func (g *Generator) generateSelectListenerWrapper() *ir.Func {
+	g.taskWrapperCounter++
+	name := fmt.Sprintf("__sel_listener_%d", g.taskWrapperCounter)
+
+	wrapFn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", wrapFn)
+
+	arrType := types.NewArray(2, types.I64)
+	argsPtr := g.current.NewBitCast(wrapFn.Params[0], types.NewPointer(arrType))
+
+	slot0 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	srcI64 := g.current.NewLoad(types.I64, slot0)
+	srcHandle := g.current.NewIntToPtr(srcI64, types.I8Ptr)
+
+	slot1 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	chanI64 := g.current.NewLoad(types.I64, slot1)
+	dstChan := g.current.NewIntToPtr(chanI64, types.I8Ptr)
+
+	result := g.current.NewCall(g.findFunc("srt_await"), srcHandle)
+	raw := g.current.NewPtrToInt(result, types.I64)
+	g.current.NewCall(g.findFunc("srt_chan_send"), dstChan, raw)
+	g.current.NewRet(nil)
+
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+	return wrapFn
 }

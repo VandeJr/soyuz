@@ -201,8 +201,8 @@ fn main() {
 	}
 }
 
-// TestTaskAnyEmitsSrtAwaitAny verifies Task.any calls the runtime srt_await_any.
-func TestTaskAnyEmitsSrtAwaitAny(t *testing.T) {
+// select { t.await() => body } substitui Task.any (M-28).
+func TestSelectTaskAwaitEmitsSrtEnqueueAndSelect(t *testing.T) {
 	src := `
 fn fast() -> Int = 1
 fn slow() -> Int = 2
@@ -210,13 +210,21 @@ fn slow() -> Int = 2
 fn main() -> Int {
   val t1 = task fast()
   val t2 = task slow()
-  val winner = Task.any(t1, t2)
-  return winner
+  select {
+    r = t1.await() => r
+    r = t2.await() => r
+  }
 }
 `
 	ir := compileTask(t, src)
-	if !strings.Contains(ir, "srt_await_any") {
-		t.Error("Task.any deve emitir srt_await_any")
+	if !strings.Contains(ir, "srt_enqueue") {
+		t.Error("select com task arm deve emitir srt_enqueue")
+	}
+	if !strings.Contains(ir, "srt_await") {
+		t.Error("select com task arm deve emitir srt_await")
+	}
+	if !strings.Contains(ir, "srt_select") {
+		t.Error("select com task arm deve emitir srt_select")
 	}
 }
 

@@ -1,43 +1,33 @@
 package codegen
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 )
 
-func TestCatchIRDump4(t *testing.T) {
+// TestTaskGatherEmitsSpawnAndAwaitLoops verifies that Task.gather emits
+// two loops (spawn + await) and uses srt_enqueue + srt_await.
+func TestTaskGatherEmitsSpawnAndAwaitLoops(t *testing.T) {
 	src := `
-fn tentativa(n: Int) -> Result[Int] {
-    if n > 0 { return Ok(n) }
-    return Err("neg")
-}
+fn dobrar(n: Int) -> Int { n * 2 }
 
 fn main() {
-    val t1a = task tentativa(-5)
-    val t1 = t1a.catch(fn(e) => Ok(99))
-    val r1 = t1.await()
-    match r1 {
-        Ok(v)  => print("ok: $(v)")
-        Err(e) => print("err")
-    }
+    val nums: List[Int] = [1, 2, 3]
+    val results = Task.gather(nums, dobrar)
+    print(results.size())
 }
 `
 	ir := compileTask(t, src)
-	lines := strings.Split(ir, "\n")
-	inMain := false
-	for _, l := range lines {
-		if strings.HasPrefix(l, "define void @main") || strings.HasPrefix(l, "define i64 @main") || strings.HasPrefix(l, "define %Result") {
-			// skip non-main
-		}
-		if strings.HasPrefix(l, "define") && strings.Contains(l, "@main") {
-			inMain = true
-		}
-		if inMain {
-			fmt.Println(l)
-		}
-		if inMain && strings.TrimSpace(l) == "}" {
-			break
-		}
+	if !strings.Contains(ir, "gather_spawn_cond") {
+		t.Error("expected gather_spawn_cond block for spawn loop")
+	}
+	if !strings.Contains(ir, "gather_await_cond") {
+		t.Error("expected gather_await_cond block for await loop")
+	}
+	if !strings.Contains(ir, "srt_enqueue") {
+		t.Error("expected srt_enqueue in Task.gather IR")
+	}
+	if !strings.Contains(ir, "srt_await") {
+		t.Error("expected srt_await in Task.gather IR")
 	}
 }

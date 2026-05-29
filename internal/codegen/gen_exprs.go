@@ -296,9 +296,6 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 	case *parser.ForStmt:
 		return g.generateForStmt(n)
 
-	case *parser.ForTaskStmt:
-		return g.generateForTaskStmt(n)
-
 	case *parser.BreakStmt:
 		if len(g.loops) == 0 {
 			return nil, fmt.Errorf("break outside of loop")
@@ -751,45 +748,29 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 		}
 	}
 
-	// M9: Channel/SyncChannel static constructors.
+	// Channel static constructor — Channel.new(capacity: Int).
+	// capacity=0 → rendezvous semantics; N>0 → buffered.
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
-		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && me.Property == "new" {
-			switch ct.Name {
-			case "Channel":
-				return g.generateChannelNew(n)
-			case "SyncChannel":
-				return g.generateSyncChannelNew()
-			}
+		if ct, ok2 := g.check.NodeTypes[me.Object].(*checker.ClassType); ok2 && me.Property == "new" && ct.Name == "Channel" {
+			return g.generateChannelNew(n)
 		}
 	}
 
-	// M9: Channel/SyncChannel instance methods.
+	// Channel[T] instance methods.
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
 		if st, ok2 := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok2 {
-			if ct, ok3 := st.Base.(*checker.ClassType); ok3 {
-				switch ct.Name {
-				case "Channel":
-					switch me.Property {
-					case "send":
-						return g.generateChannelSend(me.Object, n, false)
-					case "recv":
-						return g.generateChannelRecv(me.Object, st, false, false)
-					case "tryRecv":
-						return g.generateChannelRecv(me.Object, st, true, false)
-					case "close":
-						return g.generateChannelClose(me.Object, "srt_chan_close")
-					case "isClosed":
-						return g.generateChannelIsClosed(me.Object)
-					}
-				case "SyncChannel":
-					switch me.Property {
-					case "send":
-						return g.generateChannelSend(me.Object, n, true)
-					case "recv":
-						return g.generateChannelRecv(me.Object, st, false, true)
-					case "close":
-						return g.generateChannelClose(me.Object, "srt_sync_chan_close")
-					}
+			if ct, ok3 := st.Base.(*checker.ClassType); ok3 && ct.Name == "Channel" {
+				switch me.Property {
+				case "send":
+					return g.generateChannelSend(me.Object, n)
+				case "recv":
+					return g.generateChannelRecv(me.Object, st, false)
+				case "tryRecv":
+					return g.generateChannelRecv(me.Object, st, true)
+				case "close":
+					return g.generateChannelClose(me.Object, "srt_chan_close")
+				case "isClosed":
+					return g.generateChannelIsClosed(me.Object)
 				}
 			}
 		}
@@ -849,14 +830,12 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 			switch me.Property {
 			case "all", "allSettled":
 				return g.generateTaskAll(n)
-			case "any":
-				return g.generateTaskAny(n)
 			case "fan":
 				return g.generateTaskFan(n)
 			case "pipe":
 				return g.generateTaskPipeline(n)
-			case "listen":
-				return g.generateTaskListen(n)
+			case "gather":
+				return g.generateTaskGather(n)
 			}
 		}
 	}
@@ -1145,10 +1124,6 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				return g.generateTaskTap(me, n, obj)
 			case "always":
 				return g.generateTaskAlways(me, n, obj)
-			case "then":
-				return g.generateTaskThen(me, n, obj)
-			case "catch":
-				return g.generateTaskCatch(me, n, obj)
 			}
 		}
 	}

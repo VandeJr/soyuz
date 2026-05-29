@@ -107,36 +107,37 @@ fn main() {
 	}
 }
 
-func TestTaskAnyReturnsInnerType(t *testing.T) {
+// Task.any foi removido em M-28 — select { t.await() => ... } é o substituto.
+func TestSelectWithTaskAwaitArm(t *testing.T) {
 	src := `
 fn fast() -> Int = 1
 fn slow() -> Int = 2
 fn main() -> Int {
   val t1 = task fast()
   val t2 = task slow()
-  val result = Task.any(t1, t2)
-  return result
+  select {
+    r = t1.await() => r
+    r = t2.await() => r
+  }
 }
 `
 	result := checkSrc(src)
 	if len(result.Errors) > 0 {
-		t.Fatalf("Task.any não deve gerar erros, obtido: %v", result.Errors)
+		t.Fatalf("select com t.await() não deve gerar erros: %v", result.Errors)
 	}
 }
 
-func TestTaskAnyMismatchedTypesError(t *testing.T) {
+func TestTaskAnyIsUndefined(t *testing.T) {
 	src := `
-fn getInt() -> Int = 1
-fn getStr() -> String = "x"
+fn fast() -> Int = 1
 fn main() {
-  val t1 = task getInt()
-  val t2 = task getStr()
-  val r = Task.any(t1, t2)
+  val t1 = task fast()
+  val _ = Task.any(t1)
 }
 `
 	result := checkSrc(src)
 	if len(result.Errors) == 0 {
-		t.Fatal("Task.any com tipos diferentes deve gerar erro")
+		t.Fatal("Task.any deve ser undefined após M-28")
 	}
 }
 

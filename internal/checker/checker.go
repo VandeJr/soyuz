@@ -153,19 +153,16 @@ func New() *Checker {
 		Methods: map[string][]*FuncType{
 			"await":      {{Params: []Type{}, Return: &TypeParameter{Name: "T"}}},
 			"detach":     {{Params: []Type{}, Return: UnitType}},
-			"cancel":     {{Params: []Type{}, Return: UnitType}}, // M-10: cancel + propagate to children
+			"cancel":     {{Params: []Type{}, Return: UnitType}},
 			"all":        {{Params: []Type{Unknown}, Return: Unknown}},
-			"any":        {{Params: []Type{Unknown}, Return: Unknown}},
 			"allSettled": {{Params: []Type{Unknown}, Return: Unknown}},
-			"fan":        {{Params: []Type{Unknown}, Return: Unknown}}, // M-18: intercepted in checkCallExpr
-			"pipe":       {{Params: []Type{Unknown}, Return: Unknown}}, // M-19: intercepted in checkCallExpr
-			"tap":    {{Params: []Type{Unknown}, Return: Unknown}},    // M-22: intercepted in checkCallExpr
-			"listen": {{Params: []Type{Unknown}, Return: Unknown}},    // M-23: intercepted in checkCallExpr
-			"always": {{Params: []Type{Unknown}, Return: Unknown}},    // M-24: intercepted in checkCallExpr
-			"then":   {{Params: []Type{Unknown}, Return: Unknown}},    // M-25: intercepted in checkCallExpr
-			"catch":  {{Params: []Type{Unknown}, Return: Unknown}},    // M-25: intercepted in checkCallExpr
+			"fan":        {{Params: []Type{Unknown}, Return: Unknown}},
+			"pipe":       {{Params: []Type{Unknown}, Return: Unknown}},
+			"gather":     {{Params: []Type{Unknown}, Return: Unknown}},
+			"tap":        {{Params: []Type{Unknown}, Return: Unknown}},
+			"always":     {{Params: []Type{Unknown}, Return: Unknown}},
 		},
-		MethodPub: map[string]bool{"await": true, "detach": true, "cancel": true, "all": true, "any": true, "allSettled": true, "fan": true, "pipe": true, "tap": true, "listen": true, "always": true, "then": true, "catch": true},
+		MethodPub: map[string]bool{"await": true, "detach": true, "cancel": true, "all": true, "allSettled": true, "fan": true, "pipe": true, "gather": true, "tap": true, "always": true},
 	}
 	scope.Define("Task", taskType, true)
 
@@ -277,19 +274,6 @@ func New() *Checker {
 		},
 	}
 	scope.Define("Channel", channelType, true)
-
-	syncChannelType := &ClassType{
-		Name:     "SyncChannel",
-		Generics: []string{"T"},
-		Methods: map[string][]*FuncType{
-			"new":   {{Params: []Type{}, Return: Unknown}}, // intercepted → SyncChannel[T]
-			"send":  {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
-			"recv":  {{Params: []Type{}, Return: Unknown}}, // intercepted → Option[T]
-			"close": {{Params: []Type{}, Return: UnitType}},
-		},
-		MethodPub: map[string]bool{"new": true, "send": true, "recv": true, "close": true},
-	}
-	scope.Define("SyncChannel", syncChannelType, true)
 
 	printFunc := &FuncType{Params: []Type{Unknown}, Return: UnitType}
 	scope.Define("print", printFunc, true)
@@ -602,8 +586,6 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkSelectExpr(n)
 	case *parser.ForStmt:
 		return c.checkForStmt(n)
-	case *parser.ForTaskStmt:
-		return c.checkForTaskStmt(n)
 	case *parser.WhileStmt:
 		c.checkNode(n.Condition)
 		c.checkBlock(n.Body)
