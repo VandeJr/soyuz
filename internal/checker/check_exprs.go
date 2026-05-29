@@ -125,7 +125,11 @@ func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
 func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 	if id, ok := n.Object.(*parser.Identifier); ok {
 		if sym, exists := c.scope.Resolve(id.Name); exists {
-			if ct, ok := sym.Type.(*ClassType); ok && len(ct.Fields) == 0 && len(ct.Methods) > 0 {
+			// Only treat as a namespace if the identifier IS the class name itself
+			// (e.g. Task.all, TaskHandle.current). Local variables/parameters that
+			// happen to have a no-field ClassType (e.g. `handle: TaskHandle`) must
+			// not be flagged as namespace references.
+			if ct, ok := sym.Type.(*ClassType); ok && id.Name == ct.Name && len(ct.Fields) == 0 && len(ct.Methods) > 0 {
 				c.checkModuleNamespaceAccess(id.Name, n.Pos())
 			}
 		}
@@ -1007,6 +1011,32 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 				retType := &SpecializedType{Base: chanBase, Params: []Type{currentType}}
 				c.specializations[n] = &FuncType{Return: retType}
 				return retType
+			}
+		}
+	}
+
+	// M-22: Task[T] instance callbacks — .tap(fn: T -> Unit) -> Task[T]
+	if me, isME := n.Callee.(*parser.MemberExpr); isME {
+		objType := c.nodeTypes[me.Object]
+		if objType == nil {
+			objType = c.checkNode(me.Object)
+		}
+		if st, isST := objType.(*SpecializedType); isST && len(st.Params) > 0 {
+			if ct, isCT := st.Base.(*ClassType); isCT && ct.Name == "Task" {
+				switch me.Property {
+				case "tap":
+					if len(n.Args) != 1 {
+						c.errorf(n.Pos(), ".tap espera exatamente um argumento (fn: T -> Unit)")
+						return Unknown
+					}
+					innerType := st.Params[0]
+					if af, ok2 := n.Args[0].(*parser.ArrowFunc); ok2 {
+						c.arrowFuncHints[af] = []Type{innerType}
+					}
+					c.checkNode(n.Args[0])
+					c.specializations[n] = &FuncType{Return: st}
+					return st
+				}
 			}
 		}
 	}

@@ -1375,6 +1375,9 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				// M-10: cancel task + propagate to all non-detached children recursively.
 				g.current.NewCall(g.findFunc("srt_cancel"), obj)
 				return nil, nil
+			case "tap":
+				// M-22: .tap(fn) — side-effect callback, returns same Task[T].
+				return g.generateTaskTap(me, n, obj)
 			}
 		}
 	}
@@ -2727,9 +2730,16 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 			stepArgsHeap = constant.NewNull(types.I8Ptr)
 		}
 
+		// origTypes must match the TARGET function's parameter types, not the
+		// intermediate value's type (which is i8* from srt_await). The buffer
+		// always holds i64 (via castToI64), and the wrapper unpacks using origTypes.
 		origTypes := make([]types.Type, len(stepArgs))
-		for si, a := range stepArgs {
-			origTypes[si] = a.Type()
+		for si := range stepArgs {
+			if si < len(targetFn.Params) {
+				origTypes[si] = targetFn.Params[si].Type()
+			} else {
+				origTypes[si] = stepArgs[si].Type()
+			}
 		}
 		wrapperFn := g.generateTaskWrapperFunc(targetFn, origTypes, numArgs)
 		wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
@@ -3397,4 +3407,150 @@ func (g *Generator) generateTaskHandleCurrent() (value.Value, error) {
 		ir.NewIncoming(noneVal, noneEnd),
 	)
 	return phi, nil
+}
+
+// generateTaskTap implements Task[T].tap(fn: T -> Unit) -> Task[T].
+//
+// The tap desugars into a wrapper task that:
+//  1. Awaits the source task handle.
+//  2. Calls the callback closure with the result (side-effect only).
+//  3. Re-stores the same result via srt_set_task_result.
+//
+// The wrapper receives [srcHandle (i8*), closure (i8*)] as a 2-slot i64 buffer.
+// Returns a new Task[T] handle — the source handle alloca is nulled out.
+func (g *Generator) generateTaskTap(me *parser.MemberExpr, n *parser.CallExpr, srcHandle value.Value) (value.Value, error) {
+	if len(n.Args) == 0 {
+		return nil, fmt.Errorf(".tap: esperado argumento callback")
+	}
+
+	// Evaluate the callback (lambda or named fn) in the current context.
+	callbackVal, err := g.generateExpr(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine inner LLVM type T for result unpacking inside the wrapper.
+	innerLLVMType := types.Type(types.I64)
+	if st, ok := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok && len(st.Params) > 0 {
+		innerLLVMType = g.mapTypeToLLVM(st.Params[0])
+	}
+
+	// Pack [srcHandle, callback] as a 2-slot i64 buffer.
+	argsHeap := g.current.NewCall(g.findBuiltin("malloc"), constant.NewInt(types.I64, 16))
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsPtr := g.current.NewBitCast(argsHeap, types.NewPointer(arrType))
+
+	slot0 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	g.current.NewStore(g.castToI64(srcHandle), slot0)
+
+	slot1 := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	g.current.NewStore(g.castToI64(callbackVal), slot1)
+
+	// Generate the tap wrapper function and enqueue it.
+	wrapperFn := g.generateTapWrapperFunc(innerLLVMType)
+	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
+	newHandle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
+
+	// Null the source alloca — ownership transferred to the wrapper.
+	if ident, ok := me.Object.(*parser.Identifier); ok {
+		if alloc, exists := g.vars[ident.Name]; exists {
+			g.current.NewStore(constant.NewNull(types.I8Ptr), alloc)
+		}
+	}
+
+	return newHandle, nil
+}
+
+// generateTapWrapperFunc emits `void @__tap_wrapper_N(i8* raw_args)`.
+//
+// The wrapper:
+//  1. Unpacks srcHandle (slot 0) and closure (slot 1) from the args buffer.
+//  2. Calls srt_await(srcHandle) to get the result (i8*).
+//  3. Casts the result to innerType and calls the closure (side-effect).
+//  4. Re-stores the original i8* result via srt_set_task_result.
+func (g *Generator) generateTapWrapperFunc(innerType types.Type) *ir.Func {
+	name := fmt.Sprintf("__tap_wrapper_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+
+	// Ensure closure type is initialized (needed by callClosureDirect).
+	g.getOrCreateClosureDtor()
+
+	fn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	// Save generator state.
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", fn)
+
+	// Unpack args buffer.
+	rawArgs := fn.Params[0]
+	arrType := types.NewArray(uint64(2), types.I64)
+	argsBuf := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+
+	// Slot 0: source task handle (i8*)
+	slot0 := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	handleI64 := g.current.NewLoad(types.I64, slot0)
+	tapSrcHandle := g.current.NewIntToPtr(handleI64, types.I8Ptr)
+
+	// Slot 1: callback closure (i8*)
+	slot1 := g.current.NewGetElementPtr(arrType, argsBuf,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	closureI64 := g.current.NewLoad(types.I64, slot1)
+	closurePtr := g.current.NewIntToPtr(closureI64, types.I8Ptr)
+
+	// Await the source task.
+	result := g.current.NewCall(g.findFunc("srt_await"), tapSrcHandle) // i8*
+
+	// Cast result from i8* to innerType for the callback argument.
+	var argVal value.Value
+	if innerType.Equal(types.I8Ptr) {
+		argVal = result
+	} else if _, isPtr := innerType.(*types.PointerType); isPtr {
+		argVal = g.current.NewBitCast(result, innerType)
+	} else {
+		// Integer / float: ptrtoint then truncate/bitcast as needed.
+		argVal = g.current.NewPtrToInt(result, types.I64)
+		if !innerType.Equal(types.I64) {
+			argVal = g.current.NewTrunc(argVal, innerType)
+		}
+	}
+
+	// Call the closure for side-effect (return value discarded).
+	g.callClosureDirect(closurePtr, types.Void, []value.Value{argVal})
+
+	// Re-store the original result so the new task carries the same value.
+	g.current.NewCall(g.findFunc("srt_set_task_result"), result)
+
+	g.current.NewRet(nil)
+
+	// Restore generator state.
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return fn
 }
