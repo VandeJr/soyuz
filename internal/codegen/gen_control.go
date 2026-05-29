@@ -17,11 +17,26 @@ import (
 func (g *Generator) generateBlock(n *parser.BlockStmt) (value.Value, error) {
 	g.pushScope()
 	var lastVal value.Value
-	for _, stmt := range n.Statements {
+	for i, stmt := range n.Statements {
 		if g.current.Term != nil {
 			break
 		}
-		val, err := g.generateExpr(stmt)
+		// For the last ExprStmt, evaluate the inner expression directly — bypassing
+		// the ExprStmt release. The block's return value is not "unused"; it will be
+		// retained by prepareReturn in the caller (function generator, match arm, etc.).
+		// Mid-block ExprStmts are still evaluated via generateExpr (with release).
+		isLastExprStmt := i == len(n.Statements)-1
+		var val value.Value
+		var err error
+		if isLastExprStmt {
+			if es, ok := stmt.(*parser.ExprStmt); ok {
+				val, err = g.generateExpr(es.Expr)
+			} else {
+				val, err = g.generateExpr(stmt)
+			}
+		} else {
+			val, err = g.generateExpr(stmt)
+		}
 		if err != nil {
 			g.popScopeAndRelease()
 			return nil, err

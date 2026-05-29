@@ -367,6 +367,12 @@ func (g *Generator) declareFuncVariants(name string, variants []*parser.FuncDecl
 	}
 
 	retType := g.mapTypeToLLVM(ft.Return)
+	// fn main() with no return type generates void @main(); glibc would then
+	// exit with whatever rax happens to hold (e.g. 232). Emit i32 @main()
+	// returning 0 to satisfy the C ABI for the process entry point.
+	if name == "main" && retType.Equal(types.Void) {
+		retType = types.I32
+	}
 	var params []*ir.Param
 	for i, p := range ft.Params {
 		pt := g.mapTypeToLLVM(p)
@@ -478,7 +484,11 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 				g.current.NewRet(nil)
 			}
 		} else if g.current.Term == nil {
-			g.current.NewRet(val)
+			if val == nil {
+				g.current.NewRet(g.defaultReturnValue(retType))
+			} else {
+				g.current.NewRet(val)
+			}
 		}
 
 		g.vars = oldVars

@@ -165,6 +165,7 @@ typedef struct {
     pthread_t    tid;
     int          id;
     srt_deque_t  deque;
+    srt_ctx_t    sched_ctx;  /* scheduler ucontext — heap-allocated to avoid stack adjacency with task */
 } srt_worker_t;
 
 typedef struct {
@@ -175,13 +176,14 @@ typedef struct {
     pthread_cond_t   cond;         /* signaled when new work arrives */
     _Atomic int      idle_count;   /* number of idle workers */
     int              shutdown;
+    _Atomic int      waiting_tasks; /* tasks in SRT_WAITING (not in any deque) */
 } srt_pool_t;
 
 static srt_pool_t *g_pool    = NULL;
 
 /* Thread-local: current task and scheduler context (M-12) */
 __thread srt_task_t  *srt__current_task = NULL;
-__thread ucontext_t  *srt__sched_ctx    = NULL;
+__thread srt_ctx_t   *srt__sched_ctx    = NULL;
 /* Thread-local: pointer to this worker's deque (NULL on main thread) */
 __thread srt_deque_t *srt__local_deque  = NULL;
 /* Thread-local: this worker's index (for steal victim selection) */
@@ -260,7 +262,12 @@ static void wake_waiters(srt_task_t *t) {
     while (w) {
         srt_task_t *next = w->waiter_next;
         w->waiter_next = NULL;
-        dispatch_task(w);   /* M-13: dispatch via local deque or inject queue */
+        /* Task is leaving SRT_WAITING — dequeue from waiting counter before
+         * dispatching so shutdown never observes waiting_tasks > 0 with empty
+         * deques and exits while this task is still outstanding. */
+        if (g_pool)
+            atomic_fetch_sub_explicit(&g_pool->waiting_tasks, 1, memory_order_release);
+        dispatch_task(w);
         w = next;
     }
 }
@@ -271,7 +278,15 @@ static void task_entry_trampoline(void) {
     srt_task_t *task = srt__current_task;
     task->fn(task->args);
     __atomic_store_n(&task->state, SRT_DONE, __ATOMIC_RELEASE);
-    /* uc_link returns control to scheduler (srt__sched_ctx) */
+    /* Explicitly swap back to the CURRENT worker's scheduler via task->sched_ctx.
+     * We cannot rely on uc_link here: makecontext embeds the uc_link value on the
+     * task's own stack, so updating uc_link in the struct after work-stealing has
+     * no effect on where __start_context returns.  Using swapcontext ensures we
+     * always land in the scheduler that owns THIS execution, not the original one. */
+    srt_ctx_t *sched = task->sched_ctx;
+    swapcontext(&task->coro_ctx.uc, &sched->uc);
+    /* Unreachable */
+    abort();
 }
 
 /* ── M-13: steal from a random peer ────────────────────────────────────── */
@@ -298,9 +313,14 @@ static void *worker_thread(void *arg) {
     srt__local_deque = &self->deque;
     srt__worker_id   = self->id;
 
-    /* M-12: per-carrier-thread scheduler context */
-    ucontext_t sched_ctx;
-    srt__sched_ctx = &sched_ctx;
+    /* M-12: scheduler context lives in srt_worker_t (heap), not on this stack.
+     * Keeping sched_ctx on the stack placed it adjacent to 'task', which caused
+     * setcontext (called via uc_link after a task finishes) to restore Worker's
+     * registers while another loop iteration had already written NULL to 'task'
+     * at [rbp-offset]. Moving it to the heap eliminates that adjacency. */
+    srt_ctx_t *const sched_ctx = &self->sched_ctx;
+    memset(sched_ctx, 0, sizeof(*sched_ctx));
+    srt__sched_ctx = sched_ctx;
 
     for (;;) {
         srt_task_t *task = NULL;
@@ -323,8 +343,15 @@ static void *worker_thread(void *arg) {
         if (!task) {
             pthread_mutex_lock(&g_pool->inject_mu);
             if (g_pool->shutdown) {
-                /* Check all deques are empty before exiting */
-                int all_empty = (g_pool->inject.count == 0);
+                /* Check all deques are empty AND no task is in SRT_WAITING
+                 * before exiting.  Waiting tasks are not in any deque; they
+                 * re-enter the deque only when their dependency completes via
+                 * wake_waiters.  Exiting early while waiting_tasks > 0 would
+                 * leave those tasks orphaned and cause a use-after-free when
+                 * g_pool->workers is freed by srt_shutdown. */
+                int all_empty = (g_pool->inject.count == 0) &&
+                                (atomic_load_explicit(&g_pool->waiting_tasks,
+                                                      memory_order_acquire) == 0);
                 if (all_empty) {
                     for (int i = 0; i < g_pool->n_workers && all_empty; i++) {
                         long b = atomic_load_explicit(&g_pool->workers[i].deque.bottom,
@@ -356,21 +383,34 @@ static void *worker_thread(void *arg) {
         srt__current_task = task;
         __atomic_store_n(&task->state, SRT_RUNNING, __ATOMIC_RELEASE);
 
+        /* Always record which worker is running this task so srt_await can
+         * yield to the right scheduler context even after work-stealing
+         * (the ucontext %fs base in coro_ctx is stale after migration). */
+        task->sched_ctx = sched_ctx;
+
         if (!task->stack) {
             /* First time: allocate stack and set up ucontext */
             task->stack = malloc(SRT_STACK_SIZE);
             if (!task->stack) { fprintf(stderr, "Soyuz panic: stack alloc failed\n"); abort(); }
-            getcontext(&task->coro_ctx);
-            task->coro_ctx.uc_stack.ss_sp   = task->stack;
-            task->coro_ctx.uc_stack.ss_size = SRT_STACK_SIZE;
-            task->coro_ctx.uc_link          = &sched_ctx;
-            makecontext(&task->coro_ctx, task_entry_trampoline, 0);
+            getcontext(&task->coro_ctx.uc);
+            task->coro_ctx.uc.uc_stack.ss_sp   = task->stack;
+            task->coro_ctx.uc.uc_stack.ss_size = SRT_STACK_SIZE;
+            task->coro_ctx.uc.uc_link          = NULL; /* unused: trampoline swaps back explicitly */
+            makecontext(&task->coro_ctx.uc, task_entry_trampoline, 0);
         }
 
-        swapcontext(&sched_ctx, &task->coro_ctx);
+        swapcontext(&sched_ctx->uc, &task->coro_ctx.uc);
 
         /* ── Back in scheduler ─────────────────────────────────────────── */
         srt__current_task = NULL;
+
+        /* The coroutine's coro_ctx is now fully saved.  If it held a mutex
+         * across the yield (to prevent premature dispatch), unlock it now.
+         * wake_waiters can only dispatch this task after the unlock. */
+        if (task->pending_unlock) {
+            pthread_mutex_unlock(task->pending_unlock);
+            task->pending_unlock = NULL;
+        }
 
         int32_t state = __atomic_load_n(&task->state, __ATOMIC_ACQUIRE);
         if (state == SRT_DONE || state == SRT_CANCELLED) {
@@ -421,11 +461,12 @@ void *srt_enqueue(void (*fn)(void *), void *args) {
     pthread_cond_init (&t->done_cond,   NULL);
     pthread_mutex_init(&t->children_mu, NULL);
     pthread_mutex_init(&t->waiters_mu,  NULL);
-    t->children    = NULL;
-    t->parent      = NULL;
-    t->stack       = NULL;
-    t->waiters     = NULL;
-    t->waiter_next = NULL;
+    t->children       = NULL;
+    t->parent         = NULL;
+    t->stack          = NULL;
+    t->waiters        = NULL;
+    t->waiter_next    = NULL;
+    t->pending_unlock = NULL;
 
     /* M-10: link as child of currently-running task */
     srt_task_t *parent = srt__current_task;
@@ -447,8 +488,10 @@ void *srt_enqueue(void (*fn)(void *), void *args) {
 void *srt_await(void *handle) {
     srt_task_t *t = (srt_task_t *)handle;
 
-    /* Fast path: already done */
-    if (__atomic_load_n(&t->state, __ATOMIC_ACQUIRE) >= SRT_DONE) {
+    /* Fast path: already done.
+     * NOTE: use srt_finished() not ">= SRT_DONE" — SRT_WAITING=4 > SRT_DONE=2
+     * and would falsely match, causing callers to read result=0 prematurely. */
+    if (srt_finished(__atomic_load_n(&t->state, __ATOMIC_ACQUIRE))) {
         void *result = t->result;
         unlink_from_parent(t);
         task_release(t);
@@ -456,23 +499,43 @@ void *srt_await(void *handle) {
     }
 
     srt_task_t *self = srt__current_task;
-    if (self && srt__sched_ctx) {
-        /* Coroutine path: add self to t's waiter list and yield */
+    if (self && self->sched_ctx) {
+        /* Coroutine path: add self to t's waiter list and yield.
+         * Use self->sched_ctx (set by the worker that dispatched this task)
+         * instead of the thread-local srt__sched_ctx.  After work-stealing
+         * the %fs TLS base in coro_ctx may belong to a different worker, so
+         * the thread-local would resolve incorrectly. */
+        srt_ctx_t *my_sched = self->sched_ctx;
         pthread_mutex_lock(&t->waiters_mu);
-        if (__atomic_load_n(&t->state, __ATOMIC_ACQUIRE) >= SRT_DONE) {
+        if (srt_finished(__atomic_load_n(&t->state, __ATOMIC_ACQUIRE))) {
             pthread_mutex_unlock(&t->waiters_mu);
         } else {
             self->waiter_next = t->waiters;
             t->waiters        = self;
             __atomic_store_n(&self->state, SRT_WAITING, __ATOMIC_RELEASE);
-            pthread_mutex_unlock(&t->waiters_mu);
-            swapcontext(&self->coro_ctx, srt__sched_ctx);
-            /* Resumed: t is now DONE or CANCELLED */
+            /* Track this task as waiting so shutdown doesn't exit prematurely. */
+            if (g_pool)
+                atomic_fetch_add_explicit(&g_pool->waiting_tasks, 1, memory_order_relaxed);
+            /* Keep t->waiters_mu LOCKED across swapcontext.
+             * The scheduler will unlock it AFTER swapcontext saves our coro_ctx.
+             * If we unlocked here, wake_waiters could dispatch us before our
+             * coroutine context is fully saved, causing two workers to race on
+             * the same stack (the premature-dispatch race). */
+            self->pending_unlock = &t->waiters_mu;
+            swapcontext(&self->coro_ctx.uc, &my_sched->uc);
+            /* Resumed: t is now DONE or CANCELLED.
+             * t->waiters_mu was already unlocked by the scheduler.
+             * Acquire fence: pairs with the RELEASE in task_entry_trampoline
+             * (t->state = SRT_DONE) so that t->result is visible here.
+             * The deque/queue ops in dispatch_task provide ordering from the
+             * scheduler's perspective but not from this coroutine's perspective
+             * after a context switch.  An explicit fence closes the gap. */
+            atomic_thread_fence(memory_order_acquire);
         }
     } else {
         /* Blocking path: main thread or non-task context */
         pthread_mutex_lock(&t->mu);
-        while (__atomic_load_n(&t->state, __ATOMIC_ACQUIRE) < SRT_DONE)
+        while (!srt_finished(__atomic_load_n(&t->state, __ATOMIC_ACQUIRE)))
             pthread_cond_wait(&t->done_cond, &t->mu);
         pthread_mutex_unlock(&t->mu);
     }

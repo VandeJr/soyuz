@@ -142,14 +142,18 @@ func (g *Generator) generateThenWrapperFunc(innerType, retType types.Type) *ir.F
 
 // ── M-25: Task[Result[T]].catch(fn: ErrType -> T) -> Task[Result[T]] ──────────
 
-// generateTaskCatch implements Task[Result[T]].catch(fn: ErrType -> T) -> Task[Result[T]].
+// generateTaskCatch implements Task[Result[T]].catch(fn: ErrType -> Result[T]) -> Task[Result[T]].
 //
 // The catch wrapper:
 //  1. Awaits the source task to get Result[T] (as i8* → Result*).
 //  2. Reads the tag: 0 = Ok, 1 = Err.
 //  3. Ok path: re-stores result unchanged.
-//  4. Err path: extracts error payload (i64 → i8*), calls recovery fn → T,
-//     wraps T in Ok(T), stores new Result.
+//  4. Err path: extracts error payload (i64), calls recovery fn with it,
+//     stores the recovery fn's return value (Result[T]) via srt_set_task_result.
+//
+// The recovery fn must return Result[T] (e.g. Ok(v) or Err(e2)), not T.
+// This matches the calling convention of Promise.catch where the handler
+// returns the same monad type.
 func (g *Generator) generateTaskCatch(me *parser.MemberExpr, n *parser.CallExpr, srcHandle value.Value) (value.Value, error) {
 	if len(n.Args) == 0 {
 		return nil, fmt.Errorf(".catch: esperado argumento fn de recuperação")
@@ -160,12 +164,11 @@ func (g *Generator) generateTaskCatch(me *parser.MemberExpr, n *parser.CallExpr,
 		return nil, err
 	}
 
-	// Determine success LLVM type T from Task[Result[T]].
-	successLLVMType := types.Type(types.I64)
-	if st, ok := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok && len(st.Params) > 0 {
-		if resultST, ok2 := st.Params[0].(*checker.SpecializedType); ok2 && len(resultST.Params) > 0 {
-			successLLVMType = g.mapTypeToLLVM(resultST.Params[0])
-		}
+	// Determine the LLVM return type of the recovery fn (should be *Result).
+	// We use this in the wrapper so callClosureDirect uses the correct ABI.
+	closureRetLLVMType := types.Type(types.I8Ptr) // default: i8* (pointer)
+	if ft, ok := g.check.NodeTypes[n.Args[0]].(*checker.FuncType); ok && ft != nil {
+		closureRetLLVMType = g.mapTypeToLLVM(ft.Return)
 	}
 
 	// Pack [srcHandle, callback] as a 2-slot i64 buffer.
@@ -181,7 +184,7 @@ func (g *Generator) generateTaskCatch(me *parser.MemberExpr, n *parser.CallExpr,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
 	g.current.NewStore(g.castToI64(callbackVal), slot1)
 
-	wrapperFn := g.generateCatchWrapperFunc(successLLVMType)
+	wrapperFn := g.generateCatchWrapperFunc(closureRetLLVMType)
 	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
 	newHandle := g.current.NewCall(g.findFunc("srt_enqueue"), wrapperPtr, argsHeap)
 
@@ -199,9 +202,13 @@ func (g *Generator) generateTaskCatch(me *parser.MemberExpr, n *parser.CallExpr,
 //
 // The wrapper inspects the Result tag:
 //   - tag == 0 (Ok):  re-stores original result unchanged.
-//   - tag == 1 (Err): extracts error payload (as i8*), calls recovery fn → T,
-//     wraps T in a new Ok(T) struct, stores new result.
-func (g *Generator) generateCatchWrapperFunc(successType types.Type) *ir.Func {
+//   - tag == 1 (Err): extracts error payload (as i64), calls recovery fn,
+//     stores its return value (Result[T]) directly via srt_set_task_result.
+//
+// closureRetType must be the LLVM type that the recovery fn actually returns
+// (typically *Result). Using the correct type avoids ABI mismatches when
+// calling through a bitcasted function pointer.
+func (g *Generator) generateCatchWrapperFunc(closureRetType types.Type) *ir.Func {
 	name := fmt.Sprintf("__catch_wrapper_%d", g.taskWrapperCounter)
 	g.taskWrapperCounter++
 	g.getOrCreateClosureDtor()
@@ -265,24 +272,12 @@ func (g *Generator) generateCatchWrapperFunc(successType types.Type) *ir.Func {
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
 	payloadI64Ptr := g.current.NewBitCast(payloadPtr, types.NewPointer(types.I64))
 	errPayloadI64 := g.current.NewLoad(types.I64, payloadI64Ptr)
-	// Error value as i8* (String pointer or interface pointer).
-	errI8 := g.current.NewIntToPtr(errPayloadI64, types.I8Ptr)
-
-	// Call recovery: fn(errI8) → T (success type).
-	var recovered value.Value
-	if successType.Equal(types.I8Ptr) {
-		recovered = g.callClosureDirect(closurePtr, types.I8Ptr, []value.Value{errI8})
-	} else {
-		recovered = g.callClosureDirect(closurePtr, successType, []value.Value{errI8})
-	}
-
-	// Wrap recovered value in Ok(T).
-	newResult, emitErr := g.emitOptionResultAllocNoRetain("Result", 0, recovered)
-	if emitErr != nil {
-		newResult = result // fallback: pass through original
-	}
-	newResultI8 := g.current.NewBitCast(newResult, types.I8Ptr)
-	g.current.NewCall(g.findFunc("srt_set_task_result"), newResultI8)
+	// Call recovery fn: Err -> Result[T].
+	// Use the closure's actual return LLVM type to avoid ABI mismatch when
+	// calling through a bitcasted function pointer.
+	recovered := g.callClosureDirect(closurePtr, closureRetType, []value.Value{errPayloadI64})
+	recoveredI8 := g.castToI8Ptr(recovered)
+	g.current.NewCall(g.findFunc("srt_set_task_result"), recoveredI8)
 	g.current.NewBr(mergeBlock)
 
 	// ── Ok branch: pass through unchanged ──

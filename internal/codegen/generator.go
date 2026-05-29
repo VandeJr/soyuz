@@ -792,6 +792,10 @@ func (g *Generator) castToI8Ptr(v value.Value) value.Value {
 }
 
 func (g *Generator) castFromI8Ptr(v value.Value, target types.Type) value.Value {
+	// void is not a valid value type in LLVM IR — return the raw i8* as-is.
+	if target == nil || target.Equal(types.Void) {
+		return v
+	}
 	if target.Equal(types.I64) {
 		return g.current.NewPtrToInt(v, types.I64)
 	}

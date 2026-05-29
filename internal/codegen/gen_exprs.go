@@ -1126,11 +1126,30 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 	if err != nil {
 		return nil, err
 	}
-	if g.isHeapType(obj.Type()) {
+	// Retain the object for the duration of the method call — but NOT for task
+	// handles, which use srt_task_t.refcount and are not RC-managed via soyuz_retain.
+	if g.isHeapType(obj.Type()) && !g.isTaskType(g.check.NodeTypes[me.Object]) {
 		if _, ok := me.Object.(*parser.Identifier); ok {
 			g.emitRetain(obj)
 		} else if _, ok := me.Object.(*parser.MemberExpr); ok {
 			g.emitRetain(obj)
+		}
+	}
+
+	// M-22/24/25: Task[T] callback methods evaluate their own args — skip generateCallArgs
+	// to avoid generating a leaked first closure from the pre-evaluation step.
+	if st, ok := g.check.NodeTypes[me.Object].(*checker.SpecializedType); ok {
+		if ct, ok2 := st.Base.(*checker.ClassType); ok2 && ct.Name == "Task" {
+			switch me.Property {
+			case "tap":
+				return g.generateTaskTap(me, n, obj)
+			case "always":
+				return g.generateTaskAlways(me, n, obj)
+			case "then":
+				return g.generateTaskThen(me, n, obj)
+			case "catch":
+				return g.generateTaskCatch(me, n, obj)
+			}
 		}
 	}
 
@@ -1377,18 +1396,7 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				// M-10: cancel task + propagate to all non-detached children recursively.
 				g.current.NewCall(g.findFunc("srt_cancel"), obj)
 				return nil, nil
-			case "tap":
-				// M-22: .tap(fn) — side-effect callback, returns same Task[T].
-				return g.generateTaskTap(me, n, obj)
-			case "always":
-				// M-24: .always(fn) — finalizador garantido, roda em Done e Cancelled.
-				return g.generateTaskAlways(me, n, obj)
-			case "then":
-				// M-25: .then(fn: T -> U) -> Task[U] — continuação assíncrona tipada.
-				return g.generateTaskThen(me, n, obj)
-			case "catch":
-				// M-25: Task[Result[T]].catch(fn: Err -> T) -> Task[Result[T]].
-				return g.generateTaskCatch(me, n, obj)
+			// tap/always/then/catch are handled before generateCallArgs above.
 			}
 		}
 	}

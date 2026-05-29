@@ -3,6 +3,25 @@
 #include <pthread.h>
 #include <ucontext.h>
 
+/* ── XSAVE overflow guard ────────────────────────────────────────────────────
+ * On CPUs with AVX / AVX-512, swapcontext internally runs xsave to persist
+ * FPU/SIMD state.  The CPU's XSAVE area can require up to 2440 bytes, but
+ * ucontext_t.__fpregs_mem only holds 512 bytes (a legacy SSE-era assumption).
+ * The overflow corrupts whatever sits after the ucontext_t in memory — on the
+ * stack that means the stack canary and local variables, causing SIGSEGV or
+ * "stack smashing detected".
+ *
+ * Fix: wrap every ucontext_t we own in srt_ctx_t, which appends SRT_CTX_XSAVE_PAD
+ * bytes of dead space so the xsave overflow lands harmlessly in the padding.
+ * (2440 - 512 = 1928 bytes needed; 2048 gives a comfortable safety margin.)
+ * ─────────────────────────────────────────────────────────────────────────── */
+#define SRT_CTX_XSAVE_PAD 2048
+
+typedef struct {
+    ucontext_t  uc;
+    char        _xpad[SRT_CTX_XSAVE_PAD];
+} srt_ctx_t;
+
 /* ── Task state ───────────────────────────────────────────────────────────── */
 typedef enum {
     SRT_PENDING   = 0,
@@ -11,6 +30,12 @@ typedef enum {
     SRT_CANCELLED = 3,
     SRT_WAITING   = 4,  /* M-12: blocked in srt_await, yielded to scheduler */
 } srt_task_state_t;
+
+/* SRT_WAITING=4 > SRT_DONE=2, so ">= SRT_DONE" incorrectly matches WAITING.
+ * Always use this predicate instead of raw ">= SRT_DONE" comparisons. */
+static inline int srt_finished(int32_t s) {
+    return s == SRT_DONE || s == SRT_CANCELLED;
+}
 
 /* ── M-10: Task tree ─────────────────────────────────────────────────────── */
 typedef struct srt_task srt_task_t;
@@ -39,13 +64,19 @@ struct srt_task {
     pthread_mutex_t   children_mu;
 
     /* M-12: coroutine context */
-    ucontext_t       coro_ctx;      /* saved context of this task */
+    srt_ctx_t        coro_ctx;      /* saved context of this task (padded for XSAVE) */
     char            *stack;         /* private stack (NULL = not yet started) */
+    srt_ctx_t       *sched_ctx;     /* scheduler ctx of the worker currently running this task */
 
     /* M-12: intrusive waiter list — tasks SRT_WAITING for THIS task */
     srt_task_t      *waiters;       /* head of list (protected by waiters_mu) */
     srt_task_t      *waiter_next;   /* next in the waiter list of some other task */
     pthread_mutex_t  waiters_mu;
+
+    /* M-20: mutex to unlock in the scheduler AFTER swapcontext saves coro_ctx.
+     * Prevents wake_waiters from dispatching this task before its coroutine
+     * context is fully saved (race between waiters_mu unlock and swapcontext). */
+    pthread_mutex_t *pending_unlock;
 };
 
 /* ── Public API (unchanged from M-01 through M-11) ─────────────────────── */
