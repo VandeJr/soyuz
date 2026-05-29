@@ -1,0 +1,458 @@
+// examples/async.sy — showcase completo de concorrência em Soyuz
+//
+// Cobre todas as primitivas de async/task implementadas (M-03 a M-25):
+//   task, await, detach, cancel, Task.all/any/allSettled, TaskHandle,
+//   Channel, SyncChannel, task (pipe), ~>, ~?>, Task.fan, Task.pipe,
+//   select, for task,
+//   .tap, Task.listen, .always, .then, .catch  (Fase 7 — callbacks)
+
+// ─── Funções auxiliares ────────────────────────────────────────────────────────
+
+fn dobrar(n: Int) -> Int = n * 2
+fn triplicar(n: Int) -> Int = n * 3
+fn incrementar(n: Int) -> Int = n + 1
+fn negar(n: Int) -> Int = n * -1
+fn quadrado(n: Int) -> Int = n * n
+fn cubo(n: Int) -> Int = n * n * n
+
+fn validar(n: Int) -> Result[Int] {
+    if n > 0 {
+        return Ok(n)
+    }
+    return Err(noneError("não positivo"))
+}
+
+fn tentativa(n: Int) -> Result[Int] {
+    if n > 0 {
+        return Ok(n * 2)
+    }
+    return Err(noneError("negativo"))
+}
+
+fn incrementarOk(n: Int) -> Int = n + 1
+
+// ─── 1. task básico — spawn, await, detach, cancel ───────────────────────────
+
+fn demoTask() {
+    print("--- 1. task básico ---")
+
+    // Spawn + await: bloqueia até o resultado ficar pronto.
+    val t1 = task dobrar(21)
+    val r1 = t1.await()
+    print("task await: $(r1)")           // 42
+
+    // Detach: fire-and-forget — task roda sem ninguém aguardar.
+    val t2 = task triplicar(10)
+    t2.detach()
+
+    // Cancel + await: cancela antes de rodar (se possível).
+    val t3 = task dobrar(99)
+    t3.cancel()
+    val _ = t3.await()
+    print("task cancel + await: ok")
+}
+
+// ─── 2. Task.all / Task.any / Task.allSettled ─────────────────────────────────
+
+fn demoTaskCombinators() {
+    print("--- 2. combinadores ---")
+
+    // Task.all: aguarda todos, retorna os resultados em tupla.
+    val ta1 = task dobrar(5)
+    val ta2 = task triplicar(5)
+    val (a, b) = Task.all(ta1, ta2)
+    print("Task.all: $(a), $(b)")        // 10, 15
+
+    // Task.any: retorna o resultado do primeiro que terminar.
+    val tb1 = task dobrar(3)
+    val tb2 = task triplicar(3)
+    val winner = Task.any(tb1, tb2)
+    print("Task.any vencedor: $(winner)")
+
+    // Task.allSettled: igual ao Task.all — aguarda todos.
+    val tc1 = task dobrar(7)
+    val tc2 = task triplicar(7)
+    val (c, d) = Task.allSettled(tc1, tc2)
+    print("Task.allSettled: $(c), $(d)") // 14, 21
+}
+
+// ─── 3. TaskHandle — introspection de dentro de um task ──────────────────────
+
+fn trabalhoComHandle() {
+    val h = TaskHandle.current()
+    match h {
+        Some(handle) => {
+            val cancelado = handle.cancelled()
+            handle.progress(0.5)
+            print("TaskHandle: cancelado=$(cancelado)")
+        }
+        None => print("fora de contexto de task")
+    }
+}
+
+fn demoTaskHandle() {
+    print("--- 3. TaskHandle ---")
+    val t = task trabalhoComHandle()
+    t.await()
+}
+
+// ─── 4. Channel[T] — canal com buffer ────────────────────────────────────────
+
+fn produtor(ch: Channel[Int]) {
+    ch.send(10)
+    ch.send(20)
+    ch.send(30)
+    ch.close()
+}
+
+fn consumidor(ch: Channel[Int]) {
+    // recv() bloqueia até ter dado ou canal fechar.
+    val m1 = ch.recv()
+    match m1 {
+        Some(v) => print("recv: $(v)")
+        None    => print("canal fechado antes de recv")
+    }
+
+    // tryRecv() não bloqueia — retorna None se não houver dado.
+    val m2 = ch.tryRecv()
+    match m2 {
+        Some(v) => print("tryRecv: $(v)")
+        None    => print("tryRecv: nada disponível")
+    }
+}
+
+fn demoChannel() {
+    print("--- 4. Channel ---")
+    val ch = Channel.new(8)
+    val tp = task produtor(ch)
+    val tc = task consumidor(ch)
+    tp.await()
+    tc.await()
+    print("isClosed: $(ch.isClosed())")
+}
+
+// ─── 5. SyncChannel[T] — canal síncrono (rendezvous sem buffer) ──────────────
+
+fn produtorSync(sc: SyncChannel[Int]) {
+    sc.send(42)
+    sc.close()
+}
+
+fn demoSyncChannel() {
+    print("--- 5. SyncChannel ---")
+    val sc = SyncChannel.new()
+    val tp = task produtorSync(sc)
+    val msg = sc.recv()
+    match msg {
+        Some(v) => print("SyncChannel recv: $(v)")   // 42
+        None    => print("sync canal fechado")
+    }
+    tp.await()
+}
+
+// ─── 6. task (pipe chain) — pipeline executado como task único ───────────────
+//
+//   task (n |> f |> g)
+//   Captura n e executa toda a cadeia dentro de um único task wrapper.
+
+fn demoTaskPipeChain() {
+    print("--- 6. task (pipe chain) ---")
+    val n = 5
+    val t = task (n |> dobrar |> triplicar)
+    val r = t.await()
+    print("task pipe chain: $(r)")       // 30
+}
+
+// ─── 7. ~> async pipe — cada etapa é um task independente ────────────────────
+//
+//   n ~> f ~> g
+//   Cada função é enfileirada como task separado; o resultado do anterior
+//   alimenta o próximo. Retorna Task[T] do último step.
+
+fn demoAsyncPipe() {
+    print("--- 7. ~> async pipe ---")
+
+    // Single-step: retorna Task[Int] — podemos await ou detach.
+    val n = 21
+    val t1 = n ~> dobrar
+    val r1 = t1.await()
+    print("~> single-step: $(r1)")       // 42
+
+    // Multi-step: steps intermediários são aguardados automaticamente.
+    val n2 = 5
+    val t2 = n2 ~> dobrar ~> triplicar
+    t2.detach()
+    print("~> multi-step: lançado")
+}
+
+// ─── 8. ~?> async pipe-quest — short-circuit em Err/None ─────────────────────
+//
+//   n ~> validar ~?> incrementarOk
+//   Se validar retorna Ok(x), incrementarOk(x) é executado como próximo task.
+//   Se retorna Err, a cadeia termina prematuramente.
+
+fn demoAsyncPipeQuest() {
+    print("--- 8. ~?> async pipe-quest ---")
+    val n = 5
+    val t = n ~> validar ~?> incrementarOk
+    t.detach()
+    print("~?> lançado (n=$(n) > 0, esperado ok)")
+
+    val negativo = -3
+    val t2 = negativo ~> validar ~?> incrementarOk
+    t2.detach()
+    print("~?> lançado (n=$(negativo) < 0, short-circuit esperado)")
+}
+
+// ─── 9. Task.fan — fan-out paralelo, mesmo input em funções distintas ─────────
+//
+//   n |> Task.fan(f, g)
+//   Enfileira f(n) e g(n) em paralelo; retorna tupla de Task handles.
+
+fn demoTaskFan() {
+    print("--- 9. Task.fan ---")
+    val n = 4
+    val (t1, t2) = n |> Task.fan(quadrado, cubo)
+    val r1 = t1.await()
+    val r2 = t2.await()
+    print("Task.fan: quadrado=$(r1), cubo=$(r2)")  // 16, 64
+}
+
+// ─── 10. Task.pipe — pipeline paralelo com channels internos ─────────────────
+//
+//   Task.pipe(semente, f, g, ...)
+//   Cria um pipeline de stages ligados por channels; cada stage é um task
+//   que lê do channel anterior e escreve no próximo.
+//   Retorna o channel de saída do último stage.
+
+fn demoPipelineParalelo() {
+    print("--- 10. Task.pipe ---")
+    val semente = 3
+    val ch = Task.pipe(semente, dobrar, triplicar)
+    ch.close()
+    print("Task.pipe: pipeline lançado (semente=$(semente))")
+}
+
+// ─── 11. select — multiplexação de channels ──────────────────────────────────
+//
+//   Sem default:  bloqueia até o primeiro channel ter dado.
+//   Com default:  não bloqueia — executa default se nenhum pronto.
+
+fn demoSelectBloqueante(chA: Channel[Int], chB: Channel[Int]) {
+    select {
+        msgA = chA.recv() => print("select: chA recebeu $(msgA)")
+        msgB = chB.recv() => print("select: chB recebeu $(msgB)")
+    }
+}
+
+fn demoSelectNaoBloqueante(ch: Channel[Int]) {
+    select {
+        msg = ch.recv() => print("select: recebido $(msg)")
+        default         => print("select default: nada disponível agora")
+    }
+}
+
+fn demoSelect() {
+    print("--- 11. select ---")
+
+    val chA = Channel.new(4)
+    val chB = Channel.new(4)
+
+    // Coloca dado em chA antes do select — recv vai suceder imediatamente.
+    chA.send(99)
+    demoSelectBloqueante(chA, chB)
+
+    // chB está vazio — cai no default.
+    demoSelectNaoBloqueante(chB)
+
+    chA.close()
+    chB.close()
+}
+
+// ─── 12. for task — parallel map ─────────────────────────────────────────────
+//
+//   for task item in lista { expr }
+//   Spawna um task por elemento, aguarda todos (await estruturado)
+//   e retorna List[U] com os resultados em ordem original.
+
+fn demoForTask() {
+    print("--- 12. for task ---")
+
+    val nums: List[Int] = [1, 2, 3, 4, 5]
+
+    // Body: call expression
+    val dobrados = for task n in nums { dobrar(n) }
+    print("for task call: $(dobrados.size()) resultados")  // 5
+
+    // Body: pipe chain
+    val quadrados = for task n in nums { n |> quadrado }
+    print("for task pipe: $(quadrados.size()) resultados") // 5
+}
+
+// ─── 13. .tap — side-effect sem alterar o tipo ───────────────────────────────
+//
+//   t.tap(fn(r) => side_effect)
+//   Enfileira um wrapper que awaita a source, chama o callback como side-effect
+//   e re-armazena o resultado original. Retorna Task[T] inalterado.
+
+fn demoTap() {
+    print("--- 13. .tap ---")
+
+    // .tap simples: log do resultado sem alterar o tipo.
+    val t0 = task dobrar(21)
+    val t = t0.tap(fn(r) => print("  tap: r=$(r)"))
+    val r = t.await()
+    print(".tap resultado: $(r)")         // tap: r=42  /  resultado: 42
+
+    // .tap encadeado: múltiplos side-effects na mesma chain.
+    val t2a = task triplicar(4)
+    val t2b = t2a.tap(fn(r) => print("  tap-1: $(r)"))
+    val t2 = t2b.tap(fn(r) => print("  tap-2: $(r)"))
+    val r2 = t2.await()
+    print(".tap encadeado: $(r2)")        // tap-1: 12, tap-2: 12, resultado: 12
+}
+
+// ─── 14. Task.listen — bridge task → channel ─────────────────────────────────
+//
+//   Task.listen(t, ch)
+//   Spawna um wrapper fire-and-forget que faz srt_await(t) → srt_chan_send(ch).
+//   A source task é implicitamente "consumida" pelo listener; ch pode ser
+//   lido em qualquer momento depois, inclusive via select.
+
+fn demoTaskListen() {
+    print("--- 14. Task.listen ---")
+
+    // Caso básico: resultado da task chega no channel.
+    val t = task dobrar(10)
+    val ch = Channel.new(1)
+    Task.listen(t, ch)
+
+    val r = ch.recv()
+    match r {
+        Some(v) => print("Task.listen recv: $(v)")   // 20
+        None    => print("Task.listen: canal fechado")
+    }
+    ch.close()
+
+    // Múltiplos listeners em channels distintos (fan-out via listen).
+    val t2 = task dobrar(7)
+    val chA = Channel.new(1)
+    val chB = Channel.new(1)
+    Task.listen(t2, chA)
+
+    val t3 = task triplicar(7)
+    Task.listen(t3, chB)
+
+    val rA = chA.recv()
+    val rB = chB.recv()
+    match rA {
+        Some(v) => print("listen chA: $(v)")   // 14
+        None    => print("listen chA: fechado")
+    }
+    match rB {
+        Some(v) => print("listen chB: $(v)")   // 21
+        None    => print("listen chB: fechado")
+    }
+    chA.close()
+    chB.close()
+}
+
+// ─── 15. .always — finalizador garantido ─────────────────────────────────────
+//
+//   t.always(fn() => cleanup())
+//   Roda independente de Ok, Err ou cancelamento. O M-12 garante que
+//   wake_waiters acorda waiters em SRT_DONE e SRT_CANCELLED.
+
+fn demoAlways() {
+    print("--- 15. .always ---")
+
+    // .always em task que completa normalmente.
+    val t0 = task dobrar(5)
+    val t = t0.always(fn() => print("  always: cleanup executado"))
+    val r = t.await()
+    print(".always resultado: $(r)")      // always: cleanup executado / resultado: 10
+
+    // .tap seguido de .always — ambos disparam em sequência.
+    val t2a = task triplicar(3)
+    val t2b = t2a.tap(fn(r) => print("  tap antes do always: $(r)"))
+    val t2 = t2b.always(fn() => print("  always: recurso liberado"))
+    val r2 = t2.await()
+    print(".tap + .always: $(r2)")        // tap: 9, always: recurso liberado, resultado: 9
+}
+
+// ─── 16. .then e .catch — continuações assíncronas tipadas ───────────────────
+//
+//   t.then(fn(r: T) => U)  → Task[U]  (transforma resultado)
+//   t.catch(fn(e) => Ok(v)) → Task[Result[T]]  (recupera de Err)
+//
+//   Diferença de ~>: podem ser anexados a handles já existentes,
+//   inclusive recebidos como argumentos de funções.
+
+fn demoThenCatch() {
+    print("--- 16. .then e .catch ---")
+
+    // .then: Task[Int] → Task[Int]
+    val t1a = task dobrar(10)
+    val t1 = t1a.then(fn(r) => r + 5)
+    val r1 = t1.await()
+    print(".then: $(r1)")                 // 25  (20 + 5)
+
+    // .then encadeado: cada step retorna Task[Int] novo.
+    val t2a = task dobrar(3)
+    val t2b = t2a.then(fn(r) => r * 10)
+    val t2 = t2b.then(fn(r) => r + 1)
+    val r2 = t2.await()
+    print(".then encadeado: $(r2)")       // 61  (3*2=6, *10=60, +1=61)
+
+    // .tap + .then combinados.
+    val t3a = task incrementar(99)
+    val t3b = t3a.tap(fn(r) => print("  antes do then: $(r)"))
+    val t3 = t3b.then(fn(r) => r * 2)
+    val r3 = t3.await()
+    print(".tap + .then: $(r3)")          // antes: 100, resultado: 200
+
+    // .catch: recupera de Task[Result[Int]] com Err.
+    val t4a = task tentativa(-5)
+    val t4 = t4a.catch(fn(e) => Ok(0))
+    val r4 = t4.await()
+    match r4 {
+        Ok(v)  => print(".catch recuperado: $(v)")   // 0
+        Err(e) => print(".catch: erro inesperado")
+    }
+
+    // .catch em task que retorna Ok — passa adiante sem chamar fn.
+    val t5a = task tentativa(7)
+    val t5 = t5a.catch(fn(e) => Ok(-1))
+    val r5 = t5.await()
+    match r5 {
+        Ok(v)  => print(".catch ok path: $(v)")      // 14  (7*2)
+        Err(e) => print(".catch: erro inesperado")
+    }
+}
+
+// ─── main ─────────────────────────────────────────────────────────────────────
+
+fn main() {
+    print("=== Soyuz Async Demo ===")
+
+    demoTask()
+    demoTaskCombinators()
+    demoTaskHandle()
+    demoChannel()
+    demoSyncChannel()
+    demoTaskPipeChain()
+    demoAsyncPipe()
+    demoAsyncPipeQuest()
+    demoTaskFan()
+    demoPipelineParalelo()
+    demoSelect()
+    demoForTask()
+
+    print("--- Fase 7: Callbacks ---")
+    demoTap()
+    demoTaskListen()
+    demoAlways()
+    demoThenCatch()
+
+    print("=== Fim ===")
+}
