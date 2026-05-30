@@ -538,6 +538,17 @@ func (g *Generator) declareBuiltins() {
 		ir.NewParam("list_a", types.I8Ptr),
 		ir.NewParam("list_b", types.I8Ptr),
 		ir.NewParam("elem_is_heap", types.I64))
+	g.module.NewFunc("soyuz_list_size", types.I64,
+		ir.NewParam("list", types.I8Ptr))
+	g.module.NewFunc("soyuz_list_to_string", g.soyuzStringPtrType,
+		ir.NewParam("list", types.I8Ptr),
+		ir.NewParam("elem_kind", types.I64))
+	g.module.NewFunc("soyuz_map_size", types.I64,
+		ir.NewParam("map", types.I8Ptr))
+	g.module.NewFunc("soyuz_map_to_string", g.soyuzStringPtrType,
+		ir.NewParam("map", types.I8Ptr),
+		ir.NewParam("key_is_string", types.I64),
+		ir.NewParam("val_kind", types.I64))
 
 	// Map primitives
 	g.module.NewFunc("soyuz_map_new", types.I8Ptr,

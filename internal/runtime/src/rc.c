@@ -183,6 +183,11 @@ void *soyuz_list_get(void *list_ptr, int64_t index) {
     return list->data[index];
 }
 
+int64_t soyuz_list_size(void *list_ptr) {
+    SoyuzList *list = (SoyuzList *)list_ptr;
+    return list ? list->size : 0;
+}
+
 void soyuz_list_dtor_rc(void *ptr) {
     SoyuzList *list = (SoyuzList *)ptr;
     for (int64_t i = 0; i < list->size; i++) {
@@ -353,6 +358,11 @@ void soyuz_map_set(void *map_ptr, void *key, void *value) {
     map->entries[idx].value = value;
     map->entries[idx].occupied = 1;
     map->size++;
+}
+
+int64_t soyuz_map_size(void *map_ptr) {
+    SoyuzMap *map = (SoyuzMap *)map_ptr;
+    return map ? map->size : 0;
 }
 
 void *soyuz_map_get(void *map_ptr, void *key) {

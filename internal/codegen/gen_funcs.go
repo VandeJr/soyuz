@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"soyuz/internal/checker"
 	"soyuz/internal/parser"
 
@@ -458,6 +459,34 @@ func (g *Generator) declareFuncVariants(name string, variants []*parser.FuncDecl
 	g.module.NewFunc(name, retType, params...)
 }
 
+func isCatchallPatternForDispatch(p parser.Pattern) bool {
+	switch p.(type) {
+	case *parser.BindingPattern, *parser.WildcardPattern:
+		return true
+	}
+	return false
+}
+
+// funcVariantDispatchPriority orders variants: when-guards first, specific patterns,
+// then catch-all bindings last (P-13).
+func funcVariantDispatchPriority(v *parser.FuncDecl) int {
+	if v.WhenGuard != nil {
+		return 0
+	}
+	for _, p := range v.Params {
+		if !isCatchallPatternForDispatch(p.Pattern) {
+			return 1
+		}
+	}
+	return 2
+}
+
+func sortFuncVariantsForDispatch(variants []*parser.FuncDecl) {
+	sort.SliceStable(variants, func(i, j int) bool {
+		return funcVariantDispatchPriority(variants[i]) < funcVariantDispatchPriority(variants[j])
+	})
+}
+
 func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.FuncDecl) error {
 	if len(variants) == 0 {
 		return nil
@@ -467,6 +496,8 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 	if len(variants[0].Generics) > 0 {
 		return nil
 	}
+
+	sortFuncVariantsForDispatch(variants)
 
 	fn := g.findFunc(name)
 	if fn == nil {
