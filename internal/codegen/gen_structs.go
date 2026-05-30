@@ -43,11 +43,11 @@ func (g *Generator) generateExternDecl(n *parser.ExternDecl) error {
 	}
 	var retType types.Type = types.Void
 	if n.ReturnType != nil {
-		retType = g.mapSoyuzTypeToLLVM(n.ReturnType)
+		retType = g.mapExternTypeToLLVM(n.ReturnType)
 	}
 	var params []*ir.Param
 	for _, p := range n.Params {
-		pt := g.mapSoyuzTypeToLLVM(p.Type)
+		pt := g.mapExternTypeToLLVM(p.Type)
 		name := ""
 		if bp, ok := p.Pattern.(*parser.BindingPattern); ok {
 			name = bp.Name

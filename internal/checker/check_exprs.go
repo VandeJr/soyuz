@@ -200,6 +200,15 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 					}
 				}
 			}
+			if ft, ok2 := ct.Fields[property]; ok2 {
+				if pub, has := ct.FieldPub[property]; has && !pub && !c.canAccessClassMember(ct) {
+					c.errorf(pos, "campo '%s' de '%s' é privado", property, ct.Name)
+				}
+				if sub != nil {
+					return c.substitute(ft, sub)
+				}
+				return ft
+			}
 			if variants, ok2 := ct.Methods[property]; ok2 && len(variants) > 0 {
 				if pub, has := ct.MethodPub[property]; has && !pub && !c.canAccessClassMember(ct) {
 					c.errorf(pos, "método '%s' de '%s' é privado", property, ct.Name)
@@ -227,19 +236,15 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 					return ft
 				}
 			}
-			// Fields with type-parameter substitution (e.g. MutexGuard[T].value → T)
-			if ft, ok2 := ct.Fields[property]; ok2 {
-				if pub, has := ct.FieldPub[property]; has && !pub && !c.canAccessClassMember(ct) {
-					c.errorf(pos, "campo '%s' de '%s' é privado", property, ct.Name)
-				}
-				if sub != nil {
-					return c.substitute(ft, sub)
-				}
-				return ft
-			}
 		}
 		return Unknown
 	case *ClassType:
+		if ft, ok := t.Fields[property]; ok {
+			if pub, has := t.FieldPub[property]; has && !pub && !c.canAccessClassMember(t) {
+				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
+			}
+			return ft
+		}
 		if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
 			if pub, has := t.MethodPub[property]; has && !pub && !c.canAccessClassMember(t) {
 				c.errorf(pos, "método '%s' de '%s' é privado", property, t.Name)
@@ -250,12 +255,6 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 			if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
 				return variants[0]
 			}
-		}
-		if ft, ok := t.Fields[property]; ok {
-			if pub, has := t.FieldPub[property]; has && !pub && !c.canAccessClassMember(t) {
-				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
-			}
-			return ft
 		}
 		c.errorf(pos, "class %s has no member %s", t.Name, property)
 		return Unknown

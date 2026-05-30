@@ -70,6 +70,12 @@ func (c *Checker) inferExprType(n parser.Node) Type {
 		default:
 			return Unknown
 		}
+	case *parser.TupleExpr:
+		elems := make([]Type, len(n.Elements))
+		for i, e := range n.Elements {
+			elems[i] = c.inferExprType(e)
+		}
+		return &TupleType{Elements: elems}
 	case *parser.CallExpr:
 		var calleeType Type
 		if se, ok := n.Callee.(*parser.SpecializedExpr); ok {
@@ -106,6 +112,13 @@ func (c *Checker) unify(param, actual Type, inferred map[string]Type) {
 			}
 		}
 	}
+	if tp, ok := param.(*TupleType); ok {
+		if ta, ok := actual.(*TupleType); ok && len(tp.Elements) == len(ta.Elements) {
+			for i := range tp.Elements {
+				c.unify(tp.Elements[i], ta.Elements[i], inferred)
+			}
+		}
+	}
 }
 
 func (c *Checker) instantiateFunc(f *FuncType, specParams []Type) *FuncType {
@@ -137,6 +150,13 @@ func (c *Checker) substitute(t Type, sub map[string]Type) Type {
 			newParams[i] = c.substitute(p, sub)
 		}
 		return &SpecializedType{Base: st.Base, Params: newParams}
+	}
+	if tt, ok := t.(*TupleType); ok {
+		newElems := make([]Type, len(tt.Elements))
+		for i, e := range tt.Elements {
+			newElems[i] = c.substitute(e, sub)
+		}
+		return &TupleType{Elements: newElems}
 	}
 	return t
 }

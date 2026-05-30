@@ -419,11 +419,21 @@ func (g *Generator) generateBinaryExpr(n *parser.BinaryExpr) (value.Value, error
 	case ">>":
 		return g.current.NewAShr(left, right), nil
 	case "==":
+		if eq, ok, err := g.tryStructDeepEqual(n.Left, n.Right, left, right); err != nil {
+			return nil, err
+		} else if ok {
+			return g.boolI1(eq), nil
+		}
 		if isFloat {
 			return g.current.NewFCmp(enum.FPredOEQ, left, right), nil
 		}
 		return g.current.NewICmp(enum.IPredEQ, left, right), nil
 	case "!=":
+		if eq, ok, err := g.tryStructDeepEqual(n.Left, n.Right, left, right); err != nil {
+			return nil, err
+		} else if ok {
+			return g.current.NewXor(g.boolI1(eq), constant.True), nil
+		}
 		if isFloat {
 			return g.current.NewFCmp(enum.FPredONE, left, right), nil
 		}
@@ -949,7 +959,7 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				isMethod = true
 			}
 		case *checker.BasicType:
-			if t.Name == "String" {
+			if t.Name == "String" || len(g.extensionMethods[t.Name]) > 0 {
 				isMethod = true
 			}
 		}
@@ -983,12 +993,18 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 	}
 
 	// Direct call when callee is a concrete function pointer; closure call otherwise.
+	retType := g.check.NodeTypes[n]
 	if ptrType, ok := callee.Type().(*types.PointerType); ok {
 		if _, isFuncType := ptrType.ElemType.(*types.FuncType); isFuncType {
-			return g.current.NewCall(callee, args...), nil
+			ret := g.current.NewCall(callee, args...)
+			return g.coerceCallResult(ret, retType), nil
 		}
 	}
-	return g.callClosureI8Ptr(n, callee, args)
+	ret, err := g.callClosureI8Ptr(n, callee, args)
+	if err != nil {
+		return nil, err
+	}
+	return g.coerceCallResult(ret, retType), nil
 }
 
 func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
@@ -1050,16 +1066,43 @@ func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInf
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
 	g.current.NewStore(constant.NewInt(types.I64, int64(vi.tag)), tagPtr)
 	if len(args) > 0 {
+		if err := g.storeEnumVariantPayload(ei, structPtr, vi, args); err != nil {
+			return nil, err
+		}
+	}
+	return structPtr, nil
+}
+
+func (g *Generator) storeEnumVariantPayload(ei enumInfo, structPtr value.Value, vi variantInfo, args []value.Value) error {
+	payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	if len(vi.fields) <= 1 && len(args) == 1 {
 		val := args[0]
 		if g.isHeapType(val.Type()) {
 			g.emitRetain(val)
 		}
-		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
-			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
 		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(val.Type()))
 		g.current.NewStore(val, castPtr)
+		return nil
 	}
-	return structPtr, nil
+	payloadType := enumVariantPayloadLLVMType(vi)
+	payloadAlloc := g.newAlloca(payloadType)
+	st, ok := payloadType.(*types.StructType)
+	if !ok || len(args) != len(st.Fields) {
+		return fmt.Errorf("enum variant argument count mismatch")
+	}
+	for i, val := range args {
+		if g.isHeapType(val.Type()) {
+			g.emitRetain(val)
+		}
+		fieldPtr := g.current.NewGetElementPtr(st, payloadAlloc,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+		g.current.NewStore(val, fieldPtr)
+	}
+	payloadVal := g.current.NewLoad(payloadType, payloadAlloc)
+	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
+	g.current.NewStore(payloadVal, castPtr)
+	return nil
 }
 
 func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *parser.CallExpr) (value.Value, error) {
@@ -1075,18 +1118,13 @@ func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *pars
 	g.current.NewStore(constant.NewInt(types.I64, int64(vi.tag)), tagPtr)
 
 	if len(n.Args) > 0 {
-		val, err := g.generateExpr(n.Args[0])
+		args, err := g.generateCallArgs(n.Args)
 		if err != nil {
 			return nil, err
 		}
-		// Retain heap-typed payload: the enum struct now co-owns it.
-		if g.isHeapType(val.Type()) {
-			g.emitRetain(val)
+		if err := g.storeEnumVariantPayload(ei, structPtr, vi, args); err != nil {
+			return nil, err
 		}
-		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
-			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
-		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(val.Type()))
-		g.current.NewStore(val, castPtr)
 	}
 	return structPtr, nil
 }
@@ -1100,7 +1138,8 @@ func (g *Generator) generateInterpolatedString(n *parser.InterpolatedString) (va
 		if err != nil {
 			return nil, err
 		}
-		if soyuzType := g.checkerTypeForExpr(part); g.isListOrMapType(soyuzType) {
+		soyuzType := g.checkerTypeForExpr(part)
+		if g.isListOrMapType(soyuzType) {
 			strVal, err := g.emitCollectionToString(val, soyuzType)
 			if err != nil {
 				return nil, err
@@ -1108,6 +1147,12 @@ func (g *Generator) generateInterpolatedString(n *parser.InterpolatedString) (va
 			b.WriteString("%s")
 			args = append(args, g.strData(strVal))
 			continue
+		}
+		if inner, ok := g.optionPrimitiveInnerType(soyuzType); ok {
+			val, err = g.emitOptionPrimitiveForPrint(val, inner)
+			if err != nil {
+				return nil, err
+			}
 		}
 		switch {
 		case val.Type().Equal(g.soyuzStringPtrType):
@@ -1708,8 +1753,7 @@ func (g *Generator) generatePipeQuestExpr(n *parser.PipeQuestExpr) (value.Value,
 	}
 	payloadPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
-	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(innerType))
-	payload := g.current.NewLoad(innerType, castPtr)
+	payload := g.loadEnumPayloadValue(payloadPtr, innerType)
 
 	callVal, callType, err := g.generatePipeQuestCall(n, payload)
 	if err != nil {
@@ -1779,7 +1823,28 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 		args = append(args, v)
 	}
 
-	retVal := g.current.NewCall(calleeVal, args...)
+	fakeCall := &parser.CallExpr{Callee: callee, Args: extraArgs}
+	if sp, ok := g.check.Specializations[n]; ok {
+		g.check.Specializations[fakeCall] = sp
+	}
+	var retVal value.Value
+	if ptrType, ok := calleeVal.Type().(*types.PointerType); ok {
+		if _, isFuncType := ptrType.ElemType.(*types.FuncType); isFuncType {
+			retVal = g.current.NewCall(calleeVal, args...)
+		} else {
+			var err error
+			retVal, err = g.callClosureI8Ptr(fakeCall, calleeVal, args)
+			if err != nil {
+				return nil, checker.Unknown, err
+			}
+		}
+	} else {
+		var err error
+		retVal, err = g.callClosureI8Ptr(fakeCall, calleeVal, args)
+		if err != nil {
+			return nil, checker.Unknown, err
+		}
+	}
 	var retType checker.Type = checker.Unknown
 	if ft, ok := g.check.NodeTypes[callee].(*checker.FuncType); ok {
 		retType = ft.Return
@@ -2027,8 +2092,7 @@ func (g *Generator) generateSafeNavAccess(n *parser.SafeNavExpr, accessFn func(u
 	g.current = someBlock
 	payloadPtr := g.current.NewGetElementPtr(ei.typ, optPtr,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
-	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(innerLLVMType))
-	payload := g.current.NewLoad(innerLLVMType, castPtr)
+	payload := g.loadEnumPayloadValue(payloadPtr, innerLLVMType)
 
 	memberVal, err := accessFn(payload, innerCheckerType)
 	if err != nil {

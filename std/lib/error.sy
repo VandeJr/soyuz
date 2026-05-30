@@ -1,16 +1,2 @@
 // @soyuz/error — compatibility shim; canonical definitions live in @soyuz/prelude.
-
-pub interface Error {
-    pub fn message() -> String
-    pub fn code() -> Int
-}
-
-pub class NoneError : Error {
-    pub val msg: String
-
-    pub fn message(self) -> String = self.msg
-
-    pub fn code(self) -> Int = 1
-}
-
-pub fn noneError(msg: String) -> Error = NoneError { msg: msg }
+// This module intentionally does not redefine Error/NoneError to avoid duplicate-type errors on import.
