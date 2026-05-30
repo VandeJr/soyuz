@@ -35,6 +35,8 @@ type Checker struct {
 	typeExtensions       map[string]map[string][]*FuncType // extended/builtin methods per type name
 	extendSelfTypes      map[string]Type                 // self type for extension methods
 	currentExtend        string                            // type name when checking extend method body
+	loopDepth            int                               // nested loop/while/for for break/continue
+	loopBreakTypes       []Type                            // accumulated break-value type per `loop` expr
 }
 
 type CheckResult struct {
@@ -587,14 +589,13 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 	case *parser.ForStmt:
 		return c.checkForStmt(n)
 	case *parser.WhileStmt:
-		c.checkNode(n.Condition)
-		c.checkBlock(n.Body)
-		return UnitType
+		return c.checkWhileStmt(n)
 	case *parser.LoopStmt:
-		c.checkBlock(n.Body)
-		return UnitType
-	case *parser.BreakStmt, *parser.ContinueStmt:
-		return UnitType
+		return c.checkLoopStmt(n)
+	case *parser.BreakStmt:
+		return c.checkBreakStmt(n)
+	case *parser.ContinueStmt:
+		return c.checkContinueStmt(n)
 	case *parser.IfStmt:
 		c.checkNode(n.Condition)
 		c.checkBlock(n.Consequent)
