@@ -26,25 +26,43 @@ func TestFindProjectRoot(t *testing.T) {
 	}
 }
 
-func TestLoadPackagesFromTOML(t *testing.T) {
+func TestLoadFromTOML(t *testing.T) {
 	root := t.TempDir()
 	toml := filepath.Join(root, "soyuz.toml")
-	content := `[packages]
+	content := `[project]
+name = "meu-app"
+version = "1.2.3"
+type = "binary"
+entry = "src/main.sy"
+
+[packages]
 lexer = "lib/lexer"
 app = "src"
 `
 	if err := os.WriteFile(toml, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pkgs := make(map[string]string)
-	if err := loadPackagesFromTOML(toml, pkgs); err != nil {
+	cfg := &ProjectConfig{
+		Packages: make(map[string]string),
+		Meta:     ProjectMeta{Name: "default", Version: "0.1.0", Type: "binary", Entry: "main.sy"},
+	}
+	if err := loadFromTOML(toml, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if pkgs["lexer"] != "lib/lexer" {
-		t.Fatalf("lexer: %q", pkgs["lexer"])
+	if cfg.Meta.Name != "meu-app" {
+		t.Fatalf("name: %q", cfg.Meta.Name)
 	}
-	if pkgs["app"] != "src" {
-		t.Fatalf("app: %q", pkgs["app"])
+	if cfg.Meta.Version != "1.2.3" {
+		t.Fatalf("version: %q", cfg.Meta.Version)
+	}
+	if cfg.Meta.Entry != "src/main.sy" {
+		t.Fatalf("entry: %q", cfg.Meta.Entry)
+	}
+	if cfg.Packages["lexer"] != "lib/lexer" {
+		t.Fatalf("lexer: %q", cfg.Packages["lexer"])
+	}
+	if cfg.Packages["app"] != "src" {
+		t.Fatalf("app: %q", cfg.Packages["app"])
 	}
 }
 
