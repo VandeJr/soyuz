@@ -137,6 +137,10 @@ SoyuzString *soyuz_str_to_lower(SoyuzString *s) {
     return result;
 }
 
+int64_t soyuz_str_is_empty(SoyuzString *s) {
+    return (!s || s->len == 0) ? 1 : 0;
+}
+
 int64_t soyuz_str_contains(SoyuzString *s, SoyuzString *sub) {
     if (!s || !sub) return 0;
     return strstr(soyuz_str_data(s), soyuz_str_data(sub)) != NULL ? 1 : 0;

@@ -464,6 +464,37 @@ func (g *Generator) declareBuiltins() {
 		ir.NewParam("buf", types.I8Ptr))
 	g.module.NewFunc("soyuz_str_len", types.I64,
 		ir.NewParam("s", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_is_empty", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_trim", g.soyuzStringPtrType,
+		ir.NewParam("s", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_to_upper", g.soyuzStringPtrType,
+		ir.NewParam("s", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_to_lower", g.soyuzStringPtrType,
+		ir.NewParam("s", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_substring", g.soyuzStringPtrType,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("start", types.I64),
+		ir.NewParam("end", types.I64))
+	g.module.NewFunc("soyuz_str_replace", g.soyuzStringPtrType,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("from", g.soyuzStringPtrType),
+		ir.NewParam("to", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_contains", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("sub", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_starts_with", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("prefix", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_ends_with", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("suffix", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_index_of", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("sub", g.soyuzStringPtrType))
+	g.module.NewFunc("soyuz_str_last_index_of", types.I64,
+		ir.NewParam("s", g.soyuzStringPtrType),
+		ir.NewParam("sub", g.soyuzStringPtrType))
 
 	g.module.NewFunc("soyuz_int_to_str", g.soyuzStringPtrType,
 		ir.NewParam("n", types.I64))

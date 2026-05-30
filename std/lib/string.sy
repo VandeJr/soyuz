@@ -2,6 +2,8 @@ import ( { Error } from @soyuz/error )
 
 extern fn soyuz_str_len(s: String) -> Int
 
+extern fn soyuz_str_is_empty(s: String) -> Bool
+
 extern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String
 
 extern fn soyuz_str_last_index_of(s: String, sub: String) -> Int
@@ -48,6 +50,8 @@ pub class ParseError : Error {
 
 extend String {
     pub fn len(self) -> Int = soyuz_str_len(self)
+
+    pub fn isEmpty(self) -> Bool = soyuz_str_is_empty(self)
 
     pub fn substring(self, start: Int, end: Int) -> String = soyuz_str_substring(self, start, end)
 

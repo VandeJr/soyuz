@@ -1418,10 +1418,22 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 			raw := g.current.NewCall(g.findFunc(cfn), obj, args[0])
 			return g.emitIntToOption(raw, asChar)
 		}
+		if bt.Name == "String" && (me.Property == "indexOf" || me.Property == "lastIndexOf") {
+			cfn := "soyuz_str_index_of"
+			if me.Property == "lastIndexOf" {
+				cfn = "soyuz_str_last_index_of"
+			}
+			raw := g.current.NewCall(g.findFunc(cfn), obj, args[0])
+			return g.emitIntToOption(raw, false)
+		}
 		if cfn := primitiveMethodCFunc(bt.Name, me.Property); cfn != "" {
 			if fn := g.findFunc(cfn); fn != nil {
 				callArgs := append([]value.Value{obj}, args...)
-				return g.current.NewCall(fn, callArgs...), nil
+				raw := g.current.NewCall(fn, callArgs...)
+				if stringMethodReturnsBool(me.Property) {
+					return g.current.NewTrunc(raw, types.I1), nil
+				}
+				return raw, nil
 			}
 			// fn not declared in this module; fall through to StringExtensions
 		}
@@ -2403,12 +2415,23 @@ func (g *Generator) emitIntToOption(raw value.Value, asChar bool) (value.Value, 
 	return phi, nil
 }
 
+func stringMethodReturnsBool(method string) bool {
+	switch method {
+	case "isEmpty", "contains", "startsWith", "endsWith":
+		return true
+	default:
+		return false
+	}
+}
+
 func primitiveMethodCFunc(typeName, method string) string {
 	switch typeName {
 	case "String":
 		switch method {
 		case "len":
 			return "soyuz_str_len"
+		case "isEmpty":
+			return "soyuz_str_is_empty"
 		case "trim":
 			return "soyuz_str_trim"
 		case "toUpperCase", "toUpper":
@@ -2417,6 +2440,16 @@ func primitiveMethodCFunc(typeName, method string) string {
 			return "soyuz_str_to_lower"
 		case "contains":
 			return "soyuz_str_contains"
+		case "startsWith":
+			return "soyuz_str_starts_with"
+		case "endsWith":
+			return "soyuz_str_ends_with"
+		case "indexOf":
+			return "soyuz_str_index_of"
+		case "lastIndexOf":
+			return "soyuz_str_last_index_of"
+		case "replace":
+			return "soyuz_str_replace"
 		case "substring":
 			return "soyuz_str_substring"
 		case "split":
