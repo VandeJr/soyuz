@@ -4,8 +4,9 @@ import "soyuz/internal/lexer"
 
 // bindingPower returns the left binding power of an infix/postfix token.
 // Precedence (lowest → highest, following C conventions for bitwise):
-//   PIPE(|>) < ASSIGN < ELVIS < OR(||) < PIPE_SINGLE(|) < CARET(^) < AND(&&) < AMPERSAND(&)
-//   < EQUALS/NE < LT/GT/… < RANGE < SHL/SHR < PLUS/MINUS < MUL/DIV/MOD < DOT < CALL/INDEX
+//
+//	PIPE(|>) < ASSIGN < ELVIS < OR(||) < PIPE_SINGLE(|) < CARET(^) < AND(&&) < AMPERSAND(&)
+//	< EQUALS/NE < LT/GT/… < RANGE < SHL/SHR < PLUS/MINUS < MUL/DIV/MOD < DOT < CALL/INDEX
 func bindingPower(t lexer.TokenType) int {
 	switch t {
 	case lexer.PIPE, lexer.PIPE_QUEST,
@@ -402,10 +403,8 @@ func (p *Parser) parseMatchArm() MatchArm {
 	p.expect(lexer.FAT_ARROW)
 
 	var body Node
-	if p.check(lexer.LBRACE) {
-		body = p.parseBlock()
-	} else {
-		body = p.parseExpression(0)
+	body = p.parseArmBody()
+	if _, isBlock := body.(*BlockStmt); !isBlock {
 		// Accept either a comma or a semicolon (from auto-insertion at newline) as arm separator.
 		if !p.consume(lexer.COMMA) {
 			p.consume(lexer.SEMICOLON)
