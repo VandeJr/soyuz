@@ -1003,24 +1003,33 @@ func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
 
 	var fmtStr string
 	var printArgs []value.Value
-	switch {
-	case arg.Type().Equal(g.soyuzStringPtrType):
+	if soyuzType := g.checkerTypeForExpr(n.Args[0]); g.isListOrMapType(soyuzType) {
+		strVal, err := g.emitCollectionToString(arg, soyuzType)
+		if err != nil {
+			return nil, err
+		}
 		fmtStr = "%s\n\x00"
-		printArgs = []value.Value{g.strData(arg)}
-	case arg.Type().Equal(types.I8Ptr):
-		fmtStr = "%s\n\x00"
-		printArgs = []value.Value{arg}
-	case arg.Type().Equal(types.I64):
-		fmtStr = "%lld\n\x00"
-		printArgs = []value.Value{arg}
-	case arg.Type().Equal(types.I1):
-		fmtStr = "%d\n\x00"
-		printArgs = []value.Value{g.current.NewZExt(arg, types.I32)}
-	case arg.Type().Equal(types.Double):
-		fmtStr = "%f\n\x00"
-		printArgs = []value.Value{arg}
-	default:
-		return nil, fmt.Errorf("unsupported type for print: %s", arg.Type())
+		printArgs = []value.Value{g.strData(strVal)}
+	} else {
+		switch {
+		case arg.Type().Equal(g.soyuzStringPtrType):
+			fmtStr = "%s\n\x00"
+			printArgs = []value.Value{g.strData(arg)}
+		case arg.Type().Equal(types.I8Ptr):
+			fmtStr = "%s\n\x00"
+			printArgs = []value.Value{arg}
+		case arg.Type().Equal(types.I64):
+			fmtStr = "%lld\n\x00"
+			printArgs = []value.Value{arg}
+		case arg.Type().Equal(types.I1):
+			fmtStr = "%d\n\x00"
+			printArgs = []value.Value{g.current.NewZExt(arg, types.I32)}
+		case arg.Type().Equal(types.Double):
+			fmtStr = "%f\n\x00"
+			printArgs = []value.Value{arg}
+		default:
+			return nil, fmt.Errorf("unsupported type for print: %s", arg.Type())
+		}
 	}
 
 	cs := constant.NewCharArrayFromString(fmtStr)
@@ -1090,6 +1099,15 @@ func (g *Generator) generateInterpolatedString(n *parser.InterpolatedString) (va
 		val, err := g.generateExpr(part)
 		if err != nil {
 			return nil, err
+		}
+		if soyuzType := g.checkerTypeForExpr(part); g.isListOrMapType(soyuzType) {
+			strVal, err := g.emitCollectionToString(val, soyuzType)
+			if err != nil {
+				return nil, err
+			}
+			b.WriteString("%s")
+			args = append(args, g.strData(strVal))
+			continue
 		}
 		switch {
 		case val.Type().Equal(g.soyuzStringPtrType):
