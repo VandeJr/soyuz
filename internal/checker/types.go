@@ -55,9 +55,10 @@ type RecordType struct {
 func (r *RecordType) String() string { return r.Name }
 
 type EnumType struct {
-	Name     string
-	Variants map[string][]Type // VariantName -> FieldTypes
-	Generics []string
+	Name              string
+	Variants          map[string][]Type // VariantName -> FieldTypes
+	VariantFieldNames map[string][]string
+	Generics          []string
 }
 
 func (e *EnumType) String() string { return e.Name }

@@ -529,6 +529,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return CharType
 	case *parser.Identifier:
 		return c.checkIdentifier(n)
+	case *parser.NamedArg:
+		return c.checkNode(n.Value)
 	case *parser.OkExpr:
 		valType := c.checkNode(n.Value)
 		base := c.resolveTypeExpr(&parser.NamedType{Name: "Result"})
