@@ -340,6 +340,83 @@ func (g *Generator) buildClosureValue(fn *ir.Func, captures []string, envStructT
 	return g.current.NewBitCast(closurePtr, types.I8Ptr), nil
 }
 
+// getOrCreateTopLevelClosure wraps a module-level function in SoyuzClosure{fn, null_env}
+// so it can be passed to parameters of function type or used with callClosureI8Ptr.
+func (g *Generator) getOrCreateTopLevelClosure(name string, target *ir.Func, ft *checker.FuncType) (value.Value, error) {
+	if v, ok := g.topLevelClosureCache[name]; ok {
+		return v, nil
+	}
+	shim, err := g.getOrCreateFuncShim(name, target, ft)
+	if err != nil {
+		return nil, err
+	}
+	closure, err := g.buildClosureValue(shim, nil, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	g.topLevelClosureCache[name] = closure
+	return closure, nil
+}
+
+// getOrCreateFuncShim emits __shim_<name>(i8* __env, params...) that forwards to @name(params...).
+func (g *Generator) getOrCreateFuncShim(name string, target *ir.Func, ft *checker.FuncType) (*ir.Func, error) {
+	shimName := "__shim_" + name
+	if f := g.findFunc(shimName); f != nil {
+		return f, nil
+	}
+	retType := g.mapTypeToLLVM(ft.Return)
+	params := []*ir.Param{ir.NewParam("__env", types.I8Ptr)}
+	for i, p := range ft.Params {
+		params = append(params, ir.NewParam(fmt.Sprintf("arg%d", i), g.mapTypeToLLVM(p)))
+	}
+	shim := g.module.NewFunc(shimName, retType, params...)
+
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	defer func() {
+		g.current = oldCurrent
+		g.vars = oldVars
+		g.heapVars = oldHeapVars
+		g.scopeStack = oldScopeStack
+		g.taskVarStack = oldTaskVarStack
+		g.syncGuardStack = oldSyncGuardStack
+		g.arcVarStack = oldArcVarStack
+		g.blockNames = oldBlockNames
+	}()
+
+	entry := g.newBlock("entry", shim)
+	g.current = entry
+	var callArgs []value.Value
+	for i := 1; i < len(shim.Params); i++ {
+		callArgs = append(callArgs, shim.Params[i])
+	}
+	var result value.Value
+	if retType.Equal(types.Void) {
+		g.current.NewCall(target, callArgs...)
+	} else {
+		result = g.current.NewCall(target, callArgs...)
+	}
+	if retType.Equal(types.Void) {
+		g.current.NewRet(nil)
+	} else {
+		g.current.NewRet(result)
+	}
+	return shim, nil
+}
+
 func (g *Generator) declareFuncVariants(name string, variants []*parser.FuncDecl) {
 	if len(variants) == 0 {
 		return

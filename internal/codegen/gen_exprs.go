@@ -121,8 +121,11 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 				}
 			}
 		}
-		// Fall back to global function
+		// Fall back to global function — as a value, wrap in SoyuzClosure for FuncType.
 		if f := g.findFunc(n.Name); f != nil {
+			if ft, ok := g.check.NodeTypes[n].(*checker.FuncType); ok {
+				return g.getOrCreateTopLevelClosure(n.Name, f, ft)
+			}
 			return f, nil
 		}
 		return nil, fmt.Errorf("undefined identifier in codegen: %s", n.Name)
