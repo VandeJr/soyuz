@@ -109,10 +109,11 @@ utils = "lib/utils"  # @utils/... maps to lib/utils/
 ### Variables
 
 ```soyuz
-val x = 42          // immutable
-var y = 0           // mutable
-const PI = 3.14     // compile-time constant
+val x = 42   // immutable (default)
+var y = 0    // mutable
 ```
+
+There is no `const` — `val` covers all immutability needs.
 
 ### Functions
 
@@ -298,19 +299,20 @@ fn main() {
 **Channels**
 
 ```soyuz
-val ch = Channel.new(8)        // buffered channel
-val sync = Channel.new(0)      // rendezvous (unbuffered)
-
-val t = task {
+fn produtor(ch: Channel[Int]) {
     ch.send(42)
     ch.close()
 }
 
-match ch.recv() {
-    Some(v) => print("received: $(v)")
-    None    => print("channel closed")
+fn main() {
+    val ch = Channel.new(8)        // buffered channel
+    val t = task produtor(ch)
+    match ch.recv() {
+        Some(v) => print("received: $(v)")
+        None    => print("channel closed")
+    }
+    t.await()
 }
-t.await()
 ```
 
 **select**
@@ -389,7 +391,9 @@ Place any `.c` files in a `runtime/` directory at the project root — they will
 pub fn soma(a: Int, b: Int) -> Int = a + b
 
 // main.sy
-import { soma } from @math/math
+import (
+    { soma } from @math/math
+)
 
 fn main() {
     print(soma(1, 2))
