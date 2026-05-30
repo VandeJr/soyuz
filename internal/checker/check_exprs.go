@@ -165,10 +165,10 @@ func (c *Checker) checkMemberExpr(n *parser.MemberExpr) Type {
 		}
 	}
 	objType := c.checkNode(n.Object)
-	return c.resolveMemberType(objType, n.Property, n.Pos())
+	return c.resolveMemberType(objType, n.Property, n.Pos(), c.preferMemberMethod)
 }
 
-func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Position) Type {
+func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Position, preferMethod bool) Type {
 	switch t := objType.(type) {
 	case *EnumType:
 		// Enum.Variant — look up directly in the enum's own variants to avoid scope collisions
@@ -198,6 +198,22 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 					if i < len(t.Params) {
 						sub[gname] = t.Params[i]
 					}
+				}
+			}
+			if preferMethod {
+				if variants, ok2 := ct.Methods[property]; ok2 && len(variants) > 0 {
+					if pub, has := ct.MethodPub[property]; has && !pub && !c.canAccessClassMember(ct) {
+						c.errorf(pos, "método '%s' de '%s' é privado", property, ct.Name)
+					}
+					ft := variants[0]
+					if sub != nil {
+						newParams := make([]Type, len(ft.Params))
+						for i, p := range ft.Params {
+							newParams[i] = c.substitute(p, sub)
+						}
+						return &FuncType{Params: newParams, Return: c.substitute(ft.Return, sub)}
+					}
+					return ft
 				}
 			}
 			if ft, ok2 := ct.Fields[property]; ok2 {
@@ -239,6 +255,14 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 		}
 		return Unknown
 	case *ClassType:
+		if preferMethod {
+			if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
+				if pub, has := t.MethodPub[property]; has && !pub && !c.canAccessClassMember(t) {
+					c.errorf(pos, "método '%s' de '%s' é privado", property, t.Name)
+				}
+				return variants[0]
+			}
+		}
 		if ft, ok := t.Fields[property]; ok {
 			if pub, has := t.FieldPub[property]; has && !pub && !c.canAccessClassMember(t) {
 				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
@@ -316,7 +340,7 @@ func (c *Checker) checkSafeNavExpr(n *parser.SafeNavExpr) Type {
 		c.errorf(n.Pos(), "safe navigation (?.) requer Option[T], obtido %s", objType)
 		return Unknown
 	}
-	memberType := c.resolveMemberType(innerType, n.Property, n.Pos())
+	memberType := c.resolveMemberType(innerType, n.Property, n.Pos(), false)
 	if memberType == Unknown {
 		return Unknown
 	}
@@ -787,7 +811,7 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 			c.errorf(sn.Pos(), "safe navigation (?.) requer Option[T], obtido %s", objType)
 			return Unknown
 		}
-		memberType := c.resolveMemberType(innerType, sn.Property, sn.Pos())
+		memberType := c.resolveMemberType(innerType, sn.Property, sn.Pos(), true)
 		methodFT, ok := memberType.(*FuncType)
 		if !ok {
 			c.errorf(n.Callee.Pos(), "attempt to call a value that is not a function: %s", memberType)
@@ -1305,7 +1329,13 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 			ft = f
 		}
 	} else {
-		calleeType = c.checkNode(n.Callee)
+		if _, isME := n.Callee.(*parser.MemberExpr); isME {
+			c.preferMemberMethod = true
+			calleeType = c.checkNode(n.Callee)
+			c.preferMemberMethod = false
+		} else {
+			calleeType = c.checkNode(n.Callee)
+		}
 		if f, ok := calleeType.(*FuncType); ok {
 			if len(f.Generics) > 0 && len(n.Args) > 0 {
 				ft = c.instantiateFunc(f, c.inferGenerics(f, n.Args))

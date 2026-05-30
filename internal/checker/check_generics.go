@@ -48,7 +48,7 @@ func (c *Checker) inferExprType(n parser.Node) Type {
 		return Unknown
 	case *parser.MemberExpr:
 		objType := c.inferExprType(n.Object)
-		return c.resolveMemberType(objType, n.Property, n.Pos())
+		return c.resolveMemberType(objType, n.Property, n.Pos(), false)
 	case *parser.SpecializedExpr:
 		baseType := c.inferExprType(n.Base)
 		specParams := c.typeArgsFromExprs(n.TypeArgs)

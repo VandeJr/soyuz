@@ -37,6 +37,7 @@ type Checker struct {
 	currentExtend        string                            // type name when checking extend method body
 	loopDepth            int                               // nested loop/while/for for break/continue
 	loopBreakTypes       []Type                            // accumulated break-value type per `loop` expr
+	preferMemberMethod   bool                              // resolve class member as method (call callee)
 }
 
 type CheckResult struct {

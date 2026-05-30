@@ -62,6 +62,9 @@ fn main() -> Int {
 	if !strings.Contains(ir, "pq_ok") {
 		t.Error("expected pipe-quest blocks in IR")
 	}
+	if strings.Contains(ir, "phi i64") && strings.Contains(ir, "pq_fail") {
+		t.Error("pipe-quest phi must use consistent Result pointer types")
+	}
 }
 
 func TestExtendIntMethod(t *testing.T) {
