@@ -102,6 +102,102 @@ func TestMatchWhenGuard(t *testing.T) {
 	}
 }
 
+// TestErrInferredFromOkVariant verifica que Err(e) em uma variante catchall recebe
+// o tipo Result[T] inferido da variante Ok da mesma função (não Result[Unknown]).
+func TestErrInferredFromOkVariant(t *testing.T) {
+	src := `
+	fn validar(n: Int) when n > 0 = Ok(n)
+	fn validar(n: Int) = Err("não positivo")
+	`
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Fatalf("não esperado erros, obtido %v", result.Errors)
+	}
+
+	// O tipo da função deve ser Result[Int], não Result[Unknown].
+	for node, ty := range result.NodeTypes {
+		fd, ok := node.(*parser.FuncDecl)
+		if !ok || fd.Name != "validar" {
+			continue
+		}
+		ft, ok := ty.(*FuncType)
+		if !ok {
+			t.Fatalf("tipo de validar não é FuncType: %T", ty)
+		}
+		got := ft.Return.String()
+		if got != "Result[Int]" {
+			t.Errorf("esperado retorno Result[Int], obtido %s", got)
+		}
+	}
+}
+
+// TestNoneInferredFromSomeVariant verifica que None em variante catchall recebe
+// o tipo Option[T] inferido da variante Some da mesma função.
+func TestNoneInferredFromSomeVariant(t *testing.T) {
+	src := `
+	fn buscar(n: Int) when n > 0 = Some(n)
+	fn buscar(n: Int) = None
+	`
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Fatalf("não esperado erros, obtido %v", result.Errors)
+	}
+
+	for node, ty := range result.NodeTypes {
+		fd, ok := node.(*parser.FuncDecl)
+		if !ok || fd.Name != "buscar" {
+			continue
+		}
+		ft, ok := ty.(*FuncType)
+		if !ok {
+			t.Fatalf("tipo de buscar não é FuncType: %T", ty)
+		}
+		got := ft.Return.String()
+		if got != "Option[Int]" {
+			t.Errorf("esperado retorno Option[Int], obtido %s", got)
+		}
+	}
+}
+
+// TestErrWithExplicitAnnotation verifica que Err(e) em função com anotação explícita
+// Result[Int] recebe o tipo correto.
+func TestErrWithExplicitAnnotation(t *testing.T) {
+	src := `
+	fn f(n: Int) -> Result[Int] = Err("erro")
+	`
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+	c := New()
+	result := c.Check(prog)
+
+	if len(result.Errors) > 0 {
+		t.Fatalf("não esperado erros, obtido %v", result.Errors)
+	}
+
+	for node, ty := range result.NodeTypes {
+		fd, ok := node.(*parser.FuncDecl)
+		if !ok || fd.Name != "f" {
+			continue
+		}
+		ft, ok := ty.(*FuncType)
+		if !ok {
+			t.Fatalf("tipo de f não é FuncType: %T", ty)
+		}
+		got := ft.Return.String()
+		if got != "Result[Int]" {
+			t.Errorf("esperado retorno Result[Int], obtido %s", got)
+		}
+	}
+}
+
 func TestWhenGuardType(t *testing.T) {
 	src := `
 	fn f(x: Int) when "não é um bool" = x

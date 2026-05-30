@@ -206,5 +206,23 @@ func walkNode(node parser.Node, fn func(parser.Node)) {
 		for _, part := range n.Parts {
 			walkNode(part, fn)
 		}
+	case *parser.TaskExpr:
+		walkNode(n.Inner, fn)
+	case *parser.AsyncPipeExpr:
+		for _, step := range n.Steps {
+			walkNode(step, fn)
+		}
+	case *parser.AsyncPipeQuestStep:
+		walkNode(n.Step, fn)
+	case *parser.SelectExpr:
+		for _, arm := range n.Arms {
+			if arm.Chan != nil {
+				walkNode(arm.Chan, fn)
+			}
+			walkNode(arm.Body, fn)
+		}
+	case *parser.ForTaskStmt:
+		walkNode(n.Iterable, fn)
+		walkNode(n.Body, fn)
 	}
 }

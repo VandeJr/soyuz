@@ -19,19 +19,11 @@ fn negar(n: Int) -> Int = n * -1
 fn quadrado(n: Int) -> Int = n * n
 fn cubo(n: Int) -> Int = n * n * n
 
-fn validar(n: Int) -> Result[Int] {
-    if n > 0 {
-        return Ok(n)
-    }
-    return Err(noneError("não positivo"))
-}
+fn validar(n: Int) when n > 0 = Ok(n)
+fn validar(n: Int) -> Result[Int] = Err(noneError("não positivo"))
 
-fn tentativa(n: Int) -> Result[Int] {
-    if n > 0 {
-        return Ok(n * 2)
-    }
-    return Err(noneError("negativo"))
-}
+fn tentativa(n: Int) when n > 0 = Ok(n * 2)
+fn tentativa(n: Int) = Err(noneError("negativo"))
 
 fn incrementarOk(n: Int) -> Int = n + 1
 

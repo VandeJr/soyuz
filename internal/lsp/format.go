@@ -507,8 +507,47 @@ func (p *printer) expr(node parser.Node) string {
 		return p.blockExpr(n)
 	case *parser.ExprStmt:
 		return p.expr(n.Expr)
+	case *parser.TaskExpr:
+		return "task " + p.expr(n.Inner)
+	case *parser.AsyncPipeExpr:
+		parts := make([]string, len(n.Steps))
+		parts[0] = p.expr(n.Steps[0])
+		for i, step := range n.Steps[1:] {
+			if qs, ok := step.(*parser.AsyncPipeQuestStep); ok {
+				parts[i+1] = "~?> " + p.expr(qs.Step)
+			} else {
+				parts[i+1] = "~> " + p.expr(step)
+			}
+		}
+		return strings.Join(parts, " ")
+	case *parser.SelectExpr:
+		return p.selectExpr(n)
 	}
 	return "<?>"
+}
+
+func (p *printer) selectExpr(n *parser.SelectExpr) string {
+	var sb strings.Builder
+	sb.WriteString("select {\n")
+	for _, arm := range n.Arms {
+		p.depth++
+		sb.WriteString(p.indent())
+		if arm.IsDefault {
+			sb.WriteString("default => ")
+			sb.WriteString(p.expr(arm.Body))
+		} else {
+			if arm.Binding != "" {
+				sb.WriteString(arm.Binding + " = ")
+			}
+			sb.WriteString(p.expr(arm.Chan))
+			sb.WriteString(" => ")
+			sb.WriteString(p.expr(arm.Body))
+		}
+		sb.WriteString("\n")
+		p.depth--
+	}
+	sb.WriteString(p.indent() + "}")
+	return sb.String()
 }
 
 func (p *printer) exprParen(node parser.Node, minPrec int) string {

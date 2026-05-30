@@ -204,6 +204,137 @@ func TestWalkASTVisitsExtendDecl(t *testing.T) {
 	}
 }
 
+// ─── walkAST: TaskExpr reachability ──────────────────────────────────────────
+
+func TestWalkASTVisitsTaskExpr(t *testing.T) {
+	src := "fn f() { val t = task doWork(input) \n t.await() }"
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+
+	var idents []string
+	walkAST(prog, func(n parser.Node) {
+		if id, ok := n.(*parser.Identifier); ok {
+			idents = append(idents, id.Name)
+		}
+	})
+
+	for _, want := range []string{"doWork", "input"} {
+		found := false
+		for _, id := range idents {
+			if id == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("walkAST não visitou %q dentro de TaskExpr; idents encontrados: %v", want, idents)
+		}
+	}
+}
+
+// ─── walkAST: AsyncPipeExpr reachability ─────────────────────────────────────
+
+func TestWalkASTVisitsAsyncPipeExpr(t *testing.T) {
+	src := "fn f() { val t = input ~> validar ~> processar \n t.await() }"
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+
+	var idents []string
+	walkAST(prog, func(n parser.Node) {
+		if id, ok := n.(*parser.Identifier); ok {
+			idents = append(idents, id.Name)
+		}
+	})
+
+	for _, want := range []string{"input", "validar", "processar"} {
+		found := false
+		for _, id := range idents {
+			if id == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("walkAST não visitou %q dentro de AsyncPipeExpr; idents encontrados: %v", want, idents)
+		}
+	}
+}
+
+// ─── walkAST: SelectExpr reachability ────────────────────────────────────────
+
+func TestWalkASTVisitsSelectExpr(t *testing.T) {
+	src := "fn f() { select { msg = chA.recv() => handleA(msg) \n default => fallback() } }"
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+
+	var idents []string
+	walkAST(prog, func(n parser.Node) {
+		if id, ok := n.(*parser.Identifier); ok {
+			idents = append(idents, id.Name)
+		}
+	})
+
+	for _, want := range []string{"chA", "handleA", "fallback"} {
+		found := false
+		for _, id := range idents {
+			if id == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("walkAST não visitou %q dentro de SelectExpr; idents encontrados: %v", want, idents)
+		}
+	}
+}
+
+// ─── Formatter: TaskExpr ─────────────────────────────────────────────────────
+
+func TestFormatTaskExpr(t *testing.T) {
+	src := "fn f() { val t = task doWork(x) \n t.await() }"
+	got := parseAndFormat(src)
+	if !strings.Contains(got, "task doWork") {
+		t.Fatalf("esperado 'task doWork' no output, obteve:\n%s", got)
+	}
+}
+
+func TestFormatTaskExprNoPlaceholder(t *testing.T) {
+	src := "fn f() { val t = task doWork(x) \n t.await() }"
+	got := parseAndFormat(src)
+	if strings.Contains(got, "<?>") {
+		t.Fatalf("formatter retornou '<?>' para TaskExpr:\n%s", got)
+	}
+}
+
+// ─── Formatter: AsyncPipeExpr ────────────────────────────────────────────────
+
+func TestFormatAsyncPipeExpr(t *testing.T) {
+	src := "fn f() { val t = input ~> validar ~> processar \n t.await() }"
+	got := parseAndFormat(src)
+	if !strings.Contains(got, "~>") {
+		t.Fatalf("esperado '~>' no output, obteve:\n%s", got)
+	}
+	if strings.Contains(got, "<?>") {
+		t.Fatalf("formatter retornou '<?>' para AsyncPipeExpr:\n%s", got)
+	}
+}
+
+// ─── Formatter: SelectExpr ───────────────────────────────────────────────────
+
+func TestFormatSelectExpr(t *testing.T) {
+	src := "fn f() { select { msg = chA.recv() => handleA(msg) \n default => fallback() } }"
+	got := parseAndFormat(src)
+	if !strings.Contains(got, "select {") {
+		t.Fatalf("esperado 'select {' no output, obteve:\n%s", got)
+	}
+	if !strings.Contains(got, "default =>") {
+		t.Fatalf("esperado 'default =>' no output, obteve:\n%s", got)
+	}
+	if strings.Contains(got, "<?>") {
+		t.Fatalf("formatter retornou '<?>' para SelectExpr:\n%s", got)
+	}
+}
+
 // ─── walkAST: param defaults reachability ────────────────────────────────────
 
 func TestWalkASTVisitsParamDefaults(t *testing.T) {

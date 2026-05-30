@@ -220,8 +220,14 @@ func (h *Handler) handleHover(ctx *glsp.Context, params *protocol.HoverParams) (
 	}, nil
 }
 
-func formatHover(node parser.Node, t checker.Type, result *AnalysisResult) string {
+func formatHover(node parser.Node, t checker.Type, _ *AnalysisResult) string {
 	switch n := node.(type) {
+	case *parser.TaskExpr:
+		return fmt.Sprintf("```soyuz\ntask — %s\n```", t.String())
+	case *parser.AsyncPipeExpr:
+		return fmt.Sprintf("```soyuz\nasync pipe — %s\n```", t.String())
+	case *parser.SelectExpr:
+		return "```soyuz\nselect — multiplexação de canais\n```"
 	case *parser.Identifier:
 		if ft, ok := t.(*checker.FuncType); ok {
 			return fmt.Sprintf("```soyuz\nfn %s%s\n```", n.Name, ft.String())
@@ -499,6 +505,7 @@ var soyuzKeywords = []string{
 	"import", "from", "self",
 	"true", "false", "None",
 	"Ok", "Err", "Some",
+	"task", "select",
 }
 
 func (h *Handler) handleCompletion(ctx *glsp.Context, params *protocol.CompletionParams) (any, error) {

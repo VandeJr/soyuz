@@ -534,14 +534,14 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 	case *parser.ErrExpr:
 		c.checkNode(n.Value)
 		base := c.resolveTypeExpr(&parser.NamedType{Name: "Result"})
-		return &SpecializedType{Base: base, Params: []Type{Unknown}}
+		return &SpecializedType{Base: base, Params: []Type{c.contextInnerType("Result")}}
 	case *parser.SomeExpr:
 		valType := c.checkNode(n.Value)
 		base := c.resolveTypeExpr(&parser.NamedType{Name: "Option"})
 		return &SpecializedType{Base: base, Params: []Type{valType}}
 	case *parser.NoneLiteral:
 		base := c.resolveTypeExpr(&parser.NamedType{Name: "Option"})
-		return &SpecializedType{Base: base, Params: []Type{Unknown}}
+		return &SpecializedType{Base: base, Params: []Type{c.contextInnerType("Option")}}
 	case *parser.RecordLiteral:
 		return c.checkRecordLiteral(n)
 	case *parser.BinaryExpr:
@@ -727,6 +727,23 @@ func (c *Checker) checkModuleNamespaceAccess(ns string, pos lexer.Position) {
 		return
 	}
 	c.errorf(pos, "namespace '%s' não foi importado em %s", ns, filepath.Base(c.currentFile))
+}
+
+// contextInnerType returns the type parameter T when c.context.returnType is EnumName[T]
+// with a concrete T (not Unknown). Used to propagate the expected Ok/Some type into Err/None.
+func (c *Checker) contextInnerType(enumName string) Type {
+	st, ok := c.context.returnType.(*SpecializedType)
+	if !ok || len(st.Params) == 0 {
+		return Unknown
+	}
+	et, ok := st.Base.(*EnumType)
+	if !ok || et.Name != enumName {
+		return Unknown
+	}
+	if st.Params[0] == Unknown {
+		return Unknown
+	}
+	return st.Params[0]
 }
 
 func (c *Checker) isHeapType(t Type) bool {
