@@ -1,4 +1,4 @@
-name: Release Soyuz LSP
+name: Release Soyuz
 
 on:
   push:
@@ -29,21 +29,35 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build soyuz-lsp
+      - name: Build soyuz compiler and LSP
         env:
           CGO_ENABLED: "0"
           GOOS: linux
           GOARCH: amd64
         run: |
           mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o dist/soyuz-linux-x64     ./cmd/
           go build -trimpath -ldflags="-s -w" -o dist/soyuz-lsp-linux-x64 ./cmd/lsp
-          chmod +x dist/soyuz-lsp-linux-x64
+          chmod +x dist/soyuz-linux-x64 dist/soyuz-lsp-linux-x64
+          sha256sum dist/soyuz-linux-x64     > dist/soyuz-linux-x64.sha256
           sha256sum dist/soyuz-lsp-linux-x64 > dist/soyuz-lsp-linux-x64.sha256
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          body: |
+            ## Instalação
+
+            O binário `soyuz` requer **clang** instalado para compilar programas Soyuz.
+
+            ```sh
+            # Linux x64
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/soyuz-linux-x64 -o soyuz
+            chmod +x soyuz
+            ```
           files: |
+            dist/soyuz-linux-x64
+            dist/soyuz-linux-x64.sha256
             dist/soyuz-lsp-linux-x64
             dist/soyuz-lsp-linux-x64.sha256

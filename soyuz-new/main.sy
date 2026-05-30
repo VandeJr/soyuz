@@ -1,4 +1,0 @@
-import (
-    { readFile } from @soyuz/fs
-    { Lexer } from @/lib/lexer/lexer
-)
