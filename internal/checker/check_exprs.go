@@ -1560,7 +1560,9 @@ func (c *Checker) checkForStmt(n *parser.ForStmt) Type {
 	}
 
 	c.scope.Define(n.Binding, bindingType, false)
+	c.enterLoop()
 	c.checkBlock(n.Body)
+	c.leaveLoop()
 	return UnitType
 }
 
@@ -1863,4 +1865,58 @@ func (c *Checker) isCompatibleFunc(expected, actual *FuncType) bool {
 		}
 	}
 	return expected.Return.String() == actual.Return.String()
+}
+
+func (c *Checker) enterLoop() {
+	c.loopDepth++
+}
+
+func (c *Checker) leaveLoop() {
+	c.loopDepth--
+}
+
+func (c *Checker) checkWhileStmt(n *parser.WhileStmt) Type {
+	c.enterLoop()
+	c.checkNode(n.Condition)
+	c.checkBlock(n.Body)
+	c.leaveLoop()
+	return UnitType
+}
+
+func (c *Checker) checkLoopStmt(n *parser.LoopStmt) Type {
+	c.enterLoop()
+	c.loopBreakTypes = append(c.loopBreakTypes, Unknown)
+	c.checkBlock(n.Body)
+	result := c.loopBreakTypes[len(c.loopBreakTypes)-1]
+	c.loopBreakTypes = c.loopBreakTypes[:len(c.loopBreakTypes)-1]
+	c.leaveLoop()
+	if result == Unknown {
+		return UnitType
+	}
+	return result
+}
+
+func (c *Checker) checkBreakStmt(n *parser.BreakStmt) Type {
+	if c.loopDepth == 0 {
+		c.errorf(n.Pos(), "break outside of loop")
+		return UnitType
+	}
+	if n.Value != nil {
+		valType := c.checkNode(n.Value)
+		idx := len(c.loopBreakTypes) - 1
+		if c.loopBreakTypes[idx] == Unknown {
+			c.loopBreakTypes[idx] = valType
+		} else if !c.isAssignable(c.loopBreakTypes[idx], valType) && !c.isAssignable(valType, c.loopBreakTypes[idx]) {
+			c.errorf(n.Value.Pos(), "break value incompatible with previous breaks: expected %s, got %s",
+				c.loopBreakTypes[idx], valType)
+		}
+	}
+	return UnitType
+}
+
+func (c *Checker) checkContinueStmt(n *parser.ContinueStmt) Type {
+	if c.loopDepth == 0 {
+		c.errorf(n.Pos(), "continue outside of loop")
+	}
+	return UnitType
 }

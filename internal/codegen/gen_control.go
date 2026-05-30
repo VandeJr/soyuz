@@ -113,8 +113,23 @@ func (g *Generator) generateLoopStmt(n *parser.LoopStmt) (value.Value, error) {
 	bodyBlock := g.newBlock("loop_body", fn)
 	afterBlock := g.newBlock("loop_after", fn)
 
+	var resultAlloca value.Value
+	var resultLLVM types.Type
+	if loopTy := g.check.NodeTypes[n]; loopTy != nil && loopTy.String() != "Unit" {
+		resultLLVM = g.mapTypeToLLVM(loopTy)
+		resultAlloca = g.newAlloca(resultLLVM)
+		if def := g.defaultReturnValue(resultLLVM); def != nil {
+			g.current.NewStore(def, resultAlloca)
+		}
+	}
+
 	g.current.NewBr(bodyBlock)
-	g.loops = append(g.loops, loopCtx{cond: bodyBlock, after: afterBlock})
+	g.loops = append(g.loops, loopCtx{
+		cond:         bodyBlock,
+		after:        afterBlock,
+		resultAlloca: resultAlloca,
+		resultLLVM:   resultLLVM,
+	})
 	g.current = bodyBlock
 	if _, err := g.generateExpr(n.Body); err != nil {
 		return nil, err
@@ -125,6 +140,10 @@ func (g *Generator) generateLoopStmt(n *parser.LoopStmt) (value.Value, error) {
 	g.loops = g.loops[:len(g.loops)-1]
 
 	g.current = afterBlock
+	if resultAlloca != nil {
+		val := g.current.NewLoad(resultLLVM, resultAlloca)
+		return g.prepareReturn(val), nil
+	}
 	return nil, nil
 }
 

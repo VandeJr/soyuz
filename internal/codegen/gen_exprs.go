@@ -300,7 +300,17 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		if len(g.loops) == 0 {
 			return nil, fmt.Errorf("break outside of loop")
 		}
-		g.current.NewBr(g.loops[len(g.loops)-1].after)
+		lc := g.loops[len(g.loops)-1]
+		if n.Value != nil {
+			val, err := g.generateExpr(n.Value)
+			if err != nil {
+				return nil, err
+			}
+			if lc.resultAlloca != nil {
+				g.current.NewStore(val, lc.resultAlloca)
+			}
+		}
+		g.current.NewBr(lc.after)
 		return nil, nil
 
 	case *parser.ContinueStmt:

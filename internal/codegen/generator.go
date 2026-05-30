@@ -12,8 +12,10 @@ import (
 )
 
 type loopCtx struct {
-	cond  *ir.Block
-	after *ir.Block
+	cond         *ir.Block
+	after        *ir.Block
+	resultAlloca value.Value // non-nil when loop returns a value via `break expr`
+	resultLLVM   types.Type
 }
 
 type structInfo struct {
