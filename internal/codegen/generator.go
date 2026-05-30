@@ -93,6 +93,8 @@ type Generator struct {
 	soyuzStringPtrType types.Type
 	// Checker return type of the function currently being codegen'd (for interface coercion).
 	currentReturnType checker.Type
+	// Cached i8* closures wrapping top-level functions for use as first-class values.
+	topLevelClosureCache map[string]value.Value
 }
 
 // New returns a new Generator.
@@ -112,8 +114,9 @@ func New(check *checker.CheckResult) *Generator {
 		destructors:  make(map[string]*ir.Func),
 		traces:      make(map[string]*ir.Func),
 		heapVars:     make(map[string]bool),
-		blockNames:   make(map[string]int),
-		check:        check,
+		blockNames:             make(map[string]int),
+		check:                  check,
+		topLevelClosureCache:   make(map[string]value.Value),
 	}
 }
 
