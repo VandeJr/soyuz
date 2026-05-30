@@ -7,6 +7,15 @@ import (
 	"github.com/llir/llvm/ir/types"
 )
 
+// mapExternTypeToLLVM maps Soyuz types for extern "C" declarations.
+// C bool is typically int-sized; using i32 avoids i1/i64 ABI mismatches.
+func (g *Generator) mapExternTypeToLLVM(te parser.TypeExpr) types.Type {
+	if nt, ok := te.(*parser.NamedType); ok && nt.Name == "Bool" {
+		return types.I32
+	}
+	return g.mapSoyuzTypeToLLVM(te)
+}
+
 func (g *Generator) mapSoyuzTypeToLLVM(te parser.TypeExpr) types.Type {
 	if te == nil {
 		return types.I64

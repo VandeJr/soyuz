@@ -171,10 +171,40 @@ func (g *Generator) matchPattern(val value.Value, subjectCheckerType checker.Typ
 		g.current = matchOk
 
 		if len(p.Args) > 0 {
-			fieldType := g.resolveEnumPayloadType(vi, p.Name, subjectCheckerType)
-			castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(fieldType))
-			innerVal := g.current.NewLoad(fieldType, castPtr)
-			return g.matchPattern(innerVal, nil, p.Args[0], thenBlock, nextBlock)
+			if len(p.Args) == 1 && len(vi.fields) <= 1 {
+				fieldType := g.resolveEnumPayloadType(vi, p.Name, subjectCheckerType)
+				innerVal := g.loadEnumPayloadValue(payloadPtr, fieldType)
+				return g.matchPattern(innerVal, nil, p.Args[0], thenBlock, nextBlock)
+			}
+			payloadType := enumVariantPayloadLLVMType(vi)
+			castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
+			innerVal := g.current.NewLoad(payloadType, castPtr)
+			// Multi-field variant: unpack struct/tuple payload and bind each pattern arg.
+			var structVal value.Value = innerVal
+			ptrType, ok := innerVal.Type().(*types.PointerType)
+			if !ok {
+				alloc := g.newAlloca(innerVal.Type())
+				g.current.NewStore(innerVal, alloc)
+				structVal = alloc
+				ptrType = types.NewPointer(innerVal.Type())
+			}
+			st := ptrType.ElemType.(*types.StructType)
+			for i, arg := range p.Args {
+				ptr := g.current.NewGetElementPtr(st, structVal,
+					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+				fieldVal := g.current.NewLoad(st.Fields[i], ptr)
+				var elemThen *ir.Block
+				if i == len(p.Args)-1 {
+					elemThen = thenBlock
+				} else {
+					elemThen = g.newBlock(fmt.Sprintf("enum_%s_field_%d_ok", p.Name, i), g.current.Parent)
+				}
+				if err := g.matchPattern(fieldVal, nil, arg, elemThen, nextBlock); err != nil {
+					return err
+				}
+				g.current = elemThen
+			}
+			return nil
 		}
 		g.current.NewBr(thenBlock)
 
@@ -251,7 +281,7 @@ func (g *Generator) matchPattern(val value.Value, subjectCheckerType checker.Typ
 // checker type (the specialized type parameters).
 func (g *Generator) resolveEnumPayloadType(vi variantInfo, variantName string, subjectCheckerType checker.Type) types.Type {
 	if len(vi.fields) > 0 {
-		return vi.fields[0]
+		return enumVariantPayloadLLVMType(vi)
 	}
 	if subjectCheckerType != nil {
 		if ct, ok := subjectCheckerType.(*checker.SpecializedType); ok && len(ct.Params) > 0 {

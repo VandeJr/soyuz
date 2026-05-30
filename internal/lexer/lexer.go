@@ -163,6 +163,25 @@ func (l *Lexer) readChar2(pos Position) Token {
 	return Token{Type: CHAR_LITERAL, Lexeme: string(ch), Position: pos}
 }
 
+// readRawString reads r"..." — no escapes or $(...) interpolation.
+func (l *Lexer) readRawString(pos Position) Token {
+	l.readChar() // r
+	l.readChar() // opening "
+	var part []rune
+	for l.ch != 0 && l.ch != '"' {
+		if l.ch == '\n' {
+			l.line++
+			l.column = 0
+		}
+		part = append(part, l.ch)
+		l.readChar()
+	}
+	if l.ch == '"' {
+		l.readChar()
+	}
+	return Token{Type: STRING_LITERAL, Lexeme: string(part), Position: pos}
+}
+
 // readString lê uma string com suporte a interpolação $(...)
 // Pode gerar múltiplos tokens que ficam em l.pending.
 // Retorna o primeiro token.
@@ -287,6 +306,10 @@ func (l *Lexer) isNextRelevantTokenWhen() bool {
 	return l.isNextToken("when")
 }
 
+func (l *Lexer) isNextRelevantTokenDot() bool {
+	return l.isNextToken(".")
+}
+
 // --- NextToken ---
 
 func (l *Lexer) NextToken() Token {
@@ -303,7 +326,7 @@ func (l *Lexer) NextToken() Token {
 	// Tratamento de newline — insere SEMICOLON virtual se necessário
 	if l.ch == '\n' {
 		// BUG-05 & M2: Suprimir SEMICOLON se o próximo token for |> ou when
-		if CanInsertSemicolon(l.lastToken) && (l.isNextRelevantTokenPipe() || l.isNextRelevantTokenWhen()) {
+		if CanInsertSemicolon(l.lastToken) && (l.isNextRelevantTokenPipe() || l.isNextRelevantTokenWhen() || l.isNextRelevantTokenDot()) {
 			l.line++
 			l.column = 0
 			l.readChar()
@@ -537,6 +560,17 @@ func (l *Lexer) NextToken() Token {
 
 	case '"':
 		tok = l.readString(pos, false)
+		l.lastToken = tok.Type
+		return tok
+
+	case 'r':
+		if l.peekChar() == '"' {
+			tok = l.readRawString(pos)
+			l.lastToken = tok.Type
+			return tok
+		}
+		lexeme := l.readIdentifier()
+		tok = Token{Type: LookupIdent(lexeme), Lexeme: lexeme, Position: pos}
 		l.lastToken = tok.Type
 		return tok
 
