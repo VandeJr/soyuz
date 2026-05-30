@@ -547,11 +547,21 @@ type SomeExpr struct {
 
 func (s *SomeExpr) Pos() lexer.Position { return s.pos }
 
+// SpecializedExpr is an explicit generic instantiation: Par[Int, Int] or identidade[Bool].
+type SpecializedExpr struct {
+	pos      lexer.Position
+	Base     Node
+	TypeArgs []TypeExpr
+}
+
+func (s *SpecializedExpr) Pos() lexer.Position { return s.pos }
+
 // RecordLiteral represents Ponto { x: 1.0, y: 2.0 }
 type RecordLiteral struct {
-	pos    lexer.Position
-	Name   string
-	Fields []RecordLiteralField
+	pos      lexer.Position
+	Name     string
+	TypeArgs []TypeExpr // optional explicit generic args: Par[Int, Int] { ... }
+	Fields   []RecordLiteralField
 }
 
 func (r *RecordLiteral) Pos() lexer.Position { return r.pos }

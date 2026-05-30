@@ -558,6 +558,8 @@ func (c *Checker) doCheckNode(node parser.Node) Type {
 		return c.checkCallExpr(n)
 	case *parser.IndexExpr:
 		return c.checkSpecialization(n)
+	case *parser.SpecializedExpr:
+		return c.checkSpecializedExpr(n)
 	case *parser.MatchExpr:
 		return c.checkMatchExpr(n)
 	case *parser.InterpolatedString:

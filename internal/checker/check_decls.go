@@ -344,6 +344,16 @@ func (c *Checker) checkInterfaceDecl(n *parser.InterfaceDecl) Type {
 }
 
 func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
+	parentScope := c.scope
+	c.scope = NewScope(parentScope)
+	defer func() { c.scope = parentScope }()
+
+	var genericNames []string
+	for _, g := range n.Generics {
+		genericNames = append(genericNames, g.Name)
+		c.scope.Define(g.Name, &TypeParameter{Name: g.Name}, true)
+	}
+
 	fields := make(map[string]Type)
 	fieldPub := make(map[string]bool)
 	fieldInit := make(map[string]parser.Node)
@@ -368,8 +378,9 @@ func (c *Checker) checkClassDecl(n *parser.ClassDecl) Type {
 		Methods:    methods,
 		MethodPub:  methodPub,
 		Implements: implements,
+		Generics:   genericNames,
 	}
-	c.scope.Define(n.Name, ct, true)
+	parentScope.Define(n.Name, ct, true)
 	c.registerGlobalSymbol(n.Name, n, n.Pub)
 
 	// Field pass: resolve declared field types and collect defaults/visibility.

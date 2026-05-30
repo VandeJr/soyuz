@@ -842,19 +842,27 @@ func (g *Generator) generateGenericRecordLiteral(n *parser.RecordLiteral, decl *
 		fieldEntries = append(fieldEntries, fieldEntry{f.Name, val})
 	}
 
-	// Build substitution: generic param name → LLVM type, derived from field value types.
+	// Build substitution: generic param name → LLVM type.
 	sub := make(map[string]types.Type)
+	if len(n.TypeArgs) > 0 {
+		for i, gp := range decl.Generics {
+			if i < len(n.TypeArgs) {
+				sub[gp.Name] = g.mapSoyuzTypeToLLVM(n.TypeArgs[i])
+			}
+		}
+	} else {
 	fieldValByName := make(map[string]value.Value)
 	for _, fe := range fieldEntries {
 		fieldValByName[fe.name] = fe.val
 	}
-	for _, f := range decl.Fields {
-		if nt, ok := f.Type.(*parser.NamedType); ok {
-			for _, gp := range decl.Generics {
-				if gp.Name == nt.Name {
-					if v, ok := fieldValByName[f.Name]; ok {
-						if _, already := sub[gp.Name]; !already {
-							sub[gp.Name] = v.Type()
+		for _, f := range decl.Fields {
+			if nt, ok := f.Type.(*parser.NamedType); ok {
+				for _, gp := range decl.Generics {
+					if gp.Name == nt.Name {
+						if v, ok := fieldValByName[f.Name]; ok {
+							if _, already := sub[gp.Name]; !already {
+								sub[gp.Name] = v.Type()
+							}
 						}
 					}
 				}

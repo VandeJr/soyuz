@@ -737,6 +737,23 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 			}
 		}
 	}
+	if se, ok := n.Callee.(*parser.SpecializedExpr); ok {
+		if id, ok := se.Base.(*parser.Identifier); ok {
+			if decl, ok := g.genericDecls[id.Name]; ok {
+				if st, ok := g.check.Specializations[n]; ok {
+					fn, err := g.generateSpecializedFunc(id.Name, decl, st)
+					if err != nil {
+						return nil, err
+					}
+					args, err := g.generateCallArgs(n.Args)
+					if err != nil {
+						return nil, err
+					}
+					return g.current.NewCall(fn, args...), nil
+				}
+			}
+		}
+	}
 
 	// M14: Arc static constructor Arc.new(val).
 	if me, ok := n.Callee.(*parser.MemberExpr); ok {
