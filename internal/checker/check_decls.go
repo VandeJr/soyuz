@@ -596,6 +596,16 @@ type pendingExtendMethod struct {
 	file       string
 }
 
+func (c *Checker) canAccessClassMember(ct *ClassType) bool {
+	if c.currentClass == ct {
+		return true
+	}
+	if c.currentExtend == ct.Name {
+		return true
+	}
+	return false
+}
+
 func (c *Checker) resolveExtendTarget(typeName string) (Type, bool) {
 	if st, ok := c.extendSelfTypes[typeName]; ok {
 		return st, true
@@ -612,6 +622,7 @@ func (c *Checker) checkExtendDecl(n *parser.ExtendDecl) Type {
 		c.errorf(n.Pos(), "extend: tipo '%s' não encontrado", n.TypeName)
 		return Unknown
 	}
+	c.extendSelfTypes[n.TypeName] = selfType
 	if c.typeExtensions[n.TypeName] == nil {
 		c.typeExtensions[n.TypeName] = make(map[string][]*FuncType)
 	}

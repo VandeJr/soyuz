@@ -52,7 +52,8 @@ type CheckResult struct {
 }
 
 type context struct {
-	returnType Type
+	returnType   Type
+	expectedType Type // hint for ambiguous literals (e.g. [] in generic class fields)
 }
 
 func New() *Checker {
@@ -98,6 +99,7 @@ func New() *Checker {
 			"size":    {{Params: []Type{}, Return: IntType}},
 			"get":     {{Params: []Type{IntType}, Return: &TypeParameter{Name: "T"}}},
 			"append":  {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
+			"add":     {{Params: []Type{&TypeParameter{Name: "T"}}, Return: UnitType}},
 			"map":     {{Params: []Type{Unknown}, Return: Unknown}}, // handled specially in checkCallExpr
 			"filter":  {{Params: []Type{Unknown}, Return: Unknown}},
 			"reduce":  {{Params: []Type{Unknown, Unknown}, Return: Unknown}},

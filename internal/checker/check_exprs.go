@@ -20,6 +20,13 @@ func (c *Checker) checkTupleExpr(n *parser.TupleExpr) Type {
 
 func (c *Checker) checkListExpr(n *parser.ListExpr) Type {
 	var elemType Type = Unknown
+	if len(n.Elements) == 0 && c.context.expectedType != nil {
+		if st, ok := c.context.expectedType.(*SpecializedType); ok {
+			if ct, ok := st.Base.(*ClassType); ok && ct.Name == "List" && len(st.Params) > 0 {
+				elemType = st.Params[0]
+			}
+		}
+	}
 	for _, e := range n.Elements {
 		t := c.checkNode(e)
 		if elemType == Unknown {
@@ -204,6 +211,19 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 				}
 				return ft
 			}
+			if methods, ok := c.typeExtensions[ct.Name]; ok {
+				if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
+					ft := variants[0]
+					if sub != nil {
+						newParams := make([]Type, len(ft.Params))
+						for i, p := range ft.Params {
+							newParams[i] = c.substitute(p, sub)
+						}
+						return &FuncType{Params: newParams, Return: c.substitute(ft.Return, sub)}
+					}
+					return ft
+				}
+			}
 			// Fields with type-parameter substitution (e.g. MutexGuard[T].value → T)
 			if ft, ok2 := ct.Fields[property]; ok2 {
 				if sub != nil {
@@ -215,13 +235,18 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 		return Unknown
 	case *ClassType:
 		if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
-			if !t.MethodPub[property] && c.currentClass != t {
+			if !t.MethodPub[property] && !c.canAccessClassMember(t) {
 				c.errorf(pos, "método '%s' de '%s' é privado", property, t.Name)
 			}
 			return variants[0]
 		}
+		if methods, ok := c.typeExtensions[t.Name]; ok {
+			if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
+				return variants[0]
+			}
+		}
 		if ft, ok := t.Fields[property]; ok {
-			if !t.FieldPub[property] && c.currentClass != t {
+			if !t.FieldPub[property] && !c.canAccessClassMember(t) {
 				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
 			}
 			return ft
@@ -294,6 +319,9 @@ func (c *Checker) checkSafeNavExpr(n *parser.SafeNavExpr) Type {
 }
 
 func (c *Checker) checkSelfExpr(n *parser.SelfExpr) Type {
+	if sym, ok := c.scope.Resolve("self"); ok {
+		return sym.Type
+	}
 	if c.currentExtend != "" {
 		if st, ok := c.extendSelfTypes[c.currentExtend]; ok {
 			return st
@@ -1629,7 +1657,18 @@ func (c *Checker) checkRecordLiteral(n *parser.RecordLiteral) Type {
 			c.errorf(f.Pos, "%s %s does not have field %s", getKindName(resultType), typeName, f.Name)
 			continue
 		}
+		expectedForCheck := expected
+		if len(inferred) > 0 {
+			sub := make(map[string]Type, len(inferred))
+			for k, v := range inferred {
+				sub[k] = v
+			}
+			expectedForCheck = c.substitute(expected, sub)
+		}
+		prevExpected := c.context.expectedType
+		c.context.expectedType = expectedForCheck
 		got := c.checkNode(f.Value)
+		c.context.expectedType = prevExpected
 		c.unify(expected, got, inferred)
 
 		if !c.isAssignable(expected, got) {
@@ -1640,6 +1679,15 @@ func (c *Checker) checkRecordLiteral(n *parser.RecordLiteral) Type {
 			}
 		}
 		provided[f.Name] = true
+	}
+
+	if len(generics) > 0 && len(n.TypeArgs) == 0 {
+		for _, name := range generics {
+			if t, ok := inferred[name]; !ok || t == Unknown {
+				c.errorf(n.Pos(), "não foi possível inferir parâmetros de tipo para %s; use anotação explícita", typeName)
+				break
+			}
+		}
 	}
 
 	for name := range fields {
@@ -1877,6 +1925,26 @@ func (c *Checker) isAssignable(expected, actual Type) bool {
 					if allOk {
 						return true
 					}
+				}
+				// Actual still has free type params (e.g. Arvore[T] passed where Arvore[Int] expected).
+				inferred := make(map[string]Type)
+				for i := range st.Params {
+					c.unify(actSt.Params[i], st.Params[i], inferred)
+				}
+				allOk := true
+				for i, p := range actSt.Params {
+					if tp, ok := p.(*TypeParameter); ok {
+						if bound, exists := inferred[tp.Name]; !exists || !c.isAssignable(st.Params[i], bound) {
+							allOk = false
+							break
+						}
+					} else if !c.isAssignable(st.Params[i], p) {
+						allOk = false
+						break
+					}
+				}
+				if allOk {
+					return true
 				}
 			}
 		}

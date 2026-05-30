@@ -1171,7 +1171,7 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				ptr := g.current.NewGetElementPtr(g.mapTypeToLLVM(st).(*types.PointerType).ElemType, obj,
 					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
 				return g.current.NewLoad(types.I64, ptr), nil
-			case "append":
+			case "append", "add":
 				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
 				elem := args[0]
 				if g.isHeapType(elem.Type()) {
@@ -1465,6 +1465,14 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 						allArgs := append([]value.Value{objAsI8}, args...)
 						return g.current.NewCall(fn, allArgs...), nil
 					}
+				}
+			}
+			if variants, ok := g.extensionMethods[st.TypeName][me.Property]; ok {
+				fn := classMethodByArity(variants, len(args))
+				if fn != nil {
+					objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+					allArgs := append([]value.Value{objAsI8}, args...)
+					return g.current.NewCall(fn, allArgs...), nil
 				}
 			}
 		}
