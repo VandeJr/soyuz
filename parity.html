@@ -78,7 +78,7 @@
 
 <h1>Soyuz — Relatório de Paridade de Features</h1>
 <p class="tagline">
-  Gerado em 2026-05-30 · Atualizado 2026-05-30 · Compilador instalado via <code>make install</code> ·
+  Gerado em 2026-05-30 · Atualizado 2026-05-30 (3ª rodada) · Compilador instalado via <code>make install</code> ·
   Testes em <code>feature-tests/*.sy</code> · Um arquivo por MDX de documentação
 </p>
 
@@ -131,7 +131,7 @@
   <tr>
     <td><code>extensions.mdx</code></td>
     <td><span class="badge warn">parcial</span></td>
-    <td>extend String, Class, Int e Float OK. Expression body <code>= expr</code> pode gerar <code>ret void</code> em alguns casos (B-13).</td>
+    <td>extend String, Class, Int e Float (<code>.toInt()</code>) OK. Expression body <code>= expr</code> pode gerar <code>ret void</code> em alguns casos (B-13).</td>
   </tr>
   <tr>
     <td><code>generics.mdx</code></td>
@@ -151,7 +151,7 @@
   <tr>
     <td><code>paralelismo.mdx</code></td>
     <td><span class="badge ok">ok</span></td>
-    <td>task, await, detach, Task.all, gather, Channel, async pipe ~&gt; e select com default OK.</td>
+    <td>task, await, detach, Task.all, gather (fn nomeada ou lambda), Channel, select default e <code>~&gt;</code> com aplicação parcial OK.</td>
   </tr>
 </table>
 
@@ -314,7 +314,7 @@
 <!-- ══════════════════════════════════════════════════════════ -->
 <div class="fcard">
   <div class="fcard-head">
-    <span class="badge ok">ok</span>
+    <span class="badge warn">parcial</span>
     <span class="fcard-title">Extensões (extend)</span>
     <span class="fcard-file">extensions.mdx → feature-tests/extensions.sy</span>
   </div>
@@ -322,7 +322,7 @@
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend String { pub fn ... }</code> com block body</span><span class="feat-note"><code>exclamar</code>, <code>repetir</code> com <code>return</code> funcionam</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend Classe { pub fn ... }</code></span><span class="feat-note"><code>extend Usuario { fn saudar(self) { ... } }</code></span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Expression body <code>= expr</code> em extend</span><span class="feat-note">Funciona para alguns casos (ex: <code>extend String { fn exclamar = "$(self)!" }</code>) mas pode gerar <em>"ret void"</em> em outros contextos (combinação de métodos, tipos não-String). Block body é mais seguro.</span></div><span><span class="badge warn">inconsistente</span></span></div>
-    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend Int</code> / <code>extend Float</code></span><span class="feat-note"><code>42.dobro()</code> funciona — <code>self</code> passado via ponteiro para alloca do primitivo.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend Int</code> / métodos em <code>Float</code></span><span class="feat-note"><code>42.dobro()</code> e <code>3.7.toInt()</code> (fptosi) funcionam.</span></div><span></span></div>
   </div>
 </div>
 
@@ -397,9 +397,9 @@
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>task fn(args)</code> + <code>.await()</code></span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>task fn(args).detach()</code></span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Task.all(t1, t2)</code> — desestruturação de tupla</span></div><span></span></div>
-    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Task.gather(lista, fn)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Task.gather(lista, fn)</code></span><span class="feat-note">Aceita função nomeada ou lambda <code>fn(x) => ...</code>.</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Channel.new(n)</code> + <code>send</code> + <code>recv</code></span></div><span></span></div>
-    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Async pipe <code>~&gt;</code> (cadeia de tasks)</span><span class="feat-note"><code>5 ~&gt; validar ~&gt; formatar</code> → cria task chain, await retorna o resultado</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Async pipe <code>~&gt;</code> (cadeia de tasks)</span><span class="feat-note"><code>5 ~&gt; validar ~&gt; formatar</code> e <code>task (5 ~&gt; somar(10, _))</code> com aplicação parcial.</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> aguardando channel (sem <code>default</code>)</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> com branch <code>default</code></span><span class="feat-note"><code>srt_select_try</code> + branch <code>sel_default</code> — corrigido (extern Bool no prelude também).</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>W0300 — aviso de task não consumida</span><span class="feat-note">O compilador corretamente avisa quando uma task não é consumida via <code>.await()</code> ou <code>.detach()</code>.</span></div><span></span></div>

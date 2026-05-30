@@ -654,21 +654,31 @@ func (c *Checker) checkAsyncPipeExpr(n *parser.AsyncPipeExpr) Type {
 		}
 
 		// Resolve the step callee and check compatibility.
-		// Use a temporary synthetic identifier with the correct current type
-		// instead of re-using n.Steps[0] (which has the original type).
 		const tmpName = "__async_pipe_tmp__"
+		stepScope := NewScope(c.scope)
+		parentScope := c.scope
+		c.scope = stepScope
 		c.scope.Define(tmpName, currentType, true)
 		tmpIdent := &parser.Identifier{Name: tmpName}
 		c.nodeTypes[tmpIdent] = currentType
 
 		var call *parser.CallExpr
 		if rc, ok := step.(*parser.CallExpr); ok {
-			call = &parser.CallExpr{Callee: rc.Callee, Args: append([]parser.Node{tmpIdent}, rc.Args...)}
+			newArgs := make([]parser.Node, len(rc.Args))
+			for i, arg := range rc.Args {
+				if id, ok := arg.(*parser.Identifier); ok && id.Name == "_" {
+					newArgs[i] = tmpIdent
+				} else {
+					newArgs[i] = arg
+				}
+			}
+			call = &parser.CallExpr{Callee: rc.Callee, Args: newArgs}
 		} else {
 			call = &parser.CallExpr{Callee: step, Args: []parser.Node{tmpIdent}}
 		}
 
 		retType := c.checkCallExpr(call)
+		c.scope = parentScope
 		if ft, ok := c.specializations[call]; ok {
 			c.specializations[rawStep] = ft
 		}

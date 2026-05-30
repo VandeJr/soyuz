@@ -15,6 +15,7 @@ import (
 	"soyuz/internal/checker"
 	"soyuz/internal/parser"
 
+	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
@@ -47,31 +48,34 @@ func (g *Generator) generateTaskGather(n *parser.CallExpr) (value.Value, error) 
 	}
 	resultLLVMType := g.mapTypeToLLVM(resultCheckerType)
 
-	// ── 4. Evaluate fn arg (must be a named function identifier) ─────────────
-	var targetFnName string
-	switch fn := n.Args[1].(type) {
+	// ── 4. Resolve fn arg (named function or arrow function closure) ─────────
+	var wrapperFn *ir.Func
+	switch fnArg := n.Args[1].(type) {
 	case *parser.Identifier:
-		targetFnName = fn.Name
-	default:
-		return nil, fmt.Errorf("Task.gather: segundo argumento deve ser uma função nomeada")
-	}
-	targetFunc := g.findFunc(targetFnName)
-	if targetFunc == nil {
-		if st, ok := g.check.Specializations[n.Args[1]]; ok {
-			mangled := targetFnName
-			for _, p := range st.Params {
-				mangled += "__" + p.String()
+		targetFnName := fnArg.Name
+		targetFunc := g.findFunc(targetFnName)
+		if targetFunc == nil {
+			if st, ok := g.check.Specializations[n.Args[1]]; ok {
+				mangled := targetFnName
+				for _, p := range st.Params {
+					mangled += "__" + p.String()
+				}
+				targetFunc = g.specialized[mangled]
 			}
-			targetFunc = g.specialized[mangled]
 		}
+		if targetFunc == nil {
+			return nil, fmt.Errorf("Task.gather: função '%s' não encontrada", targetFnName)
+		}
+		wrapperFn = g.generateTaskWrapperFunc(targetFunc, []types.Type{elemLLVMType}, 1)
+	case *parser.ArrowFunc:
+		var err error
+		wrapperFn, err = g.generateGatherClosureWrapper(fnArg, elemLLVMType, resultLLVMType)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("Task.gather: segundo argumento deve ser função nomeada ou lambda")
 	}
-	if targetFunc == nil {
-		return nil, fmt.Errorf("Task.gather: função '%s' não encontrada", targetFnName)
-	}
-
-	// ── 5. Build the task wrapper (single arg: the element) ───────────────────
-	elemLLVMTypes := []types.Type{elemLLVMType}
-	wrapperFn := g.generateTaskWrapperFunc(targetFunc, elemLLVMTypes, 1)
 	wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
 
 	// ── 6. Create handles list ────────────────────────────────────────────────
@@ -220,4 +224,76 @@ func (g *Generator) generateTaskGather(n *parser.CallExpr) (value.Value, error) 
 		}
 	}
 	return resultsRaw, nil
+}
+
+// generateGatherClosureWrapper emits a task wrapper that unpacks one element and
+// invokes an arrow-function closure.
+func (g *Generator) generateGatherClosureWrapper(fnArg *parser.ArrowFunc, elemLLVM, retLLVM types.Type) (*ir.Func, error) {
+	name := fmt.Sprintf("__gather_wrapper_%d", g.taskWrapperCounter)
+	g.taskWrapperCounter++
+	wrapperFn := g.module.NewFunc(name, types.Void, ir.NewParam("raw_args", types.I8Ptr))
+
+	oldCurrent := g.current
+	oldVars := g.vars
+	oldHeapVars := g.heapVars
+	oldScopeStack := g.scopeStack
+	oldTaskVarStack := g.taskVarStack
+	oldSyncGuardStack := g.syncGuardStack
+	oldArcVarStack := g.arcVarStack
+	oldBlockNames := g.blockNames
+	oldReturnType := g.currentReturnType
+
+	g.vars = make(map[string]value.Value)
+	g.heapVars = make(map[string]bool)
+	g.scopeStack = nil
+	g.taskVarStack = nil
+	g.syncGuardStack = nil
+	g.arcVarStack = nil
+	g.blockNames = make(map[string]int)
+	g.current = g.newBlock("entry", wrapperFn)
+
+	closureI8, err := g.generateArrowFunc(fnArg)
+	if err != nil {
+		g.current = oldCurrent
+		g.vars = oldVars
+		g.heapVars = oldHeapVars
+		g.scopeStack = oldScopeStack
+		g.taskVarStack = oldTaskVarStack
+		g.syncGuardStack = oldSyncGuardStack
+		g.arcVarStack = oldArcVarStack
+		g.blockNames = oldBlockNames
+		g.currentReturnType = oldReturnType
+		return nil, err
+	}
+
+	rawArgs := wrapperFn.Params[0]
+	arrType := types.NewArray(1, types.I64)
+	argsPtr := g.current.NewBitCast(rawArgs, types.NewPointer(arrType))
+	slotPtr := g.current.NewGetElementPtr(arrType, argsPtr,
+		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
+	slot := g.current.NewLoad(types.I64, slotPtr)
+	elem := g.i64ToType(slot, elemLLVM)
+	g.current.NewCall(g.findBuiltin("free"), rawArgs)
+
+	retVal := g.callClosureDirect(closureI8, retLLVM, []value.Value{elem})
+	var resultI8 value.Value
+	if retLLVM.Equal(types.Void) {
+		resultI8 = constant.NewNull(types.I8Ptr)
+	} else {
+		resultI8 = g.castToI8Ptr(retVal)
+	}
+	g.current.NewCall(g.findFunc("srt_set_task_result"), resultI8)
+	g.current.NewRet(nil)
+
+	g.current = oldCurrent
+	g.vars = oldVars
+	g.heapVars = oldHeapVars
+	g.scopeStack = oldScopeStack
+	g.taskVarStack = oldTaskVarStack
+	g.syncGuardStack = oldSyncGuardStack
+	g.arcVarStack = oldArcVarStack
+	g.blockNames = oldBlockNames
+	g.currentReturnType = oldReturnType
+
+	return wrapperFn, nil
 }

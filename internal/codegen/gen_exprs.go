@@ -959,7 +959,9 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				isMethod = true
 			}
 		case *checker.BasicType:
-			if t.Name == "String" || len(g.extensionMethods[t.Name]) > 0 {
+			if t.Name == "String" || len(g.extensionMethods[t.Name]) > 0 ||
+				primitiveMethodCFunc(t.Name, me.Property) != "" ||
+				(t.Name == "Float" && me.Property == "toInt") {
 				isMethod = true
 			}
 		}
@@ -1499,6 +1501,9 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				return raw, nil
 			}
 			// fn not declared in this module; fall through to StringExtensions
+		}
+		if bt.Name == "Float" && me.Property == "toInt" && len(args) == 0 {
+			return g.current.NewFPToSI(obj, types.I64), nil
 		}
 		if variants, ok := g.extensionMethods[bt.Name][me.Property]; ok {
 			fn := classMethodByArity(variants, len(args))
@@ -2569,6 +2574,11 @@ func primitiveMethodCFunc(typeName, method string) string {
 		case "toFloat":
 			return "soyuz_int_to_float"
 		}
+	case "Float":
+		switch method {
+		case "toString":
+			return "soyuz_float_to_str"
+		}
 	}
 	return ""
 }
@@ -2579,6 +2589,10 @@ func primitiveMethodCFunc(typeName, method string) string {
 // For a pipe chain, it captures free variables and generates a wrapper that evaluates
 // the full chain inside the worker thread.
 func (g *Generator) generateTaskExpr(n *parser.TaskExpr) (value.Value, error) {
+	// Async pipe (~> / ~?>) already enqueues a worker; task (~> ...) must not wrap again.
+	if _, ok := n.Inner.(*parser.AsyncPipeExpr); ok {
+		return g.generateAsyncPipeExpr(n.Inner.(*parser.AsyncPipeExpr))
+	}
 	call, ok := n.Inner.(*parser.CallExpr)
 	if !ok {
 		// M-15: pipe chain or other expression — generate a closure-style wrapper.
@@ -2829,8 +2843,6 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 			if id, ok2 := rc.Callee.(*parser.Identifier); ok2 {
 				targetFn = g.findFunc(id.Name)
 			}
-			// Extra args: evaluate them (they reference outer-scope vars — not available here).
-			// For now, only plain function idents are supported.
 		} else if id, ok := step.(*parser.Identifier); ok {
 			targetFn = g.findFunc(id.Name)
 		}
@@ -2876,7 +2888,42 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 		}
 
 		var stepArgs []value.Value
-		stepArgs = append(stepArgs, current)
+		var origTypes []types.Type
+		if rc, ok := step.(*parser.CallExpr); ok {
+			for pi, arg := range rc.Args {
+				if id, ok := arg.(*parser.Identifier); ok && (id.Name == "_" || id.Name == "__async_pipe_tmp__") {
+					stepArgs = append(stepArgs, current)
+					if pi < len(targetFn.Params) {
+						origTypes = append(origTypes, targetFn.Params[pi].Type())
+					} else {
+						origTypes = append(origTypes, types.I64)
+					}
+					continue
+				}
+				av, err := g.generateExpr(arg)
+				if err != nil {
+					g.current = oldCurrent
+					g.vars = oldVars
+					g.heapVars = oldHeapVars
+					g.scopeStack = oldScopeStack
+					g.taskVarStack = oldTaskVarStack
+					g.syncGuardStack = oldSyncGuardStack
+					g.arcVarStack = oldArcVarStack
+					g.blockNames = oldBlockNames
+					g.currentReturnType = oldReturnType
+					return nil, err
+				}
+				stepArgs = append(stepArgs, av)
+				origTypes = append(origTypes, av.Type())
+			}
+		} else {
+			stepArgs = append(stepArgs, current)
+			if len(targetFn.Params) > 0 {
+				origTypes = append(origTypes, targetFn.Params[0].Type())
+			} else {
+				origTypes = append(origTypes, types.I64)
+			}
+		}
 
 		// Pack stepArgs into a buffer.
 		numArgs := len(stepArgs)
@@ -2895,17 +2942,6 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 			stepArgsHeap = constant.NewNull(types.I8Ptr)
 		}
 
-		// origTypes must match the TARGET function's parameter types, not the
-		// intermediate value's type (which is i8* from srt_await). The buffer
-		// always holds i64 (via castToI64), and the wrapper unpacks using origTypes.
-		origTypes := make([]types.Type, len(stepArgs))
-		for si := range stepArgs {
-			if si < len(targetFn.Params) {
-				origTypes[si] = targetFn.Params[si].Type()
-			} else {
-				origTypes[si] = stepArgs[si].Type()
-			}
-		}
 		wrapperFn := g.generateTaskWrapperFunc(targetFn, origTypes, numArgs)
 		wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
 		stepHandle := g.current.NewCall(enqueue, wrapperPtr, stepArgsHeap)
