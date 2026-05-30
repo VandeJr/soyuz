@@ -1389,8 +1389,11 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 			return g.emitIntToOption(raw, asChar)
 		}
 		if cfn := primitiveMethodCFunc(bt.Name, me.Property); cfn != "" {
-			callArgs := append([]value.Value{obj}, args...)
-			return g.current.NewCall(g.findFunc(cfn), callArgs...), nil
+			if fn := g.findFunc(cfn); fn != nil {
+				callArgs := append([]value.Value{obj}, args...)
+				return g.current.NewCall(fn, callArgs...), nil
+			}
+			// fn not declared in this module; fall through to StringExtensions
 		}
 		if variants, ok := g.extensionMethods[bt.Name][me.Property]; ok {
 			fn := classMethodByArity(variants, len(args))
