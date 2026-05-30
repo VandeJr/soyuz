@@ -203,10 +203,10 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 				g.current.NewBr(mergeBlock)
 			}
 			g.current = mergeBlock
-			return bodyVal, nil
+			return g.coerceSelectResult(bodyVal, n), nil
 		}
 		g.current = mergeBlock
-		return constant.NewInt(types.I64, 0), nil
+		return g.coerceSelectResult(constant.NewInt(types.I64, 0), n), nil
 	}
 
 	i8PtrType := types.I8Ptr
@@ -368,7 +368,22 @@ func (g *Generator) generateSelectExpr(n *parser.SelectExpr) (value.Value, error
 	}
 
 	g.current = mergeBlock
-	return g.current.NewLoad(types.I64, resultAlloc), nil
+	raw := g.current.NewLoad(types.I64, resultAlloc)
+	return g.coerceSelectResult(raw, n), nil
+}
+
+// coerceSelectResult maps the internal i64 merge slot to the checker type of the select expression.
+func (g *Generator) coerceSelectResult(val value.Value, n *parser.SelectExpr) value.Value {
+	if t := g.check.NodeTypes[n]; t != nil && t != checker.Unknown {
+		if val.Type().Equal(types.I64) {
+			return g.coerceFromI64(val, t)
+		}
+		llvmExpected := g.mapTypeToLLVM(t)
+		if val.Type().Equal(llvmExpected) {
+			return val
+		}
+	}
+	return val
 }
 
 // emitInternalListenerTask spawns a fire-and-forget wrapper task that:

@@ -1622,7 +1622,7 @@ func (c *Checker) checkAssignExpr(n *parser.AssignExpr) Type {
 	if !c.isAssignable(leftType, rightType) {
 		c.errorf(n.Pos(), "assignment of incompatible types: %s and %s", leftType, rightType)
 	}
-	return rightType
+	return UnitType
 }
 
 
@@ -1666,7 +1666,21 @@ func (c *Checker) checkBlock(n *parser.BlockStmt) Type {
 
 	var lastType Type = UnitType
 	for _, stmt := range n.Statements {
-		lastType = c.checkNode(stmt)
+		t := c.checkNode(stmt)
+		switch stmt.(type) {
+		case *parser.AssignExpr:
+			lastType = UnitType
+		case *parser.ExprStmt:
+			if es, ok := stmt.(*parser.ExprStmt); ok {
+				if _, isAssign := es.Expr.(*parser.AssignExpr); isAssign {
+					lastType = UnitType
+				} else {
+					lastType = t
+				}
+			}
+		default:
+			lastType = t
+		}
 	}
 	return lastType
 }

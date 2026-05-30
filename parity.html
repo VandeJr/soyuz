@@ -84,8 +84,8 @@
 
 <!-- ── SUMMARY ── -->
 <div class="summary">
-  <div class="sumbox"><div class="num num-ok">75</div><div class="lbl">Features OK</div></div>
-  <div class="sumbox"><div class="num num-warn">6</div><div class="lbl">Parcial / Workaround</div></div>
+  <div class="sumbox"><div class="num num-ok">77</div><div class="lbl">Features OK</div></div>
+  <div class="sumbox"><div class="num num-warn">4</div><div class="lbl">Parcial / Workaround</div></div>
   <div class="sumbox"><div class="num num-fail">2</div><div class="lbl">Bugs / Falha</div></div>
 </div>
 
@@ -304,7 +304,7 @@
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum match com 2+ bindings</span><span class="feat-note"><code>Retangulo(w, h) => w * h</code> — corrigido (ver B-1).</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Tuple match <code>(n%3, n%5)</code></span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>match</code> como expressão</span></div><span></span></div>
-    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Match arms com bloco <code>{ ... }</code> e side effects</span><span class="feat-note">Funciona quando o bloco não retorna valor (<code>Unit</code>). Com efeitos como <code>{ var = var + v }</code> a atribuição torna o tipo do arm inconsistente — precisa ser cuidadoso.</span></div><span><span class="badge warn">cuidado</span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Match arms com bloco <code>{ ... }</code> e side effects</span><span class="feat-note"><code>Some(v) =&gt; { total = total + v }</code> — atribuição em bloco tem tipo <code>Unit</code> (B-16).</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Record destructuring <code>Ponto { x, y }</code> em match (P-5)</span><span class="feat-note">Pendente (Fase 2).</span></div><span><span class="badge warn">pendente</span></span></div>
   </div>
 </div>
@@ -342,7 +342,7 @@
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>map</code> / <code>filter</code> / <code>reduce</code> em <code>List[T]</code></span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Função genérica com tupla como parâmetro</span><span class="feat-note"><code>fn trocar[A,B](par: (A, B)) -> (B, A)</code> — unificação de tuplas no checker corrigida.</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Métodos padrão de <code>List[T]</code> sem import (<code>.first()</code>, <code>.len()</code>)</span><span class="feat-note">Disponíveis após <code>import</code> explícito; não há auto-import da stdlib de collections (B-14).</span></div><span><span class="badge warn">import manual</span></span></div>
-    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum genérico recursivo como Árvore (P-9)</span><span class="feat-note">Match com 2+ bindings corrigido — profundidade em árvores binárias funciona.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum genérico recursivo como Árvore (P-9)</span><span class="feat-note"><code>Arvore.No(1, Arvore.Folha(0), Arvore.Folha(0))</code> — variantes como valor em ctor (B-15).</span></div><span></span></div>
   </div>
 </div>
 
@@ -401,7 +401,7 @@
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Channel.new(n)</code> + <code>send</code> + <code>recv</code></span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Async pipe <code>~&gt;</code> (cadeia de tasks)</span><span class="feat-note"><code>5 ~&gt; validar ~&gt; formatar</code> e <code>task (5 ~&gt; somar(10, _))</code> com aplicação parcial.</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> aguardando channel (sem <code>default</code>)</span></div><span></span></div>
-    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> com branch <code>default</code></span><span class="feat-note"><code>srt_select_try</code> + branch <code>sel_default</code> — corrigido (extern Bool no prelude também).</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> com branch <code>default</code></span><span class="feat-note"><code>coerceSelectResult</code> alinha retorno (<code>Bool</code>/<code>Int</code>) — inclusive <code>return select { default =&gt; ... }</code>.</span></div><span></span></div>
     <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>W0300 — aviso de task não consumida</span><span class="feat-note">O compilador corretamente avisa quando uma task não é consumida via <code>.await()</code> ou <code>.detach()</code>.</span></div><span></span></div>
   </div>
 </div>
@@ -483,8 +483,20 @@
   </tr>
   <tr>
     <td>B-12</td>
-    <td><s><code>select</code> com <code>default</code></s> — <strong>corrigido</strong></td>
+    <td><s><code>select</code> com <code>default</code></s> — <strong>corrigido</strong> (<code>coerceSelectResult</code> para tipo de retorno)</td>
     <td><code>internal/codegen/gen_channel.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-15</td>
+    <td><s>Enum genérico <code>Enum.Variant</code> como argumento de construtor</s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_exprs.go</code> (<code>tryGenerateEnumVariantValue</code>)</td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-16</td>
+    <td><s>Match arm com bloco de atribuição tipado como <code>Int</code> em vez de <code>Unit</code></s> — <strong>corrigido</strong></td>
+    <td><code>internal/checker/check_exprs.go</code></td>
     <td><span class="badge ok">corrigido</span></td>
   </tr>
   <tr>
