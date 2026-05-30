@@ -276,6 +276,10 @@ func (p *Parser) parseInfix(left Node) Node {
 		return &CallExpr{pos: tok.Position, Callee: left, Args: args}
 
 	case lexer.LBRACKET:
+		if p.looksLikeTypeArgList() {
+			typeArgs := p.parseBracketTypeArgs()
+			return &SpecializedExpr{pos: tok.Position, Base: left, TypeArgs: typeArgs}
+		}
 		p.advance()
 		idx := p.parseExpression(0)
 		p.expect(lexer.RBRACKET)
@@ -287,6 +291,10 @@ func (p *Parser) parseInfix(left Node) Node {
 func (p *Parser) parseCallArgs() []Node {
 	var args []Node
 	for !p.check(lexer.RPAREN) && !p.check(lexer.EOF) {
+		p.skipSemicolons()
+		if p.check(lexer.RPAREN) {
+			break
+		}
 		if p.check(lexer.IDENT) && p.peekN(1).Type == lexer.COLON {
 			pos := p.peek().Position
 			name := p.expect(lexer.IDENT).Lexeme
@@ -299,6 +307,7 @@ func (p *Parser) parseCallArgs() []Node {
 		if !p.check(lexer.RPAREN) {
 			p.consume(lexer.COMMA)
 		}
+		p.skipSemicolons()
 	}
 	return args
 }
@@ -360,10 +369,67 @@ func (p *Parser) parseListOrMap() Node {
 
 func (p *Parser) parseIdentOrRecordLiteral() Node {
 	tok := p.advance()
-	if isUppercase(tok.Lexeme) && p.check(lexer.LBRACE) {
-		return p.parseRecordLiteralBody(tok.Position, tok.Lexeme)
+	name := tok.Lexeme
+	if p.check(lexer.LBRACKET) && p.looksLikeTypeArgList() {
+		typeArgs := p.parseBracketTypeArgs()
+		if isUppercase(name) && p.check(lexer.LBRACE) {
+			rl := p.parseRecordLiteralBody(tok.Position, name)
+			rl.TypeArgs = typeArgs
+			return rl
+		}
+		return &SpecializedExpr{
+			pos:      tok.Position,
+			Base:     &Identifier{pos: tok.Position, Name: name},
+			TypeArgs: typeArgs,
+		}
 	}
-	return &Identifier{pos: tok.Position, Name: tok.Lexeme}
+	if isUppercase(name) && p.check(lexer.LBRACE) {
+		return p.parseRecordLiteralBody(tok.Position, name)
+	}
+	return &Identifier{pos: tok.Position, Name: name}
+}
+
+// looksLikeTypeArgList reports whether [ begins a type argument list (not array indexing).
+func (p *Parser) looksLikeTypeArgList() bool {
+	if !p.check(lexer.LBRACKET) {
+		return false
+	}
+	tok := p.peekN(1)
+	next := lexer.EOF
+	if len(p.tokens) > p.pos+2 {
+		next = p.peekN(2).Type
+	}
+	return p.isTypeArgStart(tok.Type, tok.Lexeme, next)
+}
+
+func (p *Parser) isTypeArgStart(tt lexer.TokenType, lex string, next lexer.TokenType) bool {
+	switch tt {
+	case lexer.INT_TYPE, lexer.FLOAT_TYPE, lexer.BOOL_TYPE,
+		lexer.STRING_TYPE, lexer.CHAR_TYPE, lexer.UNIT_TYPE:
+		return true
+	case lexer.LPAREN:
+		return true
+	case lexer.IDENT:
+		if isUppercase(lex) {
+			return true
+		}
+		return next == lexer.COMMA || next == lexer.RBRACKET
+	default:
+		return false
+	}
+}
+
+func (p *Parser) parseBracketTypeArgs() []TypeExpr {
+	p.expect(lexer.LBRACKET)
+	var params []TypeExpr
+	for !p.check(lexer.RBRACKET) && !p.check(lexer.EOF) {
+		params = append(params, p.parseTypeExpr())
+		if !p.check(lexer.RBRACKET) {
+			p.consume(lexer.COMMA)
+		}
+	}
+	p.expect(lexer.RBRACKET)
+	return params
 }
 
 func (p *Parser) parseRecordLiteralBody(pos lexer.Position, name string) *RecordLiteral {

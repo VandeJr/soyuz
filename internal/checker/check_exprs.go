@@ -1266,6 +1266,11 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 			specType := c.checkNode(genericCall.Index)
 			ft = c.instantiateFunc(f, []Type{specType})
 		}
+	} else if se, ok := n.Callee.(*parser.SpecializedExpr); ok {
+		calleeType = c.checkSpecializedExpr(se)
+		if f, ok := calleeType.(*FuncType); ok {
+			ft = f
+		}
 	} else {
 		calleeType = c.checkNode(n.Callee)
 		if f, ok := calleeType.(*FuncType); ok {
@@ -1412,10 +1417,21 @@ func (c *Checker) checkSpecialization(n *parser.IndexExpr) Type {
 	var param Type = Unknown
 	if id, ok := n.Index.(*parser.Identifier); ok {
 		param = c.resolveTypeExpr(&parser.NamedType{Name: id.Name})
+	} else if te := typeExprFromNode(n.Index); te != nil {
+		param = c.resolveTypeExpr(te)
 	} else {
 		param = c.checkNode(n.Index)
 	}
 	return &SpecializedType{Base: base, Params: []Type{param}}
+}
+
+func typeExprFromNode(n parser.Node) parser.TypeExpr {
+	switch v := n.(type) {
+	case *parser.Identifier:
+		return &parser.NamedType{Name: v.Name}
+	default:
+		return nil
+	}
 }
 
 func (c *Checker) checkIdentifier(n *parser.Identifier) Type {
@@ -1642,6 +1658,15 @@ func (c *Checker) checkRecordLiteral(n *parser.RecordLiteral) Type {
 			}
 			c.errorf(n.Pos(), "missing field in initialization of %s: %s", typeName, name)
 		}
+	}
+
+	if len(n.TypeArgs) > 0 {
+		specParams := c.typeArgsFromExprs(n.TypeArgs)
+		if len(specParams) != len(generics) {
+			c.errorf(n.Pos(), "esperado %d argumentos de tipo, encontrado %d", len(generics), len(specParams))
+			return Unknown
+		}
+		return &SpecializedType{Base: resultType, Params: specParams}
 	}
 
 	if len(generics) > 0 {
