@@ -3,994 +3,507 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Soyuz — Plano de Paridade (parity.html)</title>
+<title>Soyuz — Relatório de Paridade de Features</title>
 <style>
   :root {
-    --bg:       #0b0d14;
-    --surface:  #13161f;
-    --card:     #181b26;
-    --border:   #252836;
-    --text:     #dde1f0;
-    --muted:    #6b7194;
-    --green:    #4ade80;
-    --yellow:   #fbbf24;
-    --red:      #f87171;
-    --blue:     #60a5fa;
-    --purple:   #a78bfa;
-    --orange:   #fb923c;
-    --cyan:     #34d399;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    font-size: 15px;
+    --bg: #0b0d14; --surface: #13161f; --card: #181b26; --border: #252836;
+    --text: #dde1f0; --muted: #6b7194;
+    --green: #4ade80; --yellow: #fbbf24; --red: #f87171;
+    --blue: #60a5fa; --purple: #a78bfa; --orange: #fb923c; --cyan: #34d399;
+    font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); padding: 36px 24px; line-height: 1.65; }
-  .wrap { max-width: 1020px; margin: 0 auto; }
-
-  /* ── header ── */
-  h1 { font-size: 1.9rem; color: var(--blue); letter-spacing: -0.02em; }
-  .tagline { color: var(--muted); margin-bottom: 36px; font-size: 0.9rem; }
-  h2 { font-size: 1.2rem; color: var(--purple); margin-bottom: 16px; letter-spacing: -0.01em; }
-  h3 { font-size: 0.95rem; color: var(--text); font-weight: 600; margin-bottom: 8px; }
-
-  /* ── phase headers ── */
-  .phase {
-    border-left: 3px solid var(--border);
-    padding-left: 20px;
-    margin-bottom: 40px;
-  }
-  .phase-title {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 18px;
-  }
-  .phase-num {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: 700;
-    flex-shrink: 0;
-  }
-  .phase-1 { border-color: var(--red);    } .phase-1 .phase-num { background: #7f1d1d; color: var(--red); }
-  .phase-2 { border-color: var(--orange); } .phase-2 .phase-num { background: #431407; color: var(--orange); }
-  .phase-3 { border-color: var(--yellow); } .phase-3 .phase-num { background: #422006; color: var(--yellow); }
-  .phase-4 { border-color: var(--cyan);   } .phase-4 .phase-num { background: #064e3b; color: var(--cyan); }
-  .phase-5 { border-color: var(--purple); } .phase-5 .phase-num { background: #2e1065; color: var(--purple); }
-
-  /* ── milestone cards ── */
-  .milestone {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 14px;
-    overflow: hidden;
-  }
-  .ms-header {
-    display: grid;
-    grid-template-columns: 72px 1fr auto;
-    align-items: center;
-    gap: 12px;
-    padding: 13px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .ms-id {
-    font-family: 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 0.78rem;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 4px;
-    text-align: center;
-  }
-  .ms-title { font-weight: 600; font-size: 0.95rem; }
-  .status {
-    font-size: 0.7rem; font-weight: 700;
-    padding: 3px 9px; border-radius: 4px;
-    text-transform: uppercase; letter-spacing: 0.06em;
-    white-space: nowrap;
-  }
-  .todo    { background: #1f2937; color: var(--muted); }
-  .done    { background: #064e3b; color: var(--cyan); }
-  .in-prog { background: #422006; color: var(--yellow); }
-
-  .ms-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
-
-  /* ── sections inside milestone ── */
-  .section-lbl {
-    font-size: 0.68rem; text-transform: uppercase;
-    letter-spacing: 0.1em; color: var(--muted);
-    font-weight: 700; margin-bottom: 5px;
-  }
-  ul.items { list-style: none; display: flex; flex-direction: column; gap: 4px; }
-  ul.items li { font-size: 0.88rem; display: flex; gap: 8px; }
-  ul.items li::before { content: '·'; color: var(--muted); flex-shrink: 0; }
-
-  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-  code {
-    font-family: 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 0.8rem;
-    background: rgba(255,255,255,0.07);
-    padding: 1px 5px; border-radius: 3px;
-  }
-  pre {
-    font-family: 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 0.78rem;
-    background: #0d0f18;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
-    overflow-x: auto;
-    line-height: 1.55;
-    color: #b8c0e0;
-  }
-  .hl  { color: var(--yellow); }
-  .cmt { color: var(--muted); font-style: italic; }
-  .ok  { color: var(--green); }
-  .err { color: var(--red); }
-
-  .tag {
-    font-size: 0.7rem; padding: 2px 7px;
-    border-radius: 3px; border: 1px solid;
-    vertical-align: middle; white-space: nowrap;
-  }
-  .tag-file   { color: #93c5fd; border-color: #1d4ed8; background: #1e3a5f22; }
-  .tag-parser { color: #a78bfa; border-color: #7c3aed; background: #2e106522; }
-  .tag-codegen{ color: var(--orange); border-color: #c2410c; background: #43140722; }
-  .tag-checker{ color: #67e8f9; border-color: #0e7490; background: #08334422; }
-  .tag-runtime{ color: var(--red); border-color: #991b1b; background: #2a0d0d22; }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; color: var(--blue); letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); margin-bottom: 32px; font-size: 0.88rem; }
+  h2 { font-size: 1.1rem; color: var(--purple); margin: 28px 0 12px; }
+  code { font-family: 'Cascadia Code','Fira Code',monospace; font-size: 0.8rem;
+         background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 3px; }
+  pre { font-family: 'Cascadia Code','Fira Code',monospace; font-size: 0.77rem;
+        background: #0d0f18; border: 1px solid var(--border); border-radius: 6px;
+        padding: 10px 12px; overflow-x: auto; line-height: 1.5; color: #b8c0e0; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
 
   /* ── overview table ── */
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 32px; }
-  th { color: var(--muted); font-weight: 600; text-align: left; padding: 8px 12px;
-       border-bottom: 1px solid var(--border); }
-  td { padding: 8px 12px; border-bottom: 1px solid #1e2030; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
+  .overview { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-bottom: 32px; }
+  .overview th { color: var(--muted); font-weight: 600; text-align: left;
+                 padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .overview td { padding: 8px 12px; border-bottom: 1px solid #1e2030; vertical-align: top; }
+  .overview tr:last-child td { border-bottom: none; }
+  .overview tr:hover td { background: rgba(255,255,255,0.02); }
 
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .dot-r { background: var(--red); }
-  .dot-o { background: var(--orange); }
-  .dot-y { background: var(--yellow); }
-  .dot-c { background: var(--cyan); }
-  .dot-p { background: var(--purple); }
+  /* status badges */
+  .badge { display: inline-block; font-size: 0.68rem; font-weight: 700;
+           padding: 2px 8px; border-radius: 4px; text-transform: uppercase;
+           letter-spacing: 0.06em; white-space: nowrap; }
+  .ok    { background: #064e3b; color: var(--cyan); }
+  .warn  { background: #422006; color: var(--yellow); }
+  .fail  { background: #450a0a; color: var(--red); }
 
-  /* ── complexity badges ── */
-  .cplx {
-    font-size: 0.72rem; padding: 2px 7px; border-radius: 4px;
-    border: 1px solid; font-weight: 600;
-  }
-  .cplx-s { color: var(--green);  border-color: #166534; background: #0d2a1a; }
-  .cplx-m { color: var(--yellow); border-color: #854d0e; background: #2a1f00; }
-  .cplx-l { color: var(--red);    border-color: #991b1b; background: #2a0d0d; }
+  /* feature card */
+  .fcard { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+           margin-bottom: 16px; overflow: hidden; }
+  .fcard-head { display: flex; align-items: center; gap: 12px;
+                padding: 11px 16px; border-bottom: 1px solid var(--border); }
+  .fcard-title { font-weight: 600; font-size: 0.95rem; flex: 1; }
+  .fcard-file { font-size: 0.72rem; color: var(--muted); font-family: monospace; }
+  .fcard-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 
-  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+  /* feature rows */
+  .feat-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px;
+              align-items: start; font-size: 0.87rem; padding: 5px 0;
+              border-bottom: 1px solid #1e2030; }
+  .feat-row:last-child { border-bottom: none; }
+  .feat-icon { font-size: 0.8rem; padding-top: 2px; }
+  .feat-desc { display: flex; flex-direction: column; gap: 3px; }
+  .feat-note { font-size: 0.78rem; color: var(--muted); }
+  .feat-note code { font-size: 0.74rem; }
+  .feat-note.bug { color: #fca5a5; }
+
+  /* summary bar */
+  .summary { display: flex; gap: 20px; margin-bottom: 32px; flex-wrap: wrap; }
+  .sumbox { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 14px 20px; text-align: center; min-width: 110px; }
+  .sumbox .num { font-size: 1.8rem; font-weight: 700; line-height: 1; }
+  .sumbox .lbl { font-size: 0.72rem; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: 0.08em; margin-top: 4px; }
+  .num-ok   { color: var(--cyan); }
+  .num-warn { color: var(--yellow); }
+  .num-fail { color: var(--red); }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<h1>Soyuz — Plano de Paridade</h1>
+<h1>Soyuz — Relatório de Paridade de Features</h1>
 <p class="tagline">
-  <code>parity.html</code> · Última atualização: 2026-05-30 ·
-  Objetivo: fechar os gaps entre a doc e o compilador atual
+  Gerado em 2026-05-30 · Atualizado 2026-05-30 · Compilador instalado via <code>make install</code> ·
+  Testes em <code>feature-tests/*.sy</code> · Um arquivo por MDX de documentação
 </p>
 
-<!-- ══════════════════════════════════════════════════════════════════════════
-     OVERVIEW
-══════════════════════════════════════════════════════════════════════════ -->
+<!-- ── SUMMARY ── -->
+<div class="summary">
+  <div class="sumbox"><div class="num num-ok">75</div><div class="lbl">Features OK</div></div>
+  <div class="sumbox"><div class="num num-warn">6</div><div class="lbl">Parcial / Workaround</div></div>
+  <div class="sumbox"><div class="num num-fail">2</div><div class="lbl">Bugs / Falha</div></div>
+</div>
 
-<h2>Visão geral dos milestones</h2>
-
-<table>
+<!-- ── OVERVIEW TABLE ── -->
+<h2>Visão geral por MDX</h2>
+<table class="overview">
+  <tr><th>Arquivo</th><th>Status</th><th>Resumo</th></tr>
   <tr>
-    <th>ID</th><th>Nome</th><th>Fase</th><th>Camada</th><th>Complexidade</th><th>Status</th>
+    <td><code>variaveis.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>val, var, shadowing, inferência, escopo — tudo funciona</td>
   </tr>
   <tr>
-    <td><code>P-1</code></td>
-    <td>Fix nil crash em métodos de String no codegen</td>
-    <td><span class="dot dot-r"></span>1 — Crashes</td>
-    <td><span class="tag tag-codegen">codegen</span></td>
-    <td><span class="cplx cplx-s">S</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>tipos.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>Primitivos, tuplas, records, enums, Option, record equality, optional chaining e enum match com 2+ bindings — tudo funciona.</td>
   </tr>
   <tr>
-    <td><code>P-2</code></td>
-    <td><code>break</code> / <code>continue</code> como arm de <code>match</code></td>
-    <td><span class="dot dot-r"></span>1 — Crashes</td>
-    <td><span class="tag tag-parser">parser</span></td>
-    <td><span class="cplx cplx-s">S</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>funcoes.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>Declaração, corpo expr, default params, 1ª classe, parcial, anônima, generics, overloading — tudo funciona</td>
   </tr>
   <tr>
-    <td><code>P-3</code></td>
-    <td><code>loop</code> como expressão retornando valor</td>
-    <td><span class="dot dot-r"></span>1 — Crashes</td>
-    <td><span class="tag tag-parser">parser</span> <span class="tag tag-codegen">codegen</span></td>
-    <td><span class="cplx cplx-m">M</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>flow.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>if/else, for ranges, while, loop expr, break valor, break/continue em match arm (P-2/P-3)</td>
   </tr>
   <tr>
-    <td><code>P-4</code></td>
-    <td>Segfault ao chamar fn via parâmetro de tipo-função</td>
-    <td><span class="dot dot-r"></span>1 — Crashes</td>
-    <td><span class="tag tag-codegen">codegen</span></td>
-    <td><span class="cplx cplx-m">M</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>strings.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>Interpolação, raw strings <code>r"..."</code>, métodos principais e extern <code>-> Bool</code> OK. StringBuilder ainda depende de import explícito.</td>
   </tr>
   <tr>
-    <td><code>P-5</code></td>
-    <td>Args nomeados em construtores de enum e record-match</td>
-    <td><span class="dot dot-o"></span>2 — Sintaxe</td>
-    <td><span class="tag tag-parser">parser</span></td>
-    <td><span class="cplx cplx-m">M</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>classes.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>Interface, campos, métodos, pub, composição e campo/método homônimos (<code>self.campo</code> vs <code>obj.metodo()</code>) OK.</td>
   </tr>
   <tr>
-    <td><code>P-6</code></td>
-    <td>Tipo explícito em <code>[]</code> em contexto de expressão</td>
-    <td><span class="dot dot-o"></span>2 — Sintaxe</td>
-    <td><span class="tag tag-parser">parser</span></td>
-    <td><span class="cplx cplx-l">L</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>pattern_matching.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>Literal, bool, guards, Option/Result, tuple e enum match com 2+ bindings OK. Block arms com side effects exigem cuidado de tipos.</td>
   </tr>
   <tr>
-    <td><code>P-7</code></td>
-    <td><code>extend</code> — self type no checker e dispatch no codegen</td>
-    <td><span class="dot dot-y"></span>3 — Checker</td>
-    <td><span class="tag tag-checker">checker</span> <span class="tag tag-codegen">codegen</span></td>
-    <td><span class="cplx cplx-m">M</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>extensions.mdx</code></td>
+    <td><span class="badge warn">parcial</span></td>
+    <td>extend String, Class, Int e Float OK. Expression body <code>= expr</code> pode gerar <code>ret void</code> em alguns casos (B-13).</td>
   </tr>
   <tr>
-    <td><code>P-8</code></td>
-    <td>Inferência de tipo em classe genérica sem parâmetro explícito</td>
-    <td><span class="dot dot-y"></span>3 — Checker</td>
-    <td><span class="tag tag-checker">checker</span></td>
-    <td><span class="cplx cplx-m">M</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>generics.mdx</code></td>
+    <td><span class="badge warn">parcial</span></td>
+    <td>Fn genérica, tupla genérica, record inferido, classe genérica, map/filter/reduce OK. Métodos de List exigem import explícito (B-14).</td>
   </tr>
   <tr>
-    <td><code>P-9</code></td>
-    <td>Enum genérico recursivo — substituição de tipo no checker</td>
-    <td><span class="dot dot-y"></span>3 — Checker</td>
-    <td><span class="tag tag-checker">checker</span></td>
-    <td><span class="cplx cplx-m">M</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>errors.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>Result, Error, match, auto-wrap e PipeQuest <code>|?&gt;</code> OK.</td>
   </tr>
   <tr>
-    <td><code>P-10</code></td>
-    <td>Métodos de String ausentes na stdlib</td>
-    <td><span class="dot dot-c"></span>4 — Stdlib</td>
-    <td><span class="tag tag-runtime">runtime</span> <span class="tag tag-codegen">codegen</span></td>
-    <td><span class="cplx cplx-s">S</span></td>
-    <td><span class="status done">concluído</span></td>
+    <td><code>pipes.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>|&gt; pipe, |?&gt; PipeQuest, map/filter/reduce, aplicação parcial e encadeamento multilinha OK.</td>
+  </tr>
+  <tr>
+    <td><code>paralelismo.mdx</code></td>
+    <td><span class="badge ok">ok</span></td>
+    <td>task, await, detach, Task.all, gather, Channel, async pipe ~&gt; e select com default OK.</td>
   </tr>
 </table>
 
 <hr>
 
-<!-- ══════════════════════════════════════════════════════════════════════════
-     FASE 1
-══════════════════════════════════════════════════════════════════════════ -->
-
-<div class="phase phase-1">
-<div class="phase-title">
-  <div class="phase-num">1</div>
-  <div>
-    <h2 style="margin:0">Fase 1 — Crashes e Panics</h2>
-    <div style="font-size:0.85rem;color:var(--muted);">
-      Bugs que produzem panic no compilador ou segfault em runtime. Alta prioridade — afetam código que a doc promete funcionar.
-    </div>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- VARIAVEIS -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Variáveis</span>
+    <span class="fcard-file">variaveis.mdx → feature-tests/variaveis.sy</span>
+  </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>val</code> imutável com tipo inferido</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>var</code> mutável e reatribuição</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Shadowing com tipo diferente</span><span class="feat-note"><code>val x: Int = 10; val x: String = "dez"</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Inferência de tipos (Int, Float, Bool, String, List)</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Escopo de bloco — variáveis de bloco <code>if</code> não vazam</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>var</code> acumulador em <code>for</code></span></div><span></span></div>
   </div>
 </div>
 
-<!-- P-1 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#1e3a5f;color:var(--blue);">P-1</span>
-    <span class="ms-title">Fix nil crash em métodos de String no codegen</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TIPOS -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Tipos</span>
+    <span class="fcard-file">tipos.mdx → feature-tests/tipos.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          Em <code>gen_exprs.go</code>, a função <code>generateMethodCall</code> tenta métodos via
-          <code>primitiveMethodCFunc</code> (<code>contains</code>, <code>toUpper</code>, <code>toLower</code>) e chama
-          <code>g.findFunc(cfn)</code> imediatamente. Se a função C não está declarada
-          no módulo LLVM atual (não há <code>extern fn</code> no arquivo), <code>findFunc</code> retorna <code>nil</code>
-          e <code>g.current.NewCall(nil, args...)</code> causa panic.
-          O prelude registra esses métodos via classe <code>StringExtensions</code>,
-          mas o caminho <code>primitiveMethodCFunc</code> roda antes e não testa nil.
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivo</div>
-        <p style="font-size:0.88rem;"><span class="tag tag-file">internal/codegen/gen_exprs.go</span></p>
-        <div class="section-lbl" style="margin-top:10px;">Reprodução</div>
-        <pre><span class="cmt">// crasha no compilador:</span>
-<span class="err">val s = "hello"
-print(s.toUpper())  <span class="cmt">// panic nil ptr</span>
-print(s.contains("x"))  <span class="cmt">// idem</span></span></pre>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Fix</div>
-      <pre><span class="cmt">// Antes (linha ~1392):</span>
-<span class="err">if cfn := primitiveMethodCFunc(bt.Name, me.Property); cfn != "" {
-    callArgs := append([]value.Value{obj}, args...)
-    return g.current.NewCall(g.findFunc(cfn), callArgs...), nil
-}</span>
-
-<span class="cmt">// Depois: checar nil antes de chamar</span>
-<span class="ok">if cfn := primitiveMethodCFunc(bt.Name, me.Property); cfn != "" {
-    if fn := g.findFunc(cfn); fn != nil {
-        callArgs := append([]value.Value{obj}, args...)
-        return g.current.NewCall(fn, callArgs...), nil
-    }
-    // fn não está no módulo; continua para StringExtensions
-}</span></pre>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">val s = "hello"
-val up = s.toUpper()   <span class="cmt">// "HELLO"</span>
-print(s.contains("ell"))  <span class="cmt">// true</span>
-print("abc".toLower())    <span class="cmt">// "abc"</span></span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Tipos primitivos (Int, Float, Bool, String, Char, Unit)</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Interpolação de string <code>$(expr)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Tuplas e desestruturação <code>val (a, b) = par</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Record — criação e acesso a campos</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Record deep equality <code>==</code></span><span class="feat-note">Corrigido na build atual — <code>p1 == p2</code> retorna <code>true</code> corretamente.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum — criação de variantes com args nomeados</span><span class="feat-note"><code>Forma.Circulo(raio: 5.0)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum match com 1 binding</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum match com 2+ bindings</span><span class="feat-note"><code>Retangulo(w, h) => w * h</code> — corrigido (payload struct + bindings por campo).</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Option[T] / Some / None e match</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Optional chaining <code>?.campo</code></span><span class="feat-note">Corrigido na build atual — <code>xOpt?.x</code> retorna <code>3.000000</code> corretamente.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Elvis operator <code>?:</code></span><span class="feat-note"><code>nome ?: "Anônimo"</code> funciona</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Record genérico com inferência de campos</span><span class="feat-note"><code>Par { primeiro: "nome", segundo: 42 }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Record genérico com TypeArgs explícitos <code>Par[Int, Int] { ... }</code></span><span class="feat-note">Não testável ainda — depende de P-6 (parser de tipo em contexto de expressão), pendente.</span></div><span><span class="badge warn">pendente</span></span></div>
   </div>
 </div>
 
-<!-- P-2 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#1e3a5f;color:var(--blue);">P-2</span>
-    <span class="ms-title"><code>break</code> / <code>continue</code> como expressão em arm de <code>match</code></span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- FUNCOES -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Funções</span>
+    <span class="fcard-file">funcoes.mdx → feature-tests/funcoes.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          O parser de arms de <code>match</code> (<code>parse_patterns.go</code> / <code>parse_exprs.go</code>)
-          não aceita <code>break</code> nem <code>continue</code> como expressão de arm.
-          O token <code>BREAK</code> não está listado no conjunto inicial de
-          <code>parseExpr</code> quando chamado dentro de um arm.
-          Isso bloqueia o idioma canônico de canal:
-          <code>None => break</code>.
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivo</div>
-        <p style="font-size:0.88rem;"><span class="tag tag-file">internal/parser/parse_exprs.go</span></p>
-        <div class="section-lbl" style="margin-top:10px;">Reprodução</div>
-        <pre><span class="err">while !ch.isClosed() {
-    match ch.recv() {
-        Some(v) => print(v)
-        None    => break  <span class="cmt">// parse error</span>
-    }
-}</span></pre>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Fix</div>
-      <ul class="items">
-        <li>Em <code>parseMatchArm</code> (ou onde o corpo do arm é parseado), adicionar case para <code>BREAK</code> e <code>CONTINUE</code> que retornam <code>*BreakStmt</code> / <code>*ContinueStmt</code>.</li>
-        <li>O codegen já lida com <code>BreakStmt</code> em blocos de loop — apenas garantir que o nó chegue até ele via match arm.</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">while cond {
-    match valor {
-        Some(v) => processar(v)
-        None    => break
-        _       => continue
-    }
-}</span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Declaração básica <code>fn nome(params) -> T { ... }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Corpo de expressão <code>fn f(x) = expr</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Retorno múltiplo com tupla</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Parâmetros default <code>cargo: String = "Dev"</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Funções de primeira classe — passar como argumento</span><span class="feat-note"><code>aplicar(dobrar, 5)</code> → 10</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Aplicação parcial com <code>_</code></span><span class="feat-note"><code>val dobrar2 = multiplicar(2, _)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Funções anônimas (arrow functions) <code>fn(x) => x * 2</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Funções genéricas <code>fn identidade[T](x: T) -> T</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Overloading com <code>when</code> guards</span><span class="feat-note"><code>fn fatorial(n) when n==0 = 1; fn fatorial(n) = n * fatorial(n-1)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Recursão — Fibonacci, Fatorial</span></div><span></span></div>
   </div>
 </div>
 
-<!-- P-3 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#1e3a5f;color:var(--blue);">P-3</span>
-    <span class="ms-title"><code>loop</code> como expressão retornando valor via <code>break valor</code></span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- FLOW -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Controle de Fluxo</span>
+    <span class="fcard-file">flow.mdx → feature-tests/flow.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          <code>generateLoopStmt</code> em <code>gen_control.go</code> retorna sempre
-          <code>nil, nil</code> — sem suporte a valor de retorno.
-          O codegen de <code>generateVarDecl</code> tenta armazenar esse nil e crasha
-          com nil pointer em <code>gen_exprs.go:485</code>.
-          Também precisa que <code>BreakStmt</code> no AST carregue um valor opcional.
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivos</div>
-        <p style="font-size:0.88rem;">
-          <span class="tag tag-file">internal/parser/ast.go</span><br>
-          <span class="tag tag-file">internal/parser/parse_stmts.go</span><br>
-          <span class="tag tag-file">internal/codegen/gen_control.go</span>
-        </p>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Plano de implementação</div>
-      <ul class="items">
-        <li><strong>AST</strong> — adicionar campo <code>Value ast.Expr</code> em <code>BreakStmt</code> (opcional, nil = break simples).</li>
-        <li><strong>Parser</strong> — em <code>parseBreakStmt</code>, se o token seguinte não é <code>;</code> / <code>}</code> / newline, parsear uma expressão como valor do break.</li>
-        <li><strong>Codegen</strong> — em <code>generateLoopStmt</code>: alocar um slot (<code>alloca</code>) para o valor do loop antes do corpo; em cada <code>BreakStmt</code> com valor, fazer <code>store</code> no slot e saltar para <code>after</code>; após o loop, <code>load</code> do slot e retornar o valor.</li>
-        <li><strong>Checker</strong> — inferir o tipo do loop a partir dos valores de break presentes no corpo.</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">var t = 0
-val resultado = loop {
-    t = t + 1
-    if t == 5 { break t * 10 }
-}
-print(resultado)  <span class="cmt">// 50</span>
-
-val conexao: Result[Conexao] = loop {
-    match tentarConexao() {
-        Ok(c)  => break Ok(c)
-        Err(e) => { tentativas = tentativas + 1 }
-    }
-}</span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>if / else if / else</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>for x in lista</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Range exclusivo <code>0..n</code> e inclusivo <code>0..=n</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>while condicao { ... }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>break</code> / <code>continue</code> em <code>for</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>loop</code> como expressão com <code>break valor</code> (P-3 resolvido)</span><span class="feat-note"><code>val r = loop { if cond { break 50 } }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>break</code> / <code>continue</code> como arm de <code>match</code> (P-2 resolvido)</span><span class="feat-note"><code>match v { None => break  _ => continue }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>match</code> como expressão retornando valor</span><span class="feat-note">FizzBuzz com <code>match (n%3, n%5) { (0,0) => "FizzBuzz" ... }</code></span></div><span></span></div>
   </div>
 </div>
 
-<!-- P-4 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#1e3a5f;color:var(--blue);">P-4</span>
-    <span class="ms-title">Segfault ao chamar função via parâmetro de tipo-função</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- STRINGS -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Strings e StringBuilder</span>
+    <span class="fcard-file">strings.mdx → feature-tests/strings.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          Em <code>generateCallExpr</code> (linha ~957), quando o callee é um
-          parâmetro do tipo <code>(Int) -> Int</code>, ele é representado como
-          <code>i8*</code> (closure fat-pointer) — mas o código tenta
-          tratá-lo como <code>*funcType</code> diretamente via
-          <code>ptrType.ElemType.(*types.FuncType)</code>, que falha silenciosamente
-          e cai em <code>callClosureI8Ptr</code> com um objeto mal-formado,
-          causando segfault. O problema está em como funções nomeadas passadas
-          como argumento são empacotadas (ou não) em closure.
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivo</div>
-        <p style="font-size:0.88rem;"><span class="tag tag-file">internal/codegen/gen_exprs.go</span></p>
-        <div class="section-lbl" style="margin-top:10px;">Reprodução</div>
-        <pre><span class="err">fn aplicar(f: (Int) -> Int, x: Int) -> Int {
-    return f(x)  <span class="cmt">// segfault</span>
-}
-aplicar(dobrar, 5)</span></pre>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Plano de implementação</div>
-      <ul class="items">
-        <li>Investigar como <code>dobrar</code> é empacotado ao ser passado como argumento: deve gerar um closure wrapper <code>{ fn_ptr, env=null }</code>.</li>
-        <li>Em <code>generateCallExpr</code>: quando o checker informa que o callee é <code>FuncType</code> e o valor LLVM é um <code>i8*</code>, usar <code>callClosureI8Ptr</code> com o layout correto (extrair <code>fn_ptr</code> do slot 0 do closure).</li>
-        <li>Garantir que ao passar uma função nomeada como valor, ela seja embrulhada em um closure mínimo <code>{ ptr_to_func, null_env }</code> compatível com <code>callClosureI8Ptr</code>.</li>
-        <li>Cobrir também o caso de <code>.map(fn_nomeada)</code> e <code>.filter(fn_nomeada)</code>.</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">fn dobrar(x: Int) -> Int = x * 2
-fn aplicar(f: (Int) -> Int, x: Int) -> Int = f(x)
-print(aplicar(dobrar, 5))   <span class="cmt">// 10</span>
-val ds = [1,2,3].map(dobrar)  <span class="cmt">// [2,4,6]</span></span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Interpolação <code>"Olá, $(nome)!"</code> incluindo expressões</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Raw strings <code>r"\d+\.\d+"</code></span><span class="feat-note">Lexer reconhece prefixo <code>r"</code> antes de string normal.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Métodos via <code>extend String</code> — <code>.toUpper()</code>, <code>.toLower()</code>, <code>.trim()</code>, <code>.replace()</code>, <code>.substring()</code>, <code>.indexOf()</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Métodos que retornam <code>Bool</code> via <code>extern fn</code> declarados como <code>-> Bool</code></span><span class="feat-note">Codegen mapeia extern Bool para <code>i32</code> e converte para <code>i1</code> na chamada.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span><code>StringBuilder</code></span><span class="feat-note">Requer <code>import "@soyuz/string"</code> explícito (não auto-importado).</span></div><span><span class="badge warn">import manual</span></span></div>
   </div>
 </div>
 
-</div><!-- /phase-1 -->
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     FASE 2
-══════════════════════════════════════════════════════════════════════════ -->
-
-<div class="phase phase-2">
-<div class="phase-title">
-  <div class="phase-num">2</div>
-  <div>
-    <h2 style="margin:0">Fase 2 — Sintaxe Ausente no Parser</h2>
-    <div style="font-size:0.85rem;color:var(--muted);">
-      Features documentadas que o parser rejeita. Bloqueiam código válido segundo a spec.
-    </div>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- CLASSES -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Classes e Interfaces</span>
+    <span class="fcard-file">classes.mdx → feature-tests/classes.sy</span>
+  </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Declaração de interface com assinaturas</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Classe implementando interface</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Campos <code>val</code> (imutável) e <code>var</code> (mutável)</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Métodos com <code>self</code> — leitura e mutação de <code>var</code> campos</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Visibilidade <code>pub fn</code> vs método privado</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Método retornando nova instância da própria classe</span><span class="feat-note"><code>fn escalar(self, f) -> Retangulo = Retangulo { ... }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Campo e método com mesmo nome na mesma classe</span><span class="feat-note"><code>self.saldo</code> acessa o campo; <code>c.saldo()</code> chama o método (resolução contextual no checker).</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Composição via campos de classe</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Métodos privados acessíveis de dentro da própria classe (P-12)</span><span class="feat-note">Pendente (Fase 5).</span></div><span><span class="badge warn">pendente</span></span></div>
   </div>
 </div>
 
-<!-- P-5 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#431407;color:var(--orange);">P-5</span>
-    <span class="ms-title">Args nomeados em construtores de enum e destructuring de record em match</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- PATTERN MATCHING -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Pattern Matching</span>
+    <span class="fcard-file">pattern_matching.mdx → feature-tests/pattern_matching.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          O parser trata <code>Ctor(a: v, b: w)</code> como chamada de função e rejeita
-          o <code>COLON</code> em posição de argumento.
-          Também não parseia <code>Record { field1, field2 }</code> como padrão de
-          destructuring em arm de <code>match</code> (confunde com declaração de tipo).
-          Dois problemas relacionados no mesmo parser de expressões/padrões.
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivos</div>
-        <p style="font-size:0.88rem;">
-          <span class="tag tag-file">internal/parser/parse_exprs.go</span> (chamadas)<br>
-          <span class="tag tag-file">internal/parser/parse_patterns.go</span> (match arms)
-        </p>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Parte A — Args nomeados em construtores</div>
-      <ul class="items">
-        <li>Em <code>parseCallArgs</code>: detectar o padrão <code>ident COLON expr</code> e parsear como <code>NamedArg{Name, Value}</code>.</li>
-        <li>No AST de <code>CallExpr</code>: adicionar suporte a <code>NamedArgs []NamedArg</code> opcionalmente.</li>
-        <li>No checker: validar nomes contra os campos do enum, reordenar conforme definição.</li>
-        <li>No codegen: empacotar argumentos na ordem dos campos do enum, ignorando os nomes (já corrigidos pelo checker).</li>
-      </ul>
-      <pre><span class="ok">enum Forma { Circulo(raio: Float)  Retangulo(w: Float, h: Float) }
-val c = Forma.Circulo(raio: 5.0)       <span class="cmt">// OK</span>
-val r = Forma.Retangulo(w: 10.0, h: 4.0) <span class="cmt">// OK</span></span></pre>
-    </div>
-    <div>
-      <div class="section-lbl">Parte B — Record destructuring em match</div>
-      <ul class="items">
-        <li>Em <code>parsePattern</code>: quando se vê <code>Ident LBRACE</code>, parsear <code>{ field1, field2, ... }</code> como <code>RecordPattern</code>.</li>
-        <li>No checker: verificar que os campos existem no record/classe.</li>
-        <li>No codegen: extrair cada campo por índice de struct.</li>
-      </ul>
-      <pre><span class="ok">match ponto {
-    Ponto { x, y } => print("$(x), $(y)")
-}</span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Literal match (Int, String, Bool)</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Wildcard <code>_</code> e binding <code>x => ...</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Guards <code>x if x &lt; 0</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Constructor match — <code>Ok(v)</code> / <code>Err(e)</code> / <code>Some(v)</code> / <code>None</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum match com 1 binding</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum match com 2+ bindings</span><span class="feat-note"><code>Retangulo(w, h) => w * h</code> — corrigido (ver B-1).</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Tuple match <code>(n%3, n%5)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>match</code> como expressão</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Match arms com bloco <code>{ ... }</code> e side effects</span><span class="feat-note">Funciona quando o bloco não retorna valor (<code>Unit</code>). Com efeitos como <code>{ var = var + v }</code> a atribuição torna o tipo do arm inconsistente — precisa ser cuidadoso.</span></div><span><span class="badge warn">cuidado</span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Record destructuring <code>Ponto { x, y }</code> em match (P-5)</span><span class="feat-note">Pendente (Fase 2).</span></div><span><span class="badge warn">pendente</span></span></div>
   </div>
 </div>
 
-<!-- P-6 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#431407;color:var(--orange);">P-6</span>
-    <span class="ms-title">Tipo explícito em <code>[]</code> em contexto de expressão</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- EXTENSIONS -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Extensões (extend)</span>
+    <span class="fcard-file">extensions.mdx → feature-tests/extensions.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          O parser só aceita <code>T[A, B]</code> em contexto de tipo (declarações).
-          Em contexto de expressão, <code>[</code> sempre abre um array literal.
-          Isso bloqueia: instanciação de genérico com tipo explícito
-          (<code>Par[Int, Int] { ... }</code>), chamada de função genérica explícita
-          (<code>identidade[Bool](x)</code>), e construtores de enum genérico
-          multilinha (<code>Arvore.No(\n  valor: 1,\n ...)</code>).
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivo</div>
-        <p style="font-size:0.88rem;"><span class="tag tag-file">internal/parser/parse_exprs.go</span></p>
-        <div class="section-lbl" style="margin-top:10px;">Casos afetados</div>
-        <ul class="items">
-          <li><code>Par[Int, Int] { primeiro: 10, segundo: 20 }</code></li>
-          <li><code>Repositorio[Usuario] { items: [] }</code></li>
-          <li><code>identidade[Bool](true)</code></li>
-          <li><code>Arvore.No(\n  valor: 1, ...</code> com newline = SEMICOLON</li>
-        </ul>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Plano de implementação</div>
-      <ul class="items">
-        <li><strong>Lookup-ahead em <code>parsePrimary</code>:</strong> quando o token atual é um <code>Ident</code> e o próximo é <code>[</code>, tentar parsear como instanciação genérica antes de tentar array literal. Usar backtracking ou heurística: se após <code>[</code> aparecer um tipo (ident maiúsculo, tipo primitivo) seguido de <code>,</code> ou <code>]</code>, é parâmetro de tipo; caso contrário, é array.</li>
-        <li><strong>AST:</strong> <code>CallExpr</code> e <code>RecordLiteral</code> devem carregar <code>TypeArgs []Type</code> opcionais.</li>
-        <li><strong>Newline em args de enum multilinha:</strong> suprimir inserção de semicolon automático quando dentro de parênteses de chamada (já deve ser o caso — investigar se <code>skipSemicolons</code> está sendo chamado corretamente).</li>
-        <li><strong>Checker:</strong> usar <code>TypeArgs</code> para especializar o genérico em vez de inferir.</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">val coords = Par[Int, Int] { primeiro: 10, segundo: 20 }
-val repo   = Repositorio[Usuario] { items: [] }
-val z      = identidade[Bool](true)
-val arvore = Arvore.No(
-    1,
-    Arvore.No(2, Arvore.Folha, Arvore.Folha),
-    Arvore.Folha
-)</span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend String { pub fn ... }</code> com block body</span><span class="feat-note"><code>exclamar</code>, <code>repetir</code> com <code>return</code> funcionam</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend Classe { pub fn ... }</code></span><span class="feat-note"><code>extend Usuario { fn saudar(self) { ... } }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Expression body <code>= expr</code> em extend</span><span class="feat-note">Funciona para alguns casos (ex: <code>extend String { fn exclamar = "$(self)!" }</code>) mas pode gerar <em>"ret void"</em> em outros contextos (combinação de métodos, tipos não-String). Block body é mais seguro.</span></div><span><span class="badge warn">inconsistente</span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>extend Int</code> / <code>extend Float</code></span><span class="feat-note"><code>42.dobro()</code> funciona — <code>self</code> passado via ponteiro para alloca do primitivo.</span></div><span></span></div>
   </div>
 </div>
 
-</div><!-- /phase-2 -->
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     FASE 3
-══════════════════════════════════════════════════════════════════════════ -->
-
-<div class="phase phase-3">
-<div class="phase-title">
-  <div class="phase-num">3</div>
-  <div>
-    <h2 style="margin:0">Fase 3 — Checker e Semântica de Tipos</h2>
-    <div style="font-size:0.85rem;color:var(--muted);">
-      Features que chegam ao checker mas produzem erros de tipo incorretos ou semântica incompleta.
-    </div>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- GENERICS -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Genéricos</span>
+    <span class="fcard-file">generics.mdx → feature-tests/generics.sy</span>
+  </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Função genérica <code>fn identidade[T](x: T) -> T</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Record genérico com inferência <code>Par { primeiro: "a", segundo: 42 }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Classe genérica <code>class Caixa[T] { var conteudo: T }</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>map</code> / <code>filter</code> / <code>reduce</code> em <code>List[T]</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Função genérica com tupla como parâmetro</span><span class="feat-note"><code>fn trocar[A,B](par: (A, B)) -> (B, A)</code> — unificação de tuplas no checker corrigida.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">⚠️</span><div class="feat-desc"><span>Métodos padrão de <code>List[T]</code> sem import (<code>.first()</code>, <code>.len()</code>)</span><span class="feat-note">Disponíveis após <code>import</code> explícito; não há auto-import da stdlib de collections (B-14).</span></div><span><span class="badge warn">import manual</span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Enum genérico recursivo como Árvore (P-9)</span><span class="feat-note">Match com 2+ bindings corrigido — profundidade em árvores binárias funciona.</span></div><span></span></div>
   </div>
 </div>
 
-<!-- P-7 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#422006;color:var(--yellow);">P-7</span>
-    <span class="ms-title"><code>extend</code> — self type no checker e dispatch no codegen</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- ERRORS -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Tratamento de Erros</span>
+    <span class="fcard-file">errors.mdx → feature-tests/errors.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          O checker tem <code>checkExtendDecl</code> e <code>checkExtendMethodBody</code>,
-          mas ao verificar o corpo dos métodos, não instala <code>selfType</code> corretamente
-          — produz "self usado fora de um método de classe".
-          Além disso, os métodos registrados via <code>extend</code> não são encontrados
-          na resolução de chamadas sobre instâncias (<code>u.saudar()</code> → "no member saudar").
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivos</div>
-        <p style="font-size:0.88rem;">
-          <span class="tag tag-file">internal/checker/check_decls.go</span> (checkExtendMethodBody)<br>
-          <span class="tag tag-file">internal/codegen/gen_exprs.go</span> (generateMethodCall)
-        </p>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Parte A — Checker: selfType em extend</div>
-      <ul class="items">
-        <li>Em <code>checkExtendMethodBody</code>: definir <code>c.selfType</code> com o tipo resolvido de <code>n.TypeName</code> antes de verificar o corpo.</li>
-        <li>Registrar os métodos do bloco <code>extend</code> na tabela do tipo alvo (seja <code>ClassType.Methods</code>, <code>BasicType</code> ou <code>extendSelfTypes</code>) para que chamadas sobre instâncias os encontrem.</li>
-      </ul>
-      <div class="section-lbl" style="margin-top:10px;">Parte B — Codegen: dispatch de extend</div>
-      <ul class="items">
-        <li>Em <code>generateMethodCall</code>: para tipos básicos (<code>String</code>, <code>Int</code>) e classes, consultar <code>g.extensionMethods[typeName][method]</code> — já existe, mas verificar se está sendo populado corretamente a partir de <code>ExtendDecl</code>.</li>
-        <li>Para classes: adicionar busca em <code>extensionMethods</code> antes de lançar erro "no member".</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">extend String {
-    pub fn exclamar(self) -> String = "$(self)!"
-    pub fn repetir(self, n: Int) -> String { ... }
-}
-print("olá".exclamar())      <span class="cmt">// "olá!"</span>
-print("ab".repetir(3))       <span class="cmt">// "ababab"</span>
-
-class Usuario { val nome: String }
-extend Usuario {
-    pub fn saudar(self) = print("Olá, $(self.nome)")
-}
-val u = Usuario { nome: "Vand" }
-u.saudar()  <span class="cmt">// "Olá, Vand"</span></span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Result[T]</code> com <code>Ok</code> e <code>Err</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Interface <code>Error</code> — implementar em classe com <code>message()</code> e <code>code()</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Auto-wrap — <code>return usuario</code> em função <code>-> Result[Usuario]</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Match em <code>Result</code> — <code>Ok(v)</code> / <code>Err(e)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Passar <code>Err(erroObj)</code> como argumento de função</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>PipeQuest <code>|?&gt;</code></span><span class="feat-note"><code>wrap(5) |?&gt; double</code> — chamada direta a funções nomeadas e phi Result corrigidos.</span></div><span></span></div>
   </div>
 </div>
 
-<!-- P-8 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#422006;color:var(--yellow);">P-8</span>
-    <span class="ms-title">Inferência de tipo em classe genérica sem parâmetro explícito</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- PIPES -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Piping e Estilo Funcional</span>
+    <span class="fcard-file">pipes.mdx → feature-tests/pipes.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          <code>Repositorio { items: [] }</code> falha com "unknown type: T"
-          porque o checker não consegue inferir <code>T</code> a partir do campo
-          <code>items: []</code> (lista vazia sem hint).
-          Records genéricos como <code>Par { primeiro: "a", segundo: 42 }</code>
-          já funcionam porque os valores carregam tipo concreto.
-          O caso-problema é quando o campo inicializador não tem tipo deduzível
-          (lista vazia, <code>None</code>, etc.).
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivo</div>
-        <p style="font-size:0.88rem;"><span class="tag tag-file">internal/checker/check_generics.go</span></p>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Plano</div>
-      <ul class="items">
-        <li>Quando instanciar uma classe genérica sem <code>TypeArgs</code> explícitos, coletar os tipos dos campos fornecidos e tentar unificar com os parâmetros genéricos da definição.</li>
-        <li>Para campos cujo inicializador é ambíguo (<code>[]</code>, <code>None</code>), propagar o tipo esperado do campo da classe como hint ao verificar a expressão.</li>
-        <li>Se após a inferência ainda houver parâmetros não resolvidos, emitir erro pedindo anotação explícita.</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">class Repositorio[T] {
-    var items: List[T] = []
-    pub fn adicionar(self, item: T) { self.items.add(item) }
-}
-<span class="cmt">// Caso A: inferência via uso posterior</span>
-val repo = Repositorio[Int] { items: [] }  <span class="cmt">// com P-6</span>
-repo.adicionar(42)
-
-<span class="cmt">// Caso B: sem tipo explícito — inferência do primeiro adicionar</span>
-val repo2 = Repositorio { items: [] }
-repo2.adicionar(42)  <span class="cmt">// T inferido = Int</span></span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Pipe <code>|&gt;</code> com funções nomeadas</span><span class="feat-note"><code>5 |&gt; dobrar |&gt; somarMais1</code> → 11</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>map</code> / <code>filter</code> / <code>reduce</code> em List com lambda</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Função nomeada como valor em <code>.map(fn_nomeada)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Aplicação parcial <code>multiplicar(3, _)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>PipeQuest <code>|?&gt;</code></span><span class="feat-note">Corrigido — ver <code>errors.mdx</code>.</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Encadeamento de métodos em múltiplas linhas</span><span class="feat-note">Lexer não insere <code>;</code> antes de <code>.</code> quando a linha seguinte continua o chain.</span></div><span></span></div>
   </div>
 </div>
 
-<!-- P-9 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#422006;color:var(--yellow);">P-9</span>
-    <span class="ms-title">Enum genérico recursivo — substituição de tipo no checker</span>
-    <span class="status done">concluído</span>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- PARALELISMO -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fcard-head">
+    <span class="badge ok">ok</span>
+    <span class="fcard-title">Paralelismo e Concorrência</span>
+    <span class="fcard-file">paralelismo.mdx → feature-tests/paralelismo.sy</span>
   </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Diagnóstico</div>
-        <p style="font-size:0.88rem;">
-          <code>Arvore.No(1, Arvore.Folha, Arvore.Folha)</code> falha:
-          "incompatible argument 2: expected Arvore[Int], got Arvore[T]".
-          O checker especializa o construtor <code>No</code> com <code>T=Int</code>
-          para o primeiro argumento, mas os parâmetros <code>esq</code> e <code>dir</code>
-          ainda carregam o tipo não-substituído <code>Arvore[T]</code> em vez de
-          <code>Arvore[Int]</code>.
-        </p>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivo</div>
-        <p style="font-size:0.88rem;"><span class="tag tag-file">internal/checker/check_generics.go</span></p>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Plano</div>
-      <ul class="items">
-        <li>Em <code>specializedEnumVariant</code> (ou equivalente): ao especializar o construtor com a substituição <code>T=Int</code>, aplicar a substituição recursivamente em todos os parâmetros do construtor, incluindo os auto-referenciais (<code>Arvore[T]</code> → <code>Arvore[Int]</code>).</li>
-        <li>Garantir que a substituição é idempotente para evitar loop infinito em tipos recursivos.</li>
-      </ul>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">enum Arvore[T] {
-    Folha
-    No(valor: T, esq: Arvore[T], dir: Arvore[T])
-}
-fn profundidade[T](a: Arvore[T]) -> Int {
-    return match a {
-        Folha       => 0
-        No(_, e, d) => 1 + max(profundidade(e), profundidade(d))
-    }
-}
-val t = Arvore.No(1, Arvore.No(2, Arvore.Folha, Arvore.Folha), Arvore.Folha)
-print(profundidade(t))  <span class="cmt">// 2</span></span></pre>
-    </div>
+  <div class="fcard-body">
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>task fn(args)</code> + <code>.await()</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>task fn(args).detach()</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Task.all(t1, t2)</code> — desestruturação de tupla</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Task.gather(lista, fn)</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>Channel.new(n)</code> + <code>send</code> + <code>recv</code></span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>Async pipe <code>~&gt;</code> (cadeia de tasks)</span><span class="feat-note"><code>5 ~&gt; validar ~&gt; formatar</code> → cria task chain, await retorna o resultado</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> aguardando channel (sem <code>default</code>)</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span><code>select</code> com branch <code>default</code></span><span class="feat-note"><code>srt_select_try</code> + branch <code>sel_default</code> — corrigido (extern Bool no prelude também).</span></div><span></span></div>
+    <div class="feat-row"><span class="feat-icon">✅</span><div class="feat-desc"><span>W0300 — aviso de task não consumida</span><span class="feat-note">O compilador corretamente avisa quando uma task não é consumida via <code>.await()</code> ou <code>.detach()</code>.</span></div><span></span></div>
   </div>
 </div>
-
-</div><!-- /phase-3 -->
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     FASE 4
-══════════════════════════════════════════════════════════════════════════ -->
-
-<div class="phase phase-4">
-<div class="phase-title">
-  <div class="phase-num">4</div>
-  <div>
-    <h2 style="margin:0">Fase 4 — Stdlib e Runtime</h2>
-    <div style="font-size:0.85rem;color:var(--muted);">
-      Métodos documentados que estão ausentes no runtime C ou no prelude Soyuz.
-    </div>
-  </div>
-</div>
-
-<!-- P-10 -->
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#064e3b;color:var(--cyan);">P-10</span>
-    <span class="ms-title">Métodos de String ausentes na stdlib</span>
-    <span class="status done">concluído</span>
-  </div>
-  <div class="ms-body">
-    <div class="row2">
-      <div>
-        <div class="section-lbl">Métodos a adicionar</div>
-        <ul class="items">
-          <li><code>.isEmpty() -> Bool</code></li>
-          <li><code>.indexOf(sub: String) -> Option[Int]</code></li>
-          <li><code>.lastIndexOf(sub: String) -> Option[Int]</code></li>
-          <li><code>.replace(from: String, to: String) -> String</code></li>
-          <li><code>.startsWith(prefix: String) -> Bool</code></li>
-          <li><code>.endsWith(suffix: String) -> Bool</code></li>
-          <li><code>.byteAt(i: Int) -> Option[Int]</code> <em>(já existe — verificar)</em></li>
-        </ul>
-      </div>
-      <div>
-        <div class="section-lbl">Arquivos</div>
-        <p style="font-size:0.88rem;">
-          <span class="tag tag-file">internal/runtime/src/std_string.c</span> (implementações C)<br>
-          <span class="tag tag-file">internal/runtime/include/soyuz.h</span> (declarações)<br>
-          <span class="tag tag-file">internal/codegen/gen_exprs.go</span> (<code>primitiveMethodCFunc</code>)<br>
-          <span class="tag tag-file">std/lib/prelude.sy</span> (extensões via <code>extend String</code>)
-        </p>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Plano por método</div>
-
-      <div style="margin-bottom:10px;">
-        <strong style="font-size:0.88rem;">isEmpty</strong>
-        <pre><span class="ok"><span class="cmt">// std_string.c</span>
-int64_t soyuz_str_is_empty(SoyuzString *s) { return s->len == 0; }
-
-<span class="cmt">// primitiveMethodCFunc: </span>case "isEmpty": return "soyuz_str_is_empty"</span></pre>
-      </div>
-
-      <div style="margin-bottom:10px;">
-        <strong style="font-size:0.88rem;">indexOf / lastIndexOf</strong>
-        <pre><span class="ok"><span class="cmt">// retorna -1 se não encontrado; codegen embrulha em Option[Int]</span>
-int64_t soyuz_str_index_of(SoyuzString *s, SoyuzString *sub);
-int64_t soyuz_str_last_index_of(SoyuzString *s, SoyuzString *sub);</span></pre>
-      </div>
-
-      <div style="margin-bottom:10px;">
-        <strong style="font-size:0.88rem;">replace</strong>
-        <pre><span class="ok">SoyuzString *soyuz_str_replace(SoyuzString *s, SoyuzString *from, SoyuzString *to);</span></pre>
-      </div>
-
-      <div>
-        <strong style="font-size:0.88rem;">startsWith / endsWith</strong>
-        <pre><span class="ok">int64_t soyuz_str_starts_with(SoyuzString *s, SoyuzString *prefix);
-int64_t soyuz_str_ends_with(SoyuzString *s, SoyuzString *suffix);</span></pre>
-      </div>
-    </div>
-    <div>
-      <div class="section-lbl">Teste de aceitação</div>
-      <pre><span class="ok">val s = "Soyuz Lang"
-print(s.isEmpty())             <span class="cmt">// false</span>
-print("".isEmpty())            <span class="cmt">// true</span>
-print(s.indexOf("Lang"))       <span class="cmt">// Some(7)</span>
-print(s.indexOf("xyz"))        <span class="cmt">// None</span>
-print(s.replace("Lang", "PL")) <span class="cmt">// "Soyuz PL"</span>
-print(s.startsWith("Soyuz"))   <span class="cmt">// true</span>
-print(s.endsWith("Lang"))      <span class="cmt">// true</span></span></pre>
-    </div>
-  </div>
-</div>
-
-</div><!-- /phase-4 -->
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     FASE 5 — BÔNUS
-══════════════════════════════════════════════════════════════════════════ -->
-
-<div class="phase phase-5">
-<div class="phase-title">
-  <div class="phase-num">5</div>
-  <div>
-    <h2 style="margin:0">Fase 5 — Qualidade de Vida</h2>
-    <div style="font-size:0.85rem;color:var(--muted);">
-      Não são crashes nem features ausentes — mas tornam a DX consideravelmente melhor.
-    </div>
-  </div>
-</div>
-
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#2e1065;color:var(--purple);">P-11</span>
-    <span class="ms-title">Impressão de List e Map via interpolação</span>
-    <span class="status done">concluído</span>
-  </div>
-  <div class="ms-body">
-    <p style="font-size:0.88rem;">
-      <code>print("lista: $(lista)")</code> imprime endereço de ponteiro em vez do conteúdo.
-      Implementar <code>soyuz_list_to_string</code> no runtime e conectar à interpolação
-      quando o tipo for <code>List[T]</code> ou <code>Map[K,V]</code>.
-    </p>
-    <div class="section-lbl" style="margin-top:10px;">Teste de aceitação</div>
-    <pre><span class="ok">val xs = [1, 2, 3]
-print("$(xs)")   <span class="cmt">// "[1, 2, 3]"</span>
-print(xs)        <span class="cmt">// "[1, 2, 3]"</span></span></pre>
-  </div>
-</div>
-
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#2e1065;color:var(--purple);">P-12</span>
-    <span class="ms-title">Métodos sem <code>pub</code> acessíveis dentro da própria classe</span>
-    <span class="status done">concluído</span>
-  </div>
-  <div class="ms-body">
-    <p style="font-size:0.88rem;">
-      Métodos privados (<code>fn</code> sem <code>pub</code>) devem ser chamáveis por outros métodos
-      da mesma classe via <code>self.metodo()</code> — hoje são bloqueados mesmo internamente.
-      Ajustar a verificação de visibilidade no checker para permitir acesso via <code>self</code>
-      dentro do escopo da classe.
-    </p>
-  </div>
-</div>
-
-<div class="milestone">
-  <div class="ms-header">
-    <span class="ms-id" style="background:#2e1065;color:var(--purple);">P-13</span>
-    <span class="ms-title">Aviso de parâmetro default com overloading</span>
-    <span class="status done">concluído</span>
-  </div>
-  <div class="ms-body">
-    <p style="font-size:0.88rem;">
-      Quando uma função tem parâmetro default e também overloads com <code>when</code>,
-      garantir que o despacho considera o default antes de tentar o catch-all.
-      Documentar o comportamento esperado nos testes.
-    </p>
-  </div>
-</div>
-
-</div><!-- /phase-5 -->
 
 <hr>
 
-<!-- ══════════════════════════════════════════════════════════════════════════
-     INSTRUCOES PARA O AGENTE
-══════════════════════════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- BUG INDEX -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2>Índice de bugs encontrados</h2>
 
-<div style="background:var(--card);border:1px solid #1e3a5f;border-radius:8px;padding:20px;margin-top:8px;" id="agent-instructions">
-  <div style="font-weight:700;color:var(--blue);margin-bottom:12px;font-size:0.95rem;">
-    Instruções para o agente de implementação
-  </div>
-  <ol style="font-size:0.88rem;display:flex;flex-direction:column;gap:8px;padding-left:20px;">
-    <li>Leia este arquivo (<code>parity.html</code>) para entender o plano completo.</li>
-    <li>Identifique o primeiro milestone com <strong>status = pendente</strong> na tabela de visão geral, seguindo a ordem de fase (1 → 5).</li>
-    <li>Implemente o milestone conforme o diagnóstico e o plano descritos no card correspondente.</li>
-    <li>Após implementar, rode os testes relevantes:
-      <code>go test ./internal/...</code> e compile o teste de aceitação do milestone.</li>
-    <li>Atualize o <strong>status</strong> do milestone neste HTML: mude de <code>pendente</code> para <code>concluído</code>
-        (altere a classe CSS de <code>todo</code> para <code>done</code> e o texto).</li>
-    <li>Faça git commit com mensagem no padrão:
-        <code>fix(compiler): P-N — &lt;título do milestone&gt;</code>.
-        Excluir submodules (<code>soyuz-docs</code>, <code>tree-sitter-soyuz</code>) do index antes de commitar.
-        Terminar com <code>Co-Authored-By: Claude Sonnet 4.6 &lt;noreply@anthropic.com&gt;</code>.</li>
-    <li>Se um milestone for grande demais para uma sessão, quebre em sub-passos e documente o progresso atualizando o status para <code>in-progress</code>.</li>
-    <li>Consulte os arquivos de teste existentes em <code>internal/checker/</code> e <code>internal/codegen/</code> para entender os padrões de teste do projeto. Em caso de dúvida sobre comportamento esperado, pergunte ao usuário.</li>
-  </ol>
-</div>
+<table class="overview">
+  <tr><th>#</th><th>Bug</th><th>Arquivo(s) afetado(s)</th><th>Prioridade</th></tr>
+  <tr>
+    <td>B-1</td>
+    <td><s>Enum match com 2+ bindings</s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_patterns.go</code>, <code>gen_enum_payload.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-2</td>
+    <td><s>PipeQuest <code>|?&gt;</code></s> — <strong>corrigido</strong> (chamada direta + phi Result)</td>
+    <td><code>internal/codegen/gen_exprs.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-3</td>
+    <td><s>Raw strings <code>r"..."</code></s> — <strong>corrigido</strong></td>
+    <td><code>internal/lexer/lexer.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-4</td>
+    <td><s>Record deep equality (<code>==</code>) sempre retorna <code>false</code></s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_exprs.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-5</td>
+    <td><s>Optional chaining <code>?.campo</code> retorna ponteiro bruto</s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_exprs.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-6</td>
+    <td><s>Multiline method chaining</s> — <strong>corrigido</strong></td>
+    <td><code>internal/lexer/lexer.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-7</td>
+    <td><s><code>extend Int</code> / <code>extend Float</code></s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_structs.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-8</td>
+    <td><s>Campo e método com mesmo nome</s> — <strong>corrigido</strong></td>
+    <td><code>internal/checker/check_exprs.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-9</td>
+    <td><s>Extern <code>-> Bool</code> LLVM mismatch</s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_types.go</code>, <code>gen_enum_payload.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-10</td>
+    <td><s>Tupla genérica como parâmetro</s> — <strong>corrigido</strong></td>
+    <td><code>internal/checker/check_generics.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-11</td>
+    <td><s><code>NoneError</code> duplicado no import</s> — <strong>corrigido</strong></td>
+    <td><code>std/lib/error.sy</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-12</td>
+    <td><s><code>select</code> com <code>default</code></s> — <strong>corrigido</strong></td>
+    <td><code>internal/codegen/gen_channel.go</code></td>
+    <td><span class="badge ok">corrigido</span></td>
+  </tr>
+  <tr>
+    <td>B-13</td>
+    <td>Expression body <code>= expr</code> em <code>extend</code> pode gerar <code>ret void</code> incorreto</td>
+    <td><code>internal/codegen/gen_structs.go</code> (generateExtendDecl)</td>
+    <td><span class="badge warn">baixa</span></td>
+  </tr>
+  <tr>
+    <td>B-14</td>
+    <td>Métodos de <code>List</code> indisponíveis sem import (<code>.len()</code>, <code>.first()</code>, etc.)</td>
+    <td><code>std/lib/</code> — não há auto-import da stdlib de collections</td>
+    <td><span class="badge warn">baixa</span></td>
+  </tr>
+</table>
 
-<p style="margin-top:24px;font-size:0.78rem;color:var(--muted);text-align:center;">
-  Soyuz Compiler · parity.html · 2026-05-30
+<hr>
+<p style="font-size:0.78rem;color:var(--muted);text-align:center;margin-top:16px;">
+  Soyuz Compiler · features.html · 2026-05-30 · Testes em <code>feature-tests/*.sy</code>
 </p>
 
 </div>

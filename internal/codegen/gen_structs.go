@@ -993,6 +993,30 @@ func (g *Generator) generateMemberPtr(n *parser.MemberExpr) (value.Value, error)
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(idx))), nil
 }
 
+// extendSelfParamToAlloca loads __self (always i8*) into an alloca of the extension's self type.
+func (g *Generator) extendSelfParamToAlloca(selfParam value.Value, selfLLVM types.Type) value.Value {
+	selfAlloc := g.newAlloca(selfLLVM)
+	if selfLLVM.Equal(types.I64) || selfLLVM.Equal(types.Double) || selfLLVM.Equal(types.I1) || selfLLVM.Equal(types.I32) {
+		selfPtr := g.current.NewBitCast(selfParam, types.NewPointer(selfLLVM))
+		selfVal := g.current.NewLoad(selfLLVM, selfPtr)
+		g.current.NewStore(selfVal, selfAlloc)
+		return selfAlloc
+	}
+	selfTyped := g.current.NewBitCast(selfParam, selfLLVM)
+	g.current.NewStore(selfTyped, selfAlloc)
+	return selfAlloc
+}
+
+// extendBoxSelfAsI8Ptr stores a primitive extension receiver on the stack and passes its address as i8*.
+func (g *Generator) extendBoxSelfAsI8Ptr(obj value.Value) value.Value {
+	if obj.Type().Equal(types.I64) || obj.Type().Equal(types.Double) || obj.Type().Equal(types.I1) || obj.Type().Equal(types.I32) {
+		box := g.newAlloca(obj.Type())
+		g.current.NewStore(obj, box)
+		return g.current.NewBitCast(box, types.I8Ptr)
+	}
+	return g.current.NewBitCast(obj, types.I8Ptr)
+}
+
 func (g *Generator) extendSelfLLVM(typeName string) types.Type {
 	switch typeName {
 	case "String":
@@ -1098,9 +1122,7 @@ func (g *Generator) generateExtendMethodBody(pm pendingExtendMethodBody) error {
 	}()
 
 	g.current = g.newBlock("entry", pm.fn)
-	selfTyped := g.current.NewBitCast(pm.fn.Params[0], pm.selfLLVM)
-	selfAlloc := g.newAlloca(pm.selfLLVM)
-	g.current.NewStore(selfTyped, selfAlloc)
+	selfAlloc := g.extendSelfParamToAlloca(pm.fn.Params[0], pm.selfLLVM)
 	g.vars["self"] = selfAlloc
 
 	for _, p := range pm.fn.Params[1:] {

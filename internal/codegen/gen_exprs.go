@@ -1503,7 +1503,7 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 		if variants, ok := g.extensionMethods[bt.Name][me.Property]; ok {
 			fn := classMethodByArity(variants, len(args))
 			if fn != nil {
-				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				objAsI8 := g.extendBoxSelfAsI8Ptr(obj)
 				allArgs := append([]value.Value{objAsI8}, args...)
 				return g.current.NewCall(fn, allArgs...), nil
 			}
@@ -1770,7 +1770,7 @@ func (g *Generator) generatePipeQuestExpr(n *parser.PipeQuestExpr) (value.Value,
 	g.current = failBlock
 	var failResult value.Value
 	if leftKind == "Result" {
-		failResult = leftVal
+		failResult = optPtr
 	} else {
 		failResult, err = g.emitUnexpectedNoneAsResultErr()
 		if err != nil {
@@ -1809,11 +1809,6 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 		callee = n.Right
 	}
 
-	calleeVal, err := g.generateExpr(callee)
-	if err != nil {
-		return nil, checker.Unknown, err
-	}
-
 	args := []value.Value{payload}
 	for _, arg := range extraArgs {
 		v, err := g.generateExpr(arg)
@@ -1827,6 +1822,21 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 	if sp, ok := g.check.Specializations[n]; ok {
 		g.check.Specializations[fakeCall] = sp
 	}
+
+	var calleeVal value.Value
+	if id, ok := callee.(*parser.Identifier); ok {
+		if f := g.findFunc(id.Name); f != nil {
+			calleeVal = f
+		}
+	}
+	if calleeVal == nil {
+		var err error
+		calleeVal, err = g.generateExpr(callee)
+		if err != nil {
+			return nil, checker.Unknown, err
+		}
+	}
+
 	var retVal value.Value
 	if ptrType, ok := calleeVal.Type().(*types.PointerType); ok {
 		if _, isFuncType := ptrType.ElemType.(*types.FuncType); isFuncType {
@@ -1838,6 +1848,8 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 				return nil, checker.Unknown, err
 			}
 		}
+	} else if _, ok := calleeVal.(*ir.Func); ok {
+		retVal = g.current.NewCall(calleeVal, args...)
 	} else {
 		var err error
 		retVal, err = g.callClosureI8Ptr(fakeCall, calleeVal, args)
@@ -1849,7 +1861,7 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 	if ft, ok := g.check.NodeTypes[callee].(*checker.FuncType); ok {
 		retType = ft.Return
 	}
-	if sp, ok := g.check.Specializations[n]; ok {
+	if sp, ok := g.check.Specializations[fakeCall]; ok && sp != nil {
 		retType = sp.Return
 	}
 	return retVal, retType, nil
@@ -1858,7 +1870,10 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 func (g *Generator) normalizeToResult(val value.Value, t checker.Type) (value.Value, error) {
 	kind := pipeQuestEnumKind(t)
 	if kind == "Result" {
-		return val, nil
+		if _, ok := val.Type().(*types.PointerType); ok {
+			return val, nil
+		}
+		return g.emitOptionResultAlloc("Result", 0, val)
 	}
 	if kind == "Option" {
 		ei := g.enums["Option"]
