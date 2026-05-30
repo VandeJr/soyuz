@@ -63,7 +63,10 @@ func TestStringToUpperMethod(t *testing.T) {
 }
 
 func TestStringIndexOfMethod(t *testing.T) {
-	src := `fn main() { val i: Int = "hello".indexOf("ll") }`
+	src := `fn main() {
+		val i: Option[Int] = "hello".indexOf("ll")
+		val _ = i
+	}`
 	if errs := checkString(src); len(errs) > 0 {
 		t.Fatalf("erros inesperados: %v", errs)
 	}

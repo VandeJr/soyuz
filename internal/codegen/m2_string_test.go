@@ -65,6 +65,42 @@ func TestStringContainsMethodIR(t *testing.T) {
 	}
 }
 
+func TestStringPrimitiveIsEmptyIR(t *testing.T) {
+	src := `fn main() -> Bool { "hello".isEmpty() }`
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+	res := checker.New().Check(prog)
+	if len(res.Errors) > 0 {
+		t.Fatalf("checker errors: %v", res.Errors)
+	}
+	mod, err := New(res).Generate(prog)
+	if err != nil {
+		t.Fatalf("codegen error: %v", err)
+	}
+	ir := mod.String()
+	if !strings.Contains(ir, "@soyuz_str_is_empty") {
+		t.Fatalf("esperado call a soyuz_str_is_empty no IR, obteve:\n%s", ir)
+	}
+}
+
+func TestStringPrimitiveReplaceIR(t *testing.T) {
+	src := `fn main() -> String { "ab".replace("a", "x") }`
+	tokens := lexer.Tokenize(src)
+	prog := parser.New(tokens).Parse()
+	res := checker.New().Check(prog)
+	if len(res.Errors) > 0 {
+		t.Fatalf("checker errors: %v", res.Errors)
+	}
+	mod, err := New(res).Generate(prog)
+	if err != nil {
+		t.Fatalf("codegen error: %v", err)
+	}
+	ir := mod.String()
+	if !strings.Contains(ir, "@soyuz_str_replace") {
+		t.Fatalf("esperado call a soyuz_str_replace no IR, obteve:\n%s", ir)
+	}
+}
+
 func TestStringExtensionsMethodBodyCallsExtern(t *testing.T) {
 	src := `fn main() -> String { "hello".toUpper() }`
 	ir := stringIR(t, src)
