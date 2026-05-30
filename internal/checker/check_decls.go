@@ -302,10 +302,16 @@ func (c *Checker) checkEnumDecl(n *parser.EnumDecl) Type {
 
 	for _, v := range n.Variants {
 		var fieldTypes []Type
+		var fieldNames []string
 		for _, f := range v.Fields {
 			fieldTypes = append(fieldTypes, c.resolveTypeExpr(f.Type))
+			fieldNames = append(fieldNames, f.Name)
 		}
 		variants[v.Name] = fieldTypes
+		if et.VariantFieldNames == nil {
+			et.VariantFieldNames = make(map[string][]string)
+		}
+		et.VariantFieldNames[v.Name] = fieldNames
 		vt := &FuncType{Params: fieldTypes, Return: constructorReturn, Generics: genericNames}
 		parentScope.Define(v.Name, vt, true)
 		// Variant constructors inherit the enum's pub status.

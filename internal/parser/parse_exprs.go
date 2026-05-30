@@ -287,7 +287,15 @@ func (p *Parser) parseInfix(left Node) Node {
 func (p *Parser) parseCallArgs() []Node {
 	var args []Node
 	for !p.check(lexer.RPAREN) && !p.check(lexer.EOF) {
-		args = append(args, p.parseExpression(0))
+		if p.check(lexer.IDENT) && p.peekN(1).Type == lexer.COLON {
+			pos := p.peek().Position
+			name := p.expect(lexer.IDENT).Lexeme
+			p.expect(lexer.COLON)
+			value := p.parseExpression(0)
+			args = append(args, &NamedArg{pos: pos, Name: name, Value: value})
+		} else {
+			args = append(args, p.parseExpression(0))
+		}
 		if !p.check(lexer.RPAREN) {
 			p.consume(lexer.COMMA)
 		}

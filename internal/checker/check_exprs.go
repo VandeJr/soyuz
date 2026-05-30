@@ -1309,6 +1309,10 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 		}
 	}
 
+	if fieldNames := c.variantFieldNamesForCall(n.Callee); len(fieldNames) > 0 {
+		c.resolveNamedCallArgs(n, ft, fieldNames)
+	}
+
 	c.applyEnumParamSugar(n, ft)
 
 	// M4b: currying — detect _ placeholder in non-optional positions

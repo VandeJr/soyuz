@@ -414,6 +414,15 @@ type CallExpr struct {
 
 func (c *CallExpr) Pos() lexer.Position { return c.pos }
 
+// NamedArg is a named call argument: name: value.
+type NamedArg struct {
+	pos   lexer.Position
+	Name  string
+	Value Node
+}
+
+func (n *NamedArg) Pos() lexer.Position { return n.pos }
+
 type MemberExpr struct {
 	pos      lexer.Position
 	Object   Node
