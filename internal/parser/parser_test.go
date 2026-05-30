@@ -397,6 +397,39 @@ val msg = match resultado {
 	}
 }
 
+func TestMatchArmBreakContinue(t *testing.T) {
+	prog := parseSource(t, `
+fn consumir(valor: Option[Int], cond: Bool) {
+    while cond {
+        match valor {
+            Some(v) => print(v)
+            None    => break
+            _       => continue
+        }
+    }
+}`)
+	fn := prog.Body[0].(*FuncDecl)
+	block := fn.Body.(*BlockStmt)
+	whileStmt, ok := block.Statements[0].(*WhileStmt)
+	if !ok {
+		t.Fatalf("esperado *WhileStmt, obtido %T", block.Statements[0])
+	}
+	exprStmt, ok := whileStmt.Body.Statements[0].(*ExprStmt)
+	if !ok {
+		t.Fatalf("esperado *ExprStmt, obtido %T", whileStmt.Body.Statements[0])
+	}
+	m, ok := exprStmt.Expr.(*MatchExpr)
+	if !ok {
+		t.Fatalf("esperado *MatchExpr, obtido %T", exprStmt.Expr)
+	}
+	if _, ok := m.Arms[1].Body.(*BreakStmt); !ok {
+		t.Fatalf("esperado *BreakStmt na segunda arm, obtido %T", m.Arms[1].Body)
+	}
+	if _, ok := m.Arms[2].Body.(*ContinueStmt); !ok {
+		t.Fatalf("esperado *ContinueStmt na terceira arm, obtido %T", m.Arms[2].Body)
+	}
+}
+
 func TestMatchGuard(t *testing.T) {
 	prog := parseSource(t, `
 val desc = match n {
@@ -446,7 +479,6 @@ func TestFuncParamDefault(t *testing.T) {
 		t.Errorf("default esperado 'Olá', obtido %q", sl.Value)
 	}
 }
-
 
 func TestRecordLiteral(t *testing.T) {
 	prog := parseSource(t, `val p = Ponto { x: 1, y: 2 }`)

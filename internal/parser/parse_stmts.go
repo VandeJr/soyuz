@@ -17,10 +17,7 @@ func (p *Parser) parseStatement() Node {
 	case lexer.BREAK:
 		return p.parseBreak()
 	case lexer.CONTINUE:
-		pos := p.peek().Position
-		p.advance()
-		p.consume(lexer.SEMICOLON)
-		return &ContinueStmt{pos: pos}
+		return p.parseContinue()
 	case lexer.IF:
 		return p.parseIf()
 	case lexer.FOR:
@@ -70,11 +67,17 @@ func (p *Parser) parseReturn() *ReturnStmt {
 func (p *Parser) parseBreak() *BreakStmt {
 	pos := p.advance().Position
 	var value Node
-	if !p.checkAny(lexer.SEMICOLON, lexer.RBRACE, lexer.EOF) {
+	if !p.checkAny(lexer.SEMICOLON, lexer.COMMA, lexer.RBRACE, lexer.EOF) {
 		value = p.parseExpression(0)
 	}
 	p.consume(lexer.SEMICOLON)
 	return &BreakStmt{pos: pos, Value: value}
+}
+
+func (p *Parser) parseContinue() *ContinueStmt {
+	pos := p.advance().Position
+	p.consume(lexer.SEMICOLON)
+	return &ContinueStmt{pos: pos}
 }
 
 func (p *Parser) parseIf() *IfStmt {
@@ -127,10 +130,11 @@ func (p *Parser) parseLoop() *LoopStmt {
 }
 
 // parseSelectExpr parses:
-//   select {
-//       msg = ch.recv() => body
-//       default         => body
-//   }
+//
+//	select {
+//	    msg = ch.recv() => body
+//	    default         => body
+//	}
 func (p *Parser) parseSelectExpr() *SelectExpr {
 	pos := p.expect(lexer.SELECT).Position
 	p.expect(lexer.LBRACE)
@@ -148,9 +152,10 @@ func (p *Parser) parseSelectExpr() *SelectExpr {
 }
 
 // parseSelectArm handles one arm inside a select block:
-//   binding = ch.recv() => body   (recv arm with binding)
-//   ch.recv() => body              (recv arm without binding)
-//   default   => body              (default arm)
+//
+//	binding = ch.recv() => body   (recv arm with binding)
+//	ch.recv() => body              (recv arm without binding)
+//	default   => body              (default arm)
 func (p *Parser) parseSelectArm() SelectArm {
 	pos := p.peek().Position
 
@@ -179,10 +184,16 @@ func (p *Parser) parseSelectArm() SelectArm {
 	return SelectArm{Pos: pos, Chan: chanExpr, Body: body}
 }
 
-// parseArmBody parses either a block { ... } or a single expression.
+// parseArmBody parses either a block, a loop control statement, or a single expression.
 func (p *Parser) parseArmBody() Node {
 	if p.check(lexer.LBRACE) {
 		return p.parseBlock()
+	}
+	if p.check(lexer.BREAK) {
+		return p.parseBreak()
+	}
+	if p.check(lexer.CONTINUE) {
+		return p.parseContinue()
 	}
 	expr := p.parseExpression(0)
 	p.consume(lexer.SEMICOLON)
