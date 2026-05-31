@@ -133,7 +133,7 @@ func (l *Lexer) readNumber() (string, TokenType) {
 	return string(l.input[start:l.position]), INT_LITERAL
 }
 
-// readChar2 lê um literal de char delimitado por aspas simples: 'a', '\n', '\'', etc.
+// readChar2 lê um literal de char delimitado por aspas simples: 'a', '\n', '\”, etc.
 func (l *Lexer) readChar2(pos Position) Token {
 	l.readChar() // consome '
 	var ch rune
@@ -255,6 +255,26 @@ func (l *Lexer) readString(pos Position, isContinuation bool) Token {
 	return first
 }
 
+func (l *Lexer) readRawString(pos Position) Token {
+	l.readChar() // consome a aspas de abertura "
+
+	var part []rune
+	for l.ch != 0 {
+		if l.ch == '"' {
+			l.readChar() // consome "
+			break
+		}
+		if l.ch == '\n' {
+			l.line++
+			l.column = 0
+		}
+		part = append(part, l.ch)
+		l.readChar()
+	}
+
+	return Token{Type: STRING_LITERAL, Lexeme: string(part), Position: pos}
+}
+
 func (l *Lexer) isNextToken(s string) bool {
 	idx := l.position
 	if l.ch == '\n' {
@@ -287,6 +307,10 @@ func (l *Lexer) isNextRelevantTokenWhen() bool {
 	return l.isNextToken("when")
 }
 
+func (l *Lexer) isNextRelevantTokenMemberAccess() bool {
+	return l.isNextToken(".") || l.isNextToken("?.")
+}
+
 // --- NextToken ---
 
 func (l *Lexer) NextToken() Token {
@@ -302,8 +326,9 @@ func (l *Lexer) NextToken() Token {
 
 	// Tratamento de newline — insere SEMICOLON virtual se necessário
 	if l.ch == '\n' {
-		// BUG-05 & M2: Suprimir SEMICOLON se o próximo token for |> ou when
-		if CanInsertSemicolon(l.lastToken) && (l.isNextRelevantTokenPipe() || l.isNextRelevantTokenWhen()) {
+		// Suprimir SEMICOLON quando a próxima linha continua a expressão.
+		if CanInsertSemicolon(l.lastToken) &&
+			(l.isNextRelevantTokenPipe() || l.isNextRelevantTokenWhen() || l.isNextRelevantTokenMemberAccess()) {
 			l.line++
 			l.column = 0
 			l.readChar()
@@ -552,6 +577,11 @@ func (l *Lexer) NextToken() Token {
 	default:
 		if isLetter(l.ch) {
 			lexeme := l.readIdentifier()
+			if lexeme == "r" && l.ch == '"' {
+				tok = l.readRawString(pos)
+				l.lastToken = tok.Type
+				return tok
+			}
 			tok = Token{Type: LookupIdent(lexeme), Lexeme: lexeme, Position: pos}
 			l.lastToken = tok.Type
 			return tok

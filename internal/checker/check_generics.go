@@ -97,6 +97,14 @@ func (c *Checker) unify(param, actual Type, inferred map[string]Type) {
 		}
 		return
 	}
+	if tt, ok := param.(*TupleType); ok {
+		if ta, ok := actual.(*TupleType); ok && len(tt.Elements) == len(ta.Elements) {
+			for i, p := range tt.Elements {
+				c.unify(p, ta.Elements[i], inferred)
+			}
+		}
+		return
+	}
 	if sp, ok := param.(*SpecializedType); ok {
 		if sa, ok := actual.(*SpecializedType); ok && sp.Base.String() == sa.Base.String() {
 			for i, p := range sp.Params {
@@ -137,6 +145,13 @@ func (c *Checker) substitute(t Type, sub map[string]Type) Type {
 			newParams[i] = c.substitute(p, sub)
 		}
 		return &SpecializedType{Base: st.Base, Params: newParams}
+	}
+	if tt, ok := t.(*TupleType); ok {
+		newElems := make([]Type, len(tt.Elements))
+		for i, e := range tt.Elements {
+			newElems[i] = c.substitute(e, sub)
+		}
+		return &TupleType{Elements: newElems}
 	}
 	return t
 }

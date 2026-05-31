@@ -56,38 +56,38 @@ type pendingClassMethodBody struct {
 
 // Generator takes a parsed Program and emits an LLVM IR Module.
 type Generator struct {
-	module       *ir.Module
-	current      *ir.Block
-	vars         map[string]value.Value
-	loops        []loopCtx
-	structs      map[string]structInfo
-	enums        map[string]enumInfo
-	classes      map[string]classInfo
-	extensionMethods map[string]map[string][]*ir.Func
-	interfaceDecls map[string]*parser.InterfaceDecl
-	check        *checker.CheckResult
+	module             *ir.Module
+	current            *ir.Block
+	vars               map[string]value.Value
+	loops              []loopCtx
+	structs            map[string]structInfo
+	enums              map[string]enumInfo
+	classes            map[string]classInfo
+	extensionMethods   map[string]map[string][]*ir.Func
+	interfaceDecls     map[string]*parser.InterfaceDecl
+	check              *checker.CheckResult
 	specialized        map[string]*ir.Func
 	genericDecls       map[string]*parser.FuncDecl
 	genericRecordDecls map[string]*parser.RecordDecl
 	genericEnumDecls   map[string]*parser.EnumDecl
 	// Class method bodies deferred until all top-level function signatures are declared.
-	pendingClassBodies []pendingClassMethodBody
+	pendingClassBodies  []pendingClassMethodBody
 	pendingExtendBodies []pendingExtendMethodBody
 	// RC fields
-	destructors map[string]*ir.Func // record name → generated destructor function
-	traces      map[string]*ir.Func // record name → ORC trace function
-	heapVars     map[string]bool     // which in-scope named vars hold RC-managed pointers
-	scopeStack   [][]string          // stack of owned heap var names, one slice per scope level
-	taskVarStack [][]string          // stack of task variable names per scope (for drop-on-exit)
-	syncGuardStack [][]syncGuardEntry // stack of sync-guard variables per scope (for unlock-on-exit)
-	arcVarStack  [][]string          // stack of Arc[T] variable names per scope (for srt_arc_release on exit)
+	destructors    map[string]*ir.Func // record name → generated destructor function
+	traces         map[string]*ir.Func // record name → ORC trace function
+	heapVars       map[string]bool     // which in-scope named vars hold RC-managed pointers
+	scopeStack     [][]string          // stack of owned heap var names, one slice per scope level
+	taskVarStack   [][]string          // stack of task variable names per scope (for drop-on-exit)
+	syncGuardStack [][]syncGuardEntry  // stack of sync-guard variables per scope (for unlock-on-exit)
+	arcVarStack    [][]string          // stack of Arc[T] variable names per scope (for srt_arc_release on exit)
 	// block name deduplication within the current function
-	blockNames  map[string]int
+	blockNames map[string]int
 	// counter for unique task wrapper function names
 	taskWrapperCounter int
-	closureType *types.StructType // { i8*, i8* } — shared closure fat-pointer layout
-	closureDtor *ir.Func           // releases captured env when closure is freed
-	envDtorCounter int
+	closureType        *types.StructType // { i8*, i8* } — shared closure fat-pointer layout
+	closureDtor        *ir.Func          // releases captured env when closure is freed
+	envDtorCounter     int
 	// SoyuzString RC-managed string type
 	soyuzStringType    *types.StructType
 	soyuzStringPtrType types.Type
@@ -100,23 +100,23 @@ type Generator struct {
 // New returns a new Generator.
 func New(check *checker.CheckResult) *Generator {
 	return &Generator{
-		module:         ir.NewModule(),
-		vars:           make(map[string]value.Value),
-		structs:        make(map[string]structInfo),
-		enums:          make(map[string]enumInfo),
-		classes:        make(map[string]classInfo),
-		extensionMethods: make(map[string]map[string][]*ir.Func),
-		interfaceDecls: make(map[string]*parser.InterfaceDecl),
-		specialized:        make(map[string]*ir.Func),
-		genericDecls:       make(map[string]*parser.FuncDecl),
-		genericRecordDecls: make(map[string]*parser.RecordDecl),
-		genericEnumDecls:   make(map[string]*parser.EnumDecl),
-		destructors:  make(map[string]*ir.Func),
-		traces:      make(map[string]*ir.Func),
-		heapVars:     make(map[string]bool),
-		blockNames:             make(map[string]int),
-		check:                  check,
-		topLevelClosureCache:   make(map[string]value.Value),
+		module:               ir.NewModule(),
+		vars:                 make(map[string]value.Value),
+		structs:              make(map[string]structInfo),
+		enums:                make(map[string]enumInfo),
+		classes:              make(map[string]classInfo),
+		extensionMethods:     make(map[string]map[string][]*ir.Func),
+		interfaceDecls:       make(map[string]*parser.InterfaceDecl),
+		specialized:          make(map[string]*ir.Func),
+		genericDecls:         make(map[string]*parser.FuncDecl),
+		genericRecordDecls:   make(map[string]*parser.RecordDecl),
+		genericEnumDecls:     make(map[string]*parser.EnumDecl),
+		destructors:          make(map[string]*ir.Func),
+		traces:               make(map[string]*ir.Func),
+		heapVars:             make(map[string]bool),
+		blockNames:           make(map[string]int),
+		check:                check,
+		topLevelClosureCache: make(map[string]value.Value),
 	}
 }
 
@@ -356,6 +356,19 @@ func (g *Generator) releaseAllScopes() {
 func (g *Generator) prepareReturn(val value.Value) value.Value {
 	if val != nil && g.isHeapType(val.Type()) {
 		g.emitRetain(val)
+	}
+	return val
+}
+
+func (g *Generator) coerceToLLVMType(val value.Value, target types.Type) value.Value {
+	if val == nil || target == nil || val.Type().Equal(target) {
+		return val
+	}
+	switch {
+	case val.Type().Equal(types.I64) && target.Equal(types.I1):
+		return g.current.NewTrunc(val, types.I1)
+	case val.Type().Equal(types.I1) && target.Equal(types.I64):
+		return g.current.NewZExt(val, types.I64)
 	}
 	return val
 }

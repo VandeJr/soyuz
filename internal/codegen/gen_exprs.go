@@ -3,10 +3,10 @@ package codegen
 import (
 	"fmt"
 	"sort"
-	"strconv"
-	"strings"
 	"soyuz/internal/checker"
 	"soyuz/internal/parser"
+	"strconv"
+	"strings"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
@@ -356,6 +356,7 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 			if val == nil {
 				g.current.NewRet(g.defaultReturnValue(retType))
 			} else {
+				val = g.coerceToLLVMType(val, retType)
 				g.current.NewRet(val)
 			}
 		}
@@ -949,9 +950,7 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				isMethod = true
 			}
 		case *checker.BasicType:
-			if t.Name == "String" {
-				isMethod = true
-			}
+			isMethod = true
 		}
 		if isMethod {
 			return g.generateMethodCall(me, n)
@@ -1050,12 +1049,29 @@ func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInf
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 0))
 	g.current.NewStore(constant.NewInt(types.I64, int64(vi.tag)), tagPtr)
 	if len(args) > 0 {
+		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+		if len(args) > 1 {
+			fieldTypes := make([]types.Type, len(args))
+			for i, arg := range args {
+				fieldTypes[i] = arg.Type()
+			}
+			payloadType := types.NewStruct(fieldTypes...)
+			castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
+			for i, val := range args {
+				if g.isHeapType(val.Type()) {
+					g.emitRetain(val)
+				}
+				fieldPtr := g.current.NewGetElementPtr(payloadType, castPtr,
+					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+				g.current.NewStore(val, fieldPtr)
+			}
+			return structPtr, nil
+		}
 		val := args[0]
 		if g.isHeapType(val.Type()) {
 			g.emitRetain(val)
 		}
-		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
-			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
 		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(val.Type()))
 		g.current.NewStore(val, castPtr)
 	}
@@ -1075,6 +1091,31 @@ func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *pars
 	g.current.NewStore(constant.NewInt(types.I64, int64(vi.tag)), tagPtr)
 
 	if len(n.Args) > 0 {
+		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
+			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+		if len(n.Args) > 1 {
+			values := make([]value.Value, len(n.Args))
+			fieldTypes := make([]types.Type, len(n.Args))
+			for i, arg := range n.Args {
+				val, err := g.generateExpr(arg)
+				if err != nil {
+					return nil, err
+				}
+				values[i] = val
+				fieldTypes[i] = val.Type()
+			}
+			payloadType := types.NewStruct(fieldTypes...)
+			castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
+			for i, val := range values {
+				if g.isHeapType(val.Type()) {
+					g.emitRetain(val)
+				}
+				fieldPtr := g.current.NewGetElementPtr(payloadType, castPtr,
+					constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+				g.current.NewStore(val, fieldPtr)
+			}
+			return structPtr, nil
+		}
 		val, err := g.generateExpr(n.Args[0])
 		if err != nil {
 			return nil, err
@@ -1083,8 +1124,6 @@ func (g *Generator) generateEnumConstructor(ei enumInfo, vi variantInfo, n *pars
 		if g.isHeapType(val.Type()) {
 			g.emitRetain(val)
 		}
-		payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
-			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
 		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(val.Type()))
 		g.current.NewStore(val, castPtr)
 	}
@@ -1419,7 +1458,7 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				// M-10: cancel task + propagate to all non-detached children recursively.
 				g.current.NewCall(g.findFunc("srt_cancel"), obj)
 				return nil, nil
-			// tap/always/then/catch are handled before generateCallArgs above.
+				// tap/always/then/catch are handled before generateCallArgs above.
 			}
 		}
 	}
@@ -1458,7 +1497,7 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 		if variants, ok := g.extensionMethods[bt.Name][me.Property]; ok {
 			fn := classMethodByArity(variants, len(args))
 			if fn != nil {
-				objAsI8 := g.current.NewBitCast(obj, types.I8Ptr)
+				objAsI8 := g.packExtendSelf(obj)
 				allArgs := append([]value.Value{objAsI8}, args...)
 				return g.current.NewCall(fn, allArgs...), nil
 			}
@@ -1765,9 +1804,18 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 		callee = n.Right
 	}
 
-	calleeVal, err := g.generateExpr(callee)
-	if err != nil {
-		return nil, checker.Unknown, err
+	var calleeVal value.Value
+	if id, ok := callee.(*parser.Identifier); ok {
+		if f := g.findFunc(id.Name); f != nil {
+			calleeVal = f
+		}
+	}
+	if calleeVal == nil {
+		var err error
+		calleeVal, err = g.generateExpr(callee)
+		if err != nil {
+			return nil, checker.Unknown, err
+		}
 	}
 
 	args := []value.Value{payload}
@@ -1779,7 +1827,6 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 		args = append(args, v)
 	}
 
-	retVal := g.current.NewCall(calleeVal, args...)
 	var retType checker.Type = checker.Unknown
 	if ft, ok := g.check.NodeTypes[callee].(*checker.FuncType); ok {
 		retType = ft.Return
@@ -1787,6 +1834,19 @@ func (g *Generator) generatePipeQuestCall(n *parser.PipeQuestExpr, payload value
 	if sp, ok := g.check.Specializations[n]; ok {
 		retType = sp.Return
 	}
+	retLLVMType := types.Type(types.I64)
+	if retType != checker.Unknown {
+		retLLVMType = g.mapTypeToLLVM(retType)
+	}
+
+	var retVal value.Value
+	if ptrType, ok := calleeVal.Type().(*types.PointerType); ok {
+		if _, isFuncType := ptrType.ElemType.(*types.FuncType); isFuncType {
+			retVal = g.current.NewCall(calleeVal, args...)
+			return retVal, retType, nil
+		}
+	}
+	retVal = g.callClosureDirect(calleeVal, retLLVMType, args)
 	return retVal, retType, nil
 }
 
@@ -2757,10 +2817,15 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 		}
 		if targetFn == nil {
 			// Restore state before returning error.
-			g.current = oldCurrent; g.vars = oldVars; g.heapVars = oldHeapVars
-			g.scopeStack = oldScopeStack; g.taskVarStack = oldTaskVarStack
-			g.syncGuardStack = oldSyncGuardStack; g.arcVarStack = oldArcVarStack
-			g.blockNames = oldBlockNames; g.currentReturnType = oldReturnType
+			g.current = oldCurrent
+			g.vars = oldVars
+			g.heapVars = oldHeapVars
+			g.scopeStack = oldScopeStack
+			g.taskVarStack = oldTaskVarStack
+			g.syncGuardStack = oldSyncGuardStack
+			g.arcVarStack = oldArcVarStack
+			g.blockNames = oldBlockNames
+			g.currentReturnType = oldReturnType
 			return nil, fmt.Errorf("~>: step %d: não foi possível resolver função '%v'", i+1, step)
 		}
 

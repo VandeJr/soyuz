@@ -2,10 +2,10 @@ package codegen
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"soyuz/internal/checker"
 	"soyuz/internal/parser"
+	"strconv"
+	"strings"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
@@ -522,6 +522,7 @@ func (g *Generator) generateClassMethodBody(className string, si structInfo, fd 
 		}
 	} else if g.current.Term == nil {
 		if val != nil {
+			val = g.coerceToLLVMType(val, retType)
 			g.current.NewRet(val)
 		} else {
 			g.current.NewRet(g.defaultReturnValue(retType))
@@ -851,10 +852,10 @@ func (g *Generator) generateGenericRecordLiteral(n *parser.RecordLiteral, decl *
 			}
 		}
 	} else {
-	fieldValByName := make(map[string]value.Value)
-	for _, fe := range fieldEntries {
-		fieldValByName[fe.name] = fe.val
-	}
+		fieldValByName := make(map[string]value.Value)
+		for _, fe := range fieldEntries {
+			fieldValByName[fe.name] = fe.val
+		}
 		for _, f := range decl.Fields {
 			if nt, ok := f.Type.(*parser.NamedType); ok {
 				for _, gp := range decl.Generics {
@@ -1013,6 +1014,36 @@ func (g *Generator) extendSelfLLVM(typeName string) types.Type {
 	}
 }
 
+func (g *Generator) packExtendSelf(val value.Value) value.Value {
+	switch {
+	case val.Type().Equal(types.I64):
+		return g.current.NewIntToPtr(val, types.I8Ptr)
+	case val.Type().Equal(types.I1):
+		return g.current.NewIntToPtr(g.current.NewZExt(val, types.I64), types.I8Ptr)
+	case val.Type().Equal(types.I32):
+		return g.current.NewIntToPtr(g.current.NewZExt(val, types.I64), types.I8Ptr)
+	case val.Type().Equal(types.Double):
+		return g.current.NewIntToPtr(g.current.NewBitCast(val, types.I64), types.I8Ptr)
+	default:
+		return g.current.NewBitCast(val, types.I8Ptr)
+	}
+}
+
+func (g *Generator) unpackExtendSelf(val value.Value, target types.Type) value.Value {
+	switch {
+	case target.Equal(types.I64):
+		return g.current.NewPtrToInt(val, types.I64)
+	case target.Equal(types.I1):
+		return g.current.NewTrunc(g.current.NewPtrToInt(val, types.I64), types.I1)
+	case target.Equal(types.I32):
+		return g.current.NewTrunc(g.current.NewPtrToInt(val, types.I64), types.I32)
+	case target.Equal(types.Double):
+		return g.current.NewBitCast(g.current.NewPtrToInt(val, types.I64), types.Double)
+	default:
+		return g.current.NewBitCast(val, target)
+	}
+}
+
 func (g *Generator) generateExtendDecl(n *parser.ExtendDecl) error {
 	if g.extensionMethods[n.TypeName] == nil {
 		g.extensionMethods[n.TypeName] = make(map[string][]*ir.Func)
@@ -1098,7 +1129,7 @@ func (g *Generator) generateExtendMethodBody(pm pendingExtendMethodBody) error {
 	}()
 
 	g.current = g.newBlock("entry", pm.fn)
-	selfTyped := g.current.NewBitCast(pm.fn.Params[0], pm.selfLLVM)
+	selfTyped := g.unpackExtendSelf(pm.fn.Params[0], pm.selfLLVM)
 	selfAlloc := g.newAlloca(pm.selfLLVM)
 	g.current.NewStore(selfTyped, selfAlloc)
 	g.vars["self"] = selfAlloc
@@ -1121,6 +1152,7 @@ func (g *Generator) generateExtendMethodBody(pm pendingExtendMethodBody) error {
 		}
 	} else if g.current.Term == nil {
 		if val != nil {
+			val = g.coerceToLLVMType(val, retType)
 			g.current.NewRet(val)
 		} else {
 			g.current.NewRet(g.defaultReturnValue(retType))

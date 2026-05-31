@@ -173,6 +173,31 @@ func (g *Generator) matchPattern(val value.Value, subjectCheckerType checker.Typ
 		if len(p.Args) > 0 {
 			fieldType := g.resolveEnumPayloadType(vi, p.Name, subjectCheckerType)
 			castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(fieldType))
+			if len(p.Args) > 1 {
+				payloadStruct, ok := fieldType.(*types.StructType)
+				if !ok {
+					return fmt.Errorf("enum variant %s has multiple pattern args but payload is %s", p.Name, fieldType)
+				}
+				for i, arg := range p.Args {
+					if i >= len(payloadStruct.Fields) {
+						return fmt.Errorf("enum variant %s pattern has too many args", p.Name)
+					}
+					fieldPtr := g.current.NewGetElementPtr(payloadStruct, castPtr,
+						constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
+					innerVal := g.current.NewLoad(payloadStruct.Fields[i], fieldPtr)
+					var elemThen *ir.Block
+					if i == len(p.Args)-1 {
+						elemThen = thenBlock
+					} else {
+						elemThen = g.newBlock(fmt.Sprintf("enum_%s_field_%d_ok", p.Name, i), g.current.Parent)
+					}
+					if err := g.matchPattern(innerVal, nil, arg, elemThen, nextBlock); err != nil {
+						return err
+					}
+					g.current = elemThen
+				}
+				return nil
+			}
 			innerVal := g.current.NewLoad(fieldType, castPtr)
 			return g.matchPattern(innerVal, nil, p.Args[0], thenBlock, nextBlock)
 		}
@@ -251,6 +276,9 @@ func (g *Generator) matchPattern(val value.Value, subjectCheckerType checker.Typ
 // checker type (the specialized type parameters).
 func (g *Generator) resolveEnumPayloadType(vi variantInfo, variantName string, subjectCheckerType checker.Type) types.Type {
 	if len(vi.fields) > 0 {
+		if len(vi.fields) > 1 {
+			return types.NewStruct(vi.fields...)
+		}
 		return vi.fields[0]
 	}
 	if subjectCheckerType != nil {

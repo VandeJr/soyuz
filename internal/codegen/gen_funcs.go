@@ -60,6 +60,7 @@ func (g *Generator) generateFuncDecl(n *parser.FuncDecl) error {
 			if err != nil {
 				return err
 			}
+			val = g.coerceToLLVMType(val, retType)
 			g.current.NewRet(val)
 		}
 	}
@@ -143,6 +144,7 @@ func (g *Generator) generateSpecializedFunc(name string, n *parser.FuncDecl, spe
 			g.current.NewRet(nil)
 		}
 	} else if g.current.Term == nil {
+		val = g.coerceToLLVMType(val, retType)
 		g.current.NewRet(val)
 	}
 
@@ -276,6 +278,7 @@ func (g *Generator) generateLambdaFunc(n *parser.ArrowFunc, ft *checker.FuncType
 			g.current.NewRet(nil)
 		}
 	} else if g.current.Term == nil {
+		val = g.coerceToLLVMType(val, retType)
 		g.current.NewRet(val)
 	}
 
@@ -413,6 +416,7 @@ func (g *Generator) getOrCreateFuncShim(name string, target *ir.Func, ft *checke
 	if retType.Equal(types.Void) {
 		g.current.NewRet(nil)
 	} else {
+		result = g.coerceToLLVMType(result, retType)
 		g.current.NewRet(result)
 	}
 	return shim, nil
@@ -595,6 +599,7 @@ func (g *Generator) generateFuncVariantsBody(name string, variants []*parser.Fun
 			if val == nil {
 				g.current.NewRet(g.defaultReturnValue(retType))
 			} else {
+				val = g.coerceToLLVMType(val, retType)
 				g.current.NewRet(val)
 			}
 		}

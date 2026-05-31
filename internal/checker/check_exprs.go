@@ -2,9 +2,9 @@ package checker
 
 import (
 	"fmt"
-	"strconv"
 	"soyuz/internal/lexer"
 	"soyuz/internal/parser"
+	"strconv"
 )
 
 func (c *Checker) checkTupleExpr(n *parser.TupleExpr) Type {
@@ -77,6 +77,7 @@ func (c *Checker) checkTaskExpr(n *parser.TaskExpr) Type {
 // Recv arms accept either:
 //   - ch.recv() / ch.tryRecv() on Channel[T]  → binding gets T
 //   - t.await() on Task[T]                    → binding gets T (synthesized bridge channel in codegen)
+//
 // Default arm: no channel needed.
 func (c *Checker) checkSelectExpr(n *parser.SelectExpr) Type {
 	var resultType Type = UnitType
@@ -200,6 +201,17 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 					}
 				}
 			}
+			// Fields have priority for plain member access. Method calls with the
+			// same name are resolved explicitly by checkCallExpr.
+			if ft, ok2 := ct.Fields[property]; ok2 {
+				if pub, has := ct.FieldPub[property]; has && !pub && !c.canAccessClassMember(ct) {
+					c.errorf(pos, "campo '%s' de '%s' é privado", property, ct.Name)
+				}
+				if sub != nil {
+					return c.substitute(ft, sub)
+				}
+				return ft
+			}
 			if variants, ok2 := ct.Methods[property]; ok2 && len(variants) > 0 {
 				if pub, has := ct.MethodPub[property]; has && !pub && !c.canAccessClassMember(ct) {
 					c.errorf(pos, "método '%s' de '%s' é privado", property, ct.Name)
@@ -227,19 +239,15 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 					return ft
 				}
 			}
-			// Fields with type-parameter substitution (e.g. MutexGuard[T].value → T)
-			if ft, ok2 := ct.Fields[property]; ok2 {
-				if pub, has := ct.FieldPub[property]; has && !pub && !c.canAccessClassMember(ct) {
-					c.errorf(pos, "campo '%s' de '%s' é privado", property, ct.Name)
-				}
-				if sub != nil {
-					return c.substitute(ft, sub)
-				}
-				return ft
-			}
 		}
 		return Unknown
 	case *ClassType:
+		if ft, ok := t.Fields[property]; ok {
+			if pub, has := t.FieldPub[property]; has && !pub && !c.canAccessClassMember(t) {
+				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
+			}
+			return ft
+		}
 		if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
 			if pub, has := t.MethodPub[property]; has && !pub && !c.canAccessClassMember(t) {
 				c.errorf(pos, "método '%s' de '%s' é privado", property, t.Name)
@@ -250,12 +258,6 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 			if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
 				return variants[0]
 			}
-		}
-		if ft, ok := t.Fields[property]; ok {
-			if pub, has := t.FieldPub[property]; has && !pub && !c.canAccessClassMember(t) {
-				c.errorf(pos, "campo '%s' de '%s' é privado", property, t.Name)
-			}
-			return ft
 		}
 		c.errorf(pos, "class %s has no member %s", t.Name, property)
 		return Unknown
@@ -302,6 +304,70 @@ func (c *Checker) resolveMemberType(objType Type, property string, pos lexer.Pos
 	}
 	// Unknown object type — allow, return Unknown
 	return Unknown
+}
+
+func (c *Checker) resolveMethodTypeForCall(objType Type, property string, arity int, pos lexer.Position) Type {
+	pickByArity := func(variants []*FuncType) *FuncType {
+		for _, v := range variants {
+			if len(v.Params) == arity {
+				return v
+			}
+		}
+		if len(variants) > 0 {
+			return variants[0]
+		}
+		return nil
+	}
+
+	substituteFunc := func(ft *FuncType, sub map[string]Type) *FuncType {
+		if ft == nil || sub == nil {
+			return ft
+		}
+		newParams := make([]Type, len(ft.Params))
+		for i, p := range ft.Params {
+			newParams[i] = c.substitute(p, sub)
+		}
+		return &FuncType{Params: newParams, Return: c.substitute(ft.Return, sub), Generics: ft.Generics, Defaults: ft.Defaults, IsOptional: ft.IsOptional}
+	}
+
+	switch t := objType.(type) {
+	case *ClassType:
+		if variants, ok := t.Methods[property]; ok && len(variants) > 0 {
+			if pub, has := t.MethodPub[property]; has && !pub && !c.canAccessClassMember(t) {
+				c.errorf(pos, "método '%s' de '%s' é privado", property, t.Name)
+			}
+			return pickByArity(variants)
+		}
+		if methods, ok := c.typeExtensions[t.Name]; ok {
+			if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
+				return pickByArity(variants)
+			}
+		}
+	case *SpecializedType:
+		if ct, ok := t.Base.(*ClassType); ok {
+			var sub map[string]Type
+			if len(ct.Generics) > 0 && len(t.Params) > 0 {
+				sub = make(map[string]Type)
+				for i, gname := range ct.Generics {
+					if i < len(t.Params) {
+						sub[gname] = t.Params[i]
+					}
+				}
+			}
+			if variants, ok2 := ct.Methods[property]; ok2 && len(variants) > 0 {
+				if pub, has := ct.MethodPub[property]; has && !pub && !c.canAccessClassMember(ct) {
+					c.errorf(pos, "método '%s' de '%s' é privado", property, ct.Name)
+				}
+				return substituteFunc(pickByArity(variants), sub)
+			}
+			if methods, ok := c.typeExtensions[ct.Name]; ok {
+				if variants, ok2 := methods[property]; ok2 && len(variants) > 0 {
+					return substituteFunc(pickByArity(variants), sub)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (c *Checker) wrapOptionType(inner Type) Type {
@@ -1306,12 +1372,38 @@ func (c *Checker) checkCallExpr(n *parser.CallExpr) Type {
 			ft = f
 		}
 	} else {
-		calleeType = c.checkNode(n.Callee)
-		if f, ok := calleeType.(*FuncType); ok {
-			if len(f.Generics) > 0 && len(n.Args) > 0 {
-				ft = c.instantiateFunc(f, c.inferGenerics(f, n.Args))
+		if me, ok := n.Callee.(*parser.MemberExpr); ok {
+			objType := c.nodeTypes[me.Object]
+			if objType == nil {
+				objType = c.checkNode(me.Object)
+			}
+			if methodType := c.resolveMethodTypeForCall(objType, me.Property, len(n.Args), me.Pos()); methodType != nil {
+				ft = methodType.(*FuncType)
 			} else {
-				ft = f
+				calleeType = c.checkNode(n.Callee)
+			}
+		} else {
+			calleeType = c.checkNode(n.Callee)
+		}
+		if ft == nil {
+			if f, ok := calleeType.(*FuncType); ok {
+				if len(f.Generics) > 0 && len(n.Args) > 0 {
+					ft = c.instantiateFunc(f, c.inferGenerics(f, n.Args))
+				} else {
+					ft = f
+				}
+			}
+		}
+	}
+
+	if ft == nil {
+		if me, ok := n.Callee.(*parser.MemberExpr); ok {
+			objType := c.nodeTypes[me.Object]
+			if objType == nil {
+				objType = c.checkNode(me.Object)
+			}
+			if methodType := c.resolveMethodTypeForCall(objType, me.Property, len(n.Args), me.Pos()); methodType != nil {
+				ft = methodType.(*FuncType)
 			}
 		}
 	}
@@ -1585,7 +1677,6 @@ func (c *Checker) checkAssignExpr(n *parser.AssignExpr) Type {
 	}
 	return rightType
 }
-
 
 func (c *Checker) checkForStmt(n *parser.ForStmt) Type {
 	parent := c.scope
