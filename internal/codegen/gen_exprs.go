@@ -137,16 +137,8 @@ func (g *Generator) generateExpr(node parser.Node) (value.Value, error) {
 		return g.generateRecordLiteral(n)
 
 	case *parser.MemberExpr:
-		// Enum dot syntax as value: Enum.Variant (zero-arg constructor)
-		if _, ok := n.Object.(*parser.Identifier); ok {
-			if et, isEnum := g.check.NodeTypes[n.Object].(*checker.EnumType); isEnum {
-				if ei, exists := g.enums[et.Name]; exists {
-					if vi, ok2 := ei.variants[n.Property]; ok2 {
-						fakeCall := &parser.CallExpr{}
-						return g.generateEnumConstructor(ei, vi, fakeCall)
-					}
-				}
-			}
+		if v, ok, err := g.tryGenerateEnumVariantValue(n); ok {
+			return v, err
 		}
 		return g.generateMemberExpr(n)
 
@@ -959,7 +951,9 @@ func (g *Generator) generateCallExpr(n *parser.CallExpr) (value.Value, error) {
 				isMethod = true
 			}
 		case *checker.BasicType:
-			if t.Name == "String" || len(g.extensionMethods[t.Name]) > 0 {
+			if t.Name == "String" || len(g.extensionMethods[t.Name]) > 0 ||
+				primitiveMethodCFunc(t.Name, me.Property) != "" ||
+				(t.Name == "Float" && me.Property == "toInt") {
 				isMethod = true
 			}
 		}
@@ -1058,6 +1052,77 @@ func (g *Generator) generatePrint(n *parser.CallExpr) (value.Value, error) {
 }
 
 // generateEnumConstructorWithValues is like generateEnumConstructor but takes pre-evaluated arg values.
+// tryGenerateEnumVariantValue emits Enum.Variant (including generic enums) used as a value.
+func (g *Generator) tryGenerateEnumVariantValue(n *parser.MemberExpr) (value.Value, bool, error) {
+	id, ok := n.Object.(*parser.Identifier)
+	if !ok {
+		return nil, false, nil
+	}
+	fakeCall := &parser.CallExpr{}
+	if et, isEnum := g.check.NodeTypes[id].(*checker.EnumType); isEnum {
+		if ei, exists := g.enums[et.Name]; exists {
+			if vi, ok2 := ei.variants[n.Property]; ok2 {
+				v, err := g.generateEnumConstructor(ei, vi, fakeCall)
+				return v, true, err
+			}
+		}
+	}
+	decl, isGeneric := g.genericEnumDecls[id.Name]
+	if !isGeneric {
+		return nil, false, nil
+	}
+	tryEmit := func(ei enumInfo) (value.Value, bool, error) {
+		if vi, ok2 := ei.variants[n.Property]; ok2 {
+			v, err := g.generateEnumConstructor(ei, vi, fakeCall)
+			return v, true, err
+		}
+		return nil, false, nil
+	}
+	if st, ok := g.check.NodeTypes[n].(*checker.SpecializedType); ok {
+		if _, isEnum := st.Base.(*checker.EnumType); isEnum {
+			sub := g.enumSubstLLVM(decl, st.Params)
+			ei, err := g.getOrCreateSpecializedEnum(decl, sub)
+			if err != nil {
+				return nil, true, err
+			}
+			return tryEmit(ei)
+		}
+	}
+	if ft, ok := g.check.NodeTypes[n].(*checker.FuncType); ok {
+		if st, ok := ft.Return.(*checker.SpecializedType); ok {
+			if et, ok := st.Base.(*checker.EnumType); ok && et.Name == id.Name {
+				sub := g.enumSubstLLVM(decl, st.Params)
+				ei, err := g.getOrCreateSpecializedEnum(decl, sub)
+				if err != nil {
+					return nil, true, err
+				}
+				return tryEmit(ei)
+			}
+		}
+	}
+	prefix := id.Name + "__"
+	for name, ei := range g.enums {
+		if strings.HasPrefix(name, prefix) {
+			if v, ok, err := tryEmit(ei); ok {
+				return v, true, err
+			}
+		}
+	}
+	return nil, false, nil
+}
+
+func (g *Generator) enumSubstLLVM(decl *parser.EnumDecl, params []checker.Type) map[string]types.Type {
+	sub := make(map[string]types.Type)
+	for i, gp := range decl.Generics {
+		if i < len(params) {
+			sub[gp.Name] = g.mapTypeToLLVM(params[i])
+		} else {
+			sub[gp.Name] = types.I64
+		}
+	}
+	return sub
+}
+
 func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInfo, args []value.Value) (value.Value, error) {
 	dtorArg, traceArg := g.enumRCFnArgs(ei.typ.TypeName)
 	raw := g.current.NewCall(g.findBuiltin("soyuz_alloc"), constant.NewInt(types.I64, 72), dtorArg, traceArg)
@@ -1076,16 +1141,19 @@ func (g *Generator) generateEnumConstructorWithValues(ei enumInfo, vi variantInf
 func (g *Generator) storeEnumVariantPayload(ei enumInfo, structPtr value.Value, vi variantInfo, args []value.Value) error {
 	payloadPtr := g.current.NewGetElementPtr(ei.typ, structPtr,
 		constant.NewInt(types.I64, 0), constant.NewInt(types.I32, 1))
+	payloadType := enumVariantPayloadLLVMType(vi)
 	if len(vi.fields) <= 1 && len(args) == 1 {
 		val := args[0]
 		if g.isHeapType(val.Type()) {
 			g.emitRetain(val)
 		}
-		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(val.Type()))
+		if !val.Type().Equal(payloadType) {
+			val = g.current.NewBitCast(val, payloadType)
+		}
+		castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
 		g.current.NewStore(val, castPtr)
 		return nil
 	}
-	payloadType := enumVariantPayloadLLVMType(vi)
 	payloadAlloc := g.newAlloca(payloadType)
 	st, ok := payloadType.(*types.StructType)
 	if !ok || len(args) != len(st.Fields) {
@@ -1095,9 +1163,13 @@ func (g *Generator) storeEnumVariantPayload(ei enumInfo, structPtr value.Value, 
 		if g.isHeapType(val.Type()) {
 			g.emitRetain(val)
 		}
+		storeVal := val
+		if !storeVal.Type().Equal(st.Fields[i]) {
+			storeVal = g.current.NewBitCast(storeVal, st.Fields[i])
+		}
 		fieldPtr := g.current.NewGetElementPtr(st, payloadAlloc,
 			constant.NewInt(types.I64, 0), constant.NewInt(types.I32, int64(i)))
-		g.current.NewStore(val, fieldPtr)
+		g.current.NewStore(storeVal, fieldPtr)
 	}
 	payloadVal := g.current.NewLoad(payloadType, payloadAlloc)
 	castPtr := g.current.NewBitCast(payloadPtr, types.NewPointer(payloadType))
@@ -1499,6 +1571,9 @@ func (g *Generator) generateMethodCall(me *parser.MemberExpr, n *parser.CallExpr
 				return raw, nil
 			}
 			// fn not declared in this module; fall through to StringExtensions
+		}
+		if bt.Name == "Float" && me.Property == "toInt" && len(args) == 0 {
+			return g.current.NewFPToSI(obj, types.I64), nil
 		}
 		if variants, ok := g.extensionMethods[bt.Name][me.Property]; ok {
 			fn := classMethodByArity(variants, len(args))
@@ -2569,6 +2644,11 @@ func primitiveMethodCFunc(typeName, method string) string {
 		case "toFloat":
 			return "soyuz_int_to_float"
 		}
+	case "Float":
+		switch method {
+		case "toString":
+			return "soyuz_float_to_str"
+		}
 	}
 	return ""
 }
@@ -2579,6 +2659,10 @@ func primitiveMethodCFunc(typeName, method string) string {
 // For a pipe chain, it captures free variables and generates a wrapper that evaluates
 // the full chain inside the worker thread.
 func (g *Generator) generateTaskExpr(n *parser.TaskExpr) (value.Value, error) {
+	// Async pipe (~> / ~?>) already enqueues a worker; task (~> ...) must not wrap again.
+	if _, ok := n.Inner.(*parser.AsyncPipeExpr); ok {
+		return g.generateAsyncPipeExpr(n.Inner.(*parser.AsyncPipeExpr))
+	}
 	call, ok := n.Inner.(*parser.CallExpr)
 	if !ok {
 		// M-15: pipe chain or other expression — generate a closure-style wrapper.
@@ -2829,8 +2913,6 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 			if id, ok2 := rc.Callee.(*parser.Identifier); ok2 {
 				targetFn = g.findFunc(id.Name)
 			}
-			// Extra args: evaluate them (they reference outer-scope vars — not available here).
-			// For now, only plain function idents are supported.
 		} else if id, ok := step.(*parser.Identifier); ok {
 			targetFn = g.findFunc(id.Name)
 		}
@@ -2876,7 +2958,42 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 		}
 
 		var stepArgs []value.Value
-		stepArgs = append(stepArgs, current)
+		var origTypes []types.Type
+		if rc, ok := step.(*parser.CallExpr); ok {
+			for pi, arg := range rc.Args {
+				if id, ok := arg.(*parser.Identifier); ok && (id.Name == "_" || id.Name == "__async_pipe_tmp__") {
+					stepArgs = append(stepArgs, current)
+					if pi < len(targetFn.Params) {
+						origTypes = append(origTypes, targetFn.Params[pi].Type())
+					} else {
+						origTypes = append(origTypes, types.I64)
+					}
+					continue
+				}
+				av, err := g.generateExpr(arg)
+				if err != nil {
+					g.current = oldCurrent
+					g.vars = oldVars
+					g.heapVars = oldHeapVars
+					g.scopeStack = oldScopeStack
+					g.taskVarStack = oldTaskVarStack
+					g.syncGuardStack = oldSyncGuardStack
+					g.arcVarStack = oldArcVarStack
+					g.blockNames = oldBlockNames
+					g.currentReturnType = oldReturnType
+					return nil, err
+				}
+				stepArgs = append(stepArgs, av)
+				origTypes = append(origTypes, av.Type())
+			}
+		} else {
+			stepArgs = append(stepArgs, current)
+			if len(targetFn.Params) > 0 {
+				origTypes = append(origTypes, targetFn.Params[0].Type())
+			} else {
+				origTypes = append(origTypes, types.I64)
+			}
+		}
 
 		// Pack stepArgs into a buffer.
 		numArgs := len(stepArgs)
@@ -2895,17 +3012,6 @@ func (g *Generator) generateAsyncChainWrapper(steps []parser.Node, initType type
 			stepArgsHeap = constant.NewNull(types.I8Ptr)
 		}
 
-		// origTypes must match the TARGET function's parameter types, not the
-		// intermediate value's type (which is i8* from srt_await). The buffer
-		// always holds i64 (via castToI64), and the wrapper unpacks using origTypes.
-		origTypes := make([]types.Type, len(stepArgs))
-		for si := range stepArgs {
-			if si < len(targetFn.Params) {
-				origTypes[si] = targetFn.Params[si].Type()
-			} else {
-				origTypes[si] = stepArgs[si].Type()
-			}
-		}
 		wrapperFn := g.generateTaskWrapperFunc(targetFn, origTypes, numArgs)
 		wrapperPtr := g.current.NewBitCast(wrapperFn, types.I8Ptr)
 		stepHandle := g.current.NewCall(enqueue, wrapperPtr, stepArgsHeap)

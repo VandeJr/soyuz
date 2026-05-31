@@ -654,21 +654,31 @@ func (c *Checker) checkAsyncPipeExpr(n *parser.AsyncPipeExpr) Type {
 		}
 
 		// Resolve the step callee and check compatibility.
-		// Use a temporary synthetic identifier with the correct current type
-		// instead of re-using n.Steps[0] (which has the original type).
 		const tmpName = "__async_pipe_tmp__"
+		stepScope := NewScope(c.scope)
+		parentScope := c.scope
+		c.scope = stepScope
 		c.scope.Define(tmpName, currentType, true)
 		tmpIdent := &parser.Identifier{Name: tmpName}
 		c.nodeTypes[tmpIdent] = currentType
 
 		var call *parser.CallExpr
 		if rc, ok := step.(*parser.CallExpr); ok {
-			call = &parser.CallExpr{Callee: rc.Callee, Args: append([]parser.Node{tmpIdent}, rc.Args...)}
+			newArgs := make([]parser.Node, len(rc.Args))
+			for i, arg := range rc.Args {
+				if id, ok := arg.(*parser.Identifier); ok && id.Name == "_" {
+					newArgs[i] = tmpIdent
+				} else {
+					newArgs[i] = arg
+				}
+			}
+			call = &parser.CallExpr{Callee: rc.Callee, Args: newArgs}
 		} else {
 			call = &parser.CallExpr{Callee: step, Args: []parser.Node{tmpIdent}}
 		}
 
 		retType := c.checkCallExpr(call)
+		c.scope = parentScope
 		if ft, ok := c.specializations[call]; ok {
 			c.specializations[rawStep] = ft
 		}
@@ -1612,7 +1622,7 @@ func (c *Checker) checkAssignExpr(n *parser.AssignExpr) Type {
 	if !c.isAssignable(leftType, rightType) {
 		c.errorf(n.Pos(), "assignment of incompatible types: %s and %s", leftType, rightType)
 	}
-	return rightType
+	return UnitType
 }
 
 
@@ -1656,7 +1666,21 @@ func (c *Checker) checkBlock(n *parser.BlockStmt) Type {
 
 	var lastType Type = UnitType
 	for _, stmt := range n.Statements {
-		lastType = c.checkNode(stmt)
+		t := c.checkNode(stmt)
+		switch stmt.(type) {
+		case *parser.AssignExpr:
+			lastType = UnitType
+		case *parser.ExprStmt:
+			if es, ok := stmt.(*parser.ExprStmt); ok {
+				if _, isAssign := es.Expr.(*parser.AssignExpr); isAssign {
+					lastType = UnitType
+				} else {
+					lastType = t
+				}
+			}
+		default:
+			lastType = t
+		}
 	}
 	return lastType
 }
