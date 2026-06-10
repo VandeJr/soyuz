@@ -16,19 +16,19 @@ pub fn builtinExtendSelfTypes() -> Map[String, Type] = [
 pub fn builtinTypeExtensions() -> Map[String, Map[String, List[FuncType]]] {
     val resultEnum = EnumType {
         name: "Result", generics: ["T"],
-        variants: ["Ok": [IntType], "Err": [InterfaceType { name: "Error", methods: [:] }]],
-        variantFieldNames: [:]
+        variants: ["Ok": [IntType], "Err": [InterfaceType { name: "Error", methods: Map[String, List[FuncType]]{} }]],
+        variantFieldNames: Map[String, List[String]]{}
     }
     val resultInt = SpecializedType { base: resultEnum, params: [IntType] }
     val resultFloat = SpecializedType { base: resultEnum, params: [FloatType] }
     val optionBase = EnumType {
         name: "Option", generics: ["T"],
         variants: ["Some": [TypeParameter { name: "T" }], "None": []],
-        variantFieldNames: [:]
+        variantFieldNames: Map[String, List[String]]{}
     }
     val optionInt = SpecializedType { base: optionBase, params: [IntType] }
     val optionChar = SpecializedType { base: optionBase, params: [CharType] }
-    val listBase = ClassType { name: "List", generics: ["T"], fields: [:], fieldPub: [:], fieldInit: [:], implements: [], methods: [:], methodPub: [:] }
+    val listBase = ClassType { name: "List", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{} }
     val listOfString = SpecializedType { base: listBase, params: [StringType] }
     return [
         "String": [

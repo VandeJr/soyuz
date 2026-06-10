@@ -1,3 +1,4 @@
 import @lexer/lexer_test
+import @tests/checker/checker_test
 
 fn main() {}

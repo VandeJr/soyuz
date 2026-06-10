@@ -1,9 +1,12 @@
 // M0 baseline — port of soyuz-go/internal/checker/checker_test.go
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
 )
 
 fn checkSource(src: String) -> List[TypeError] {

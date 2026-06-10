@@ -41,7 +41,7 @@ pub fn resolveNamedCallArgs(c: Checker, n: CallExprData, node: Node, ft: FuncTyp
         checkerErrorf(c, nodePos(node), "número de campos do construtor não corresponde aos parâmetros", [])
         return
     }
-    var named: Map[String, Node] = [:]
+    var named: Map[String, Node] = Map[String, Node]{}
     var positional: List[Node] = []
     for arg in n.args {
         match arg {

@@ -11,10 +11,11 @@ import (
         TupleType, TypeParameter, SpecializedType, Scope, PendingClassMethod,
         PendingExtendMethod, IntType, BoolType, StringType, UnitType, Unknown, newScope
     } from @checker/types
-    { checkNode, setNodeType, checkerErrorf, contextInnerType } from @checker/checker
+    { setNodeType, checkerErrorf, contextInnerType } from @checker/checker
     { resolveTypeExpr, instantiateFunc, substitute } from @checker/check_generics
     { checkPattern } from @checker/check_patterns
-    { isAssignable, isCompatibleFunc, getKindName } from @checker/check_exprs
+    { getKindName } from @checker/check_exprs
+    { isAssignable, isCompatibleFunc } from @checker/assign
 )
 
 pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
@@ -36,14 +37,14 @@ pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
     }
     match pm.fd.whenGuard {
         Some(guard) => {
-            val gt = checkNode(c, guard)
+            val gt = c.checkNode(guard)
             if gt != BoolType { checkerErrorf(c, nodePos(guard), "o guard 'when' deve ser Bool, encontrado $(gt.toString())", []) }
         }
         None => UnitType
     }
     val oldRet = c.context.returnType
     c.context.returnType = Some(pm.retType)
-    val bodyType = checkNode(c, pm.fd.body.get())
+    val bodyType = c.checkNode(pm.fd.body.get())
     if pm.fd.isExprBody && !isAssignable(c, pm.retType, bodyType) {
         checkerErrorf(c, nodePos(pm.fd.body.get()), "incompatible return type in method $(pm.fd.name): expected $(pm.retType.toString()), got $(bodyType.toString())", [])
     }
@@ -78,7 +79,7 @@ pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclDat
         defaults.append(def)
         match def {
             Some(d) => {
-                val defaultType = checkNode(c, d)
+                val defaultType = c.checkNode(d)
                 if !isAssignable(c, pt, defaultType) {
                     checkerErrorf(c, nodePos(d), "valor padrão incompatível: esperado $(pt.toString()), encontrado $(defaultType.toString())", [])
                 }
@@ -98,7 +99,7 @@ pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclDat
             }
         }
         c.scope = bodyScope
-        retType = checkNode(c, first.body.get())
+        retType = c.checkNode(first.body.get())
         c.inferredBodies[0] = true
     }
     c.scope = oldScope
@@ -110,7 +111,7 @@ pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclDat
 }
 
 pub fn inferTypeFromPattern(c: Checker, pat: Pattern) -> Type = match pat {
-    Pattern.Literal(_, _, value) => checkNode(c, value)
+    Pattern.Literal(_, _, value) => c.checkNode(value)
     Pattern.Constructor(_, _, name, _) => {
         if name == "Some" || name == "None" {
             val base = resolveTypeExpr(c, TypeExpr.Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
@@ -175,7 +176,7 @@ fn checkFuncDeclBody(c: Checker, n: FuncDeclData, expectedFt: FuncType) {
     }
     match n.whenGuard {
         Some(guard) => {
-            val gt = checkNode(c, guard)
+            val gt = c.checkNode(guard)
             if gt != BoolType { checkerErrorf(c, nodePos(guard), "o guard 'when' deve ser Bool, encontrado $(gt.toString())", []) }
         }
         None => UnitType
@@ -189,7 +190,7 @@ fn checkFuncDeclBody(c: Checker, n: FuncDeclData, expectedFt: FuncType) {
     }
     match n.body {
         Some(body) => {
-            val bodyType = checkNode(c, body)
+            val bodyType = c.checkNode(body)
             if n.isExprBody {
                 if n.returnType == None {
                     expectedFt.returnType = bodyType
@@ -223,7 +224,7 @@ pub fn checkRecordDecl(c: Checker, n: RecordDeclData) -> Type {
         genericNames.append(g.name)
         c.scope.define(g.name, TypeParameter { name: g.name }, true)
     }
-    var fields: Map[String, Type] = [:]
+    var fields: Map[String, Type] = Map[String, Type]{}
     for f in n.fields { fields[f.name] = resolveTypeExpr(c, f.typeExpr) }
     val rt = RecordType { name: n.name, fields: fields, generics: genericNames }
     parentScope.define(n.name, rt, true)
@@ -239,8 +240,8 @@ pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
         genericNames.append(g.name)
         c.scope.define(g.name, TypeParameter { name: g.name }, true)
     }
-    var variants: Map[String, List[Type]] = [:]
-    var variantFieldNames: Map[String, List[String]] = [:]
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    var variantFieldNames: Map[String, List[String]] = Map[String, List[String]]{}
     val et = EnumType { name: n.name, variants: variants, variantFieldNames: variantFieldNames, generics: genericNames }
     parentScope.define(n.name, et, true)
     var constructorReturn: Type = et
@@ -266,7 +267,7 @@ pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
 }
 
 pub fn checkInterfaceDecl(c: Checker, n: InterfaceDeclData) -> Type {
-    var methods: Map[String, FuncType] = [:]
+    var methods: Map[String, FuncType] = Map[String, FuncType]{}
     for m in n.methods {
         var params: List[Type] = []
         for p in m.params {
@@ -291,11 +292,11 @@ pub fn checkClassDecl(c: Checker, n: ClassDeclData, nodeId: Int) -> Type {
         genericNames.append(g.name)
         c.scope.define(g.name, TypeParameter { name: g.name }, true)
     }
-    var fields: Map[String, Type] = [:]
-    var fieldPub: Map[String, Bool] = [:]
-    var fieldInit: Map[String, Node] = [:]
-    var methods: Map[String, List[FuncType]] = [:]
-    var methodPub: Map[String, Bool] = [:]
+    var fields: Map[String, Type] = Map[String, Type]{}
+    var fieldPub: Map[String, Bool] = Map[String, Bool]{}
+    var fieldInit: Map[String, Node] = Map[String, Node]{}
+    var methods: Map[String, List[FuncType]] = Map[String, List[FuncType]]{}
+    var methodPub: Map[String, Bool] = Map[String, Bool]{}
     var implements: List[InterfaceType] = []
     for itExpr in n.interfaces {
         val itType = resolveTypeExpr(c, itExpr)
@@ -315,7 +316,7 @@ pub fn checkClassDecl(c: Checker, n: ClassDeclData, nodeId: Int) -> Type {
                 match vd.init {
                     Some(init) => {
                         fieldInit[vd.name] = init
-                        val defaultType = checkNode(c, init)
+                        val defaultType = c.checkNode(init)
                         if !isAssignable(c, ft, defaultType) {
                             checkerErrorf(c, nodePos(init), "valor padrão incompatível para campo $(vd.name): esperado $(ft.toString()), encontrado $(defaultType.toString())", [])
                         }
@@ -355,7 +356,7 @@ pub fn checkClassDecl(c: Checker, n: ClassDeclData, nodeId: Int) -> Type {
 
 pub fn checkVarDecl(c: Checker, decl: VarDeclData) -> Type {
     var initType: Type = Unknown
-    match decl.init { Some(init) => initType = checkNode(c, init), None => UnitType }
+    match decl.init { Some(init) => initType = c.checkNode(init), None => UnitType }
     match decl.typeExpr {
         Some(te) => {
             val expected = resolveTypeExpr(c, te)
@@ -405,7 +406,7 @@ pub fn checkExtendDecl(c: Checker, n: ExtendDeclData, nodeId: Int) -> Type {
         }
         val ret = match fd.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
         val ft = FuncType { params: paramTypes, returnType: ret, generics: [], defaults: [], isOptional: [] }
-        c.typeExtensions[n.typeName] = c.typeExtensions.get(n.typeName) ?: [:]
+        c.typeExtensions[n.typeName] = c.typeExtensions.get(n.typeName) ?: Map[String, List[FuncType]]{}
         c.typeExtensions[n.typeName][fd.name] = (c.typeExtensions[n.typeName].get(fd.name) ?: []).append(ft)
         c.pendingExtendMethods.append(PendingExtendMethod { fd: fd, fdNodeId: nodeId, typeName: n.typeName, selfType: selfType, paramTypes: paramTypes, retType: ret, file: c.currentFile })
     }
@@ -431,7 +432,7 @@ pub fn checkExtendMethodBody(c: Checker, pm: PendingExtendMethod) {
     }
     val prev = c.context.returnType
     c.context.returnType = Some(pm.retType)
-    checkNode(c, pm.fd.body.get())
+    c.checkNode(pm.fd.body.get())
     c.context.returnType = prev
     c.scope = parentScope
 }
@@ -439,7 +440,7 @@ pub fn checkExtendMethodBody(c: Checker, pm: PendingExtendMethod) {
 pub fn registerModuleNamespaces(c: Checker, body: List[Node], imp: ImportDeclData) {
     if imp.path == "" || imp.resolvedFiles.size() == 0 { return }
     val modName = imp.namespace
-    var ns = ClassType { name: modName, fields: [:], fieldPub: [:], fieldInit: [:], methods: [:], methodPub: [:], implements: [], generics: [] }
+    var ns = ClassType { name: modName, fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}, implements: [], generics: [] }
     for node in progBody(c, prog) {
         match node {
             Node.FuncDecl(_, _, fd) | Node.ExternDecl(_, _, ed) => {

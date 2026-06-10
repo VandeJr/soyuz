@@ -2,15 +2,16 @@ import (
     { Pattern, Node, RecordPatternField } from @ast/ast
     { nodePos } from @ast/ast_helpers
     { Checker, Type, EnumType, FuncType, SpecializedType, TupleType, RecordType, IntType, Unknown } from @checker/types
-    { checkNode, checkerErrorf } from @checker/checker
-    { isAssignable, substitute } from @checker/check_exprs
+    { checkerErrorf } from @checker/checker
+    { isAssignable } from @checker/assign
+    { substitute } from @checker/check_generics
 )
 
 pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) = match pat {
     Pattern.Wildcard(_, _) => UnitType
     Pattern.Binding(_, _, name) => c.scope.define(name, subjectType, true)
     Pattern.Literal(_, span, value) => {
-        val litType = checkNode(c, value)
+        val litType = c.checkNode(value)
         if !isAssignable(c, subjectType, litType) {
             checkerErrorf(c, span, "literal pattern incompatible with subject type: $(subjectType.toString()) and $(litType.toString())", [])
         }
@@ -18,8 +19,8 @@ pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) = match pat {
     Pattern.Constructor(_, span, name, args) => checkConstructorPattern(c, span, name, args, subjectType)
     Pattern.Record(_, span, name, fields) => checkRecordPattern(c, span, name, fields, subjectType)
     Pattern.Range(_, span, from, to, _) => {
-        val fromType = checkNode(c, from)
-        val toType = checkNode(c, to)
+        val fromType = c.checkNode(from)
+        val toType = c.checkNode(to)
         if fromType != IntType || toType != IntType {
             checkerErrorf(c, span, "range pattern only supported for Int, got $(fromType.toString()) and $(toType.toString())", [])
         }
@@ -39,7 +40,7 @@ pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) = match pat {
 }
 
 fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Pattern], subjectType: Type) {
-    var typeSub: Map[String, Type] = [:]
+    var typeSub: Map[String, Type] = Map[String, Type]{}
     var unwrapped = subjectType
     match subjectType {
         SpecializedType(base, _, params) => {

@@ -1,0 +1,115 @@
+import (
+    { Checker, Type, FuncType, ClassType, InterfaceType, TypeParameter, SpecializedType, Unknown } from @checker/types
+)
+
+pub fn isCompatibleFunc(expected: FuncType, actual: FuncType) -> Bool {
+    if expected.params.size() != actual.params.size() {
+        return false
+    }
+    for i in range(0, expected.params.size()) {
+        if expected.params[i].toString() != actual.params[i].toString() {
+            return false
+        }
+    }
+    return expected.returnType.toString() == actual.returnType.toString()
+}
+
+fn interfaceAssignable(expectedName: String, actual: Type) -> Bool = match actual {
+    ClassType(_, _, _, _, _, implements, _, _) => {
+        var ok = false
+        for impl in implements {
+            if impl.name == expectedName {
+                ok = true
+            }
+        }
+        ok
+    }
+    _ => false
+}
+
+fn hasTypeParameter(params: List[Type]) -> Bool {
+    var found = false
+    for p in params {
+        if match p {
+            TypeParameter(_) => true
+            _ => false
+        } {
+            found = true
+        }
+    }
+    found
+}
+
+fn paramsAssignable(c: Checker, stParams: List[Type], actParams: List[Type]) -> Bool {
+    if stParams.size() != actParams.size() {
+        return false
+    }
+    var allOk = true
+    for i in range(0, stParams.size()) {
+        if !isAssignable(c, stParams[i], actParams[i]) {
+            allOk = false
+        }
+    }
+    allOk
+}
+
+fn specializedAssignable(c: Checker, stBase: Type, stParams: List[Type], actual: Type) -> Bool {
+    if actual.toString() == stBase.toString() {
+        return true
+    }
+    if hasTypeParameter(stParams) {
+        return true
+    }
+    var actParams: List[Type] = []
+    var sameBase = false
+    if match actual {
+        SpecializedType(actBase, _, params) => {
+            actParams = params
+            actBase.toString() == stBase.toString()
+        }
+        _ => false
+    } {
+        sameBase = true
+    }
+    if !sameBase {
+        return false
+    }
+    if actParams.size() > 0 && actParams[0].toString() == "Unknown" {
+        return true
+    }
+    paramsAssignable(c, stParams, actParams)
+}
+
+pub fn isAssignable(c: Checker, expected: Type, actual: Type) -> Bool {
+    if expected.toString() == "Unknown" || actual.toString() == "Unknown" {
+        return true
+    }
+    if expected.toString() == actual.toString() {
+        return true
+    }
+    if match expected {
+        TypeParameter(_) => true
+        _ => false
+    } {
+        return true
+    }
+    if match expected {
+        InterfaceType(name, _) => interfaceAssignable(name, actual)
+        _ => false
+    } {
+        return true
+    }
+    if match expected {
+        FuncType(_, ret, _, _, _) if ret == actual => true
+        _ => false
+    } {
+        return false
+    }
+    if match expected {
+        SpecializedType(stBase, _, stParams) => specializedAssignable(c, stBase, stParams, actual)
+        _ => false
+    } {
+        return true
+    }
+    false
+}
