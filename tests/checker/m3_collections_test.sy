@@ -1,0 +1,75 @@
+// M3 — List/Map collection method tests (port of m3_collections_test.go)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check, CheckResult } from @checker/checker
+)
+
+fn checkCollections(src: String) -> CheckResult {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog)
+}
+
+test fn testListMap() {
+    val src = "fn main() -> List[Int] {
+        val xs = [1, 2, 3]
+        return xs.map(fn(x) => x * 2)
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in list map")
+}
+
+test fn testListFilter() {
+    val src = "fn main() -> List[Int] {
+        val xs = [1, 2, 3, 4]
+        return xs.filter(fn(x) => x > 2)
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in list filter")
+}
+
+test fn testListReduce() {
+    val src = "fn main() -> Int {
+        val xs = [1, 2, 3]
+        return xs.reduce(fn(acc, x) => acc + x, 0)
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in list reduce")
+}
+
+test fn testListJoin() {
+    val src = "fn main() -> String {
+        val words = [\"hello\", \"world\"]
+        return words.join(\", \")
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in list join")
+}
+
+test fn testListIsEmpty() {
+    val src = "fn main() -> Bool {
+        val xs = [1, 2, 3]
+        return xs.isEmpty()
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in list isEmpty")
+}
+
+test fn testMapKeys() {
+    val src = "fn main() -> List[String] {
+        val m = [\"a\": 1, \"b\": 2]
+        return m.keys()
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in map keys")
+}
+
+test fn testMapValues() {
+    val src = "fn main() -> List[Int] {
+        val m = [\"a\": 1, \"b\": 2]
+        return m.values()
+    }"
+    val res = checkCollections(src)
+    assert(res.errors.size() == 0, "checker errors in map values")
+}

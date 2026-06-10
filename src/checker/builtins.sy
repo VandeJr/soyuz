@@ -1,0 +1,71 @@
+import (
+    {
+        Type, FuncType, EnumType, ClassType, InterfaceType, SpecializedType, TypeParameter,
+        IntType, FloatType, BoolType, StringType, CharType
+    } from @checker/types
+)
+
+pub fn builtinExtendSelfTypes() -> Map[String, Type] = [
+    "String": StringType,
+    "Int": IntType,
+    "Float": FloatType,
+    "Bool": BoolType,
+    "Char": CharType
+]
+
+pub fn builtinTypeExtensions() -> Map[String, Map[String, List[FuncType]]] {
+    val resultEnum = EnumType {
+        name: "Result", generics: ["T"],
+        variants: ["Ok": [IntType], "Err": [InterfaceType { name: "Error", methods: [:] }]],
+        variantFieldNames: [:]
+    }
+    val resultInt = SpecializedType { base: resultEnum, params: [IntType] }
+    val resultFloat = SpecializedType { base: resultEnum, params: [FloatType] }
+    val optionBase = EnumType {
+        name: "Option", generics: ["T"],
+        variants: ["Some": [TypeParameter { name: "T" }], "None": []],
+        variantFieldNames: [:]
+    }
+    val optionInt = SpecializedType { base: optionBase, params: [IntType] }
+    val optionChar = SpecializedType { base: optionBase, params: [CharType] }
+    val listBase = ClassType { name: "List", generics: ["T"], fields: [:], fieldPub: [:], fieldInit: [:], implements: [], methods: [:], methodPub: [:] }
+    val listOfString = SpecializedType { base: listBase, params: [StringType] }
+    return [
+        "String": [
+            "len": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }],
+            "isEmpty": [FuncType { params: [], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
+            "toUpperCase": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "toUpper": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "toLowerCase": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "toLower": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "trim": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "contains": [FuncType { params: [StringType], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
+            "startsWith": [FuncType { params: [StringType], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
+            "endsWith": [FuncType { params: [StringType], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
+            "indexOf": [FuncType { params: [StringType], returnType: optionInt, generics: [], defaults: [], isOptional: [] }],
+            "lastIndexOf": [FuncType { params: [StringType], returnType: optionInt, generics: [], defaults: [], isOptional: [] }],
+            "replace": [FuncType { params: [StringType, StringType], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "split": [FuncType { params: [StringType], returnType: listOfString, generics: [], defaults: [], isOptional: [] }],
+            "substring": [FuncType { params: [IntType, IntType], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "byteAt": [FuncType { params: [IntType], returnType: optionInt, generics: [], defaults: [], isOptional: [] }],
+            "unicodeAt": [FuncType { params: [IntType], returnType: optionChar, generics: [], defaults: [], isOptional: [] }],
+            "toInt": [FuncType { params: [], returnType: resultInt, generics: [], defaults: [], isOptional: [] }],
+            "toFloat": [FuncType { params: [], returnType: resultFloat, generics: [], defaults: [], isOptional: [] }]
+        ],
+        "Int": [
+            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "toFloat": [FuncType { params: [], returnType: FloatType, generics: [], defaults: [], isOptional: [] }],
+            "abs": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }]
+        ],
+        "Float": [
+            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
+            "toInt": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }]
+        ],
+        "Bool": [
+            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }]
+        ],
+        "Char": [
+            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }]
+        ]
+    ]
+}

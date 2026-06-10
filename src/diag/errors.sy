@@ -1,0 +1,46 @@
+import ({ Span } from @lexer/tokens)
+
+pub enum Severity {
+    Error
+    Warning
+}
+
+pub record ParseError {
+    span: Span,
+    end: Span,
+    message: String
+}
+
+pub record TypeError {
+    span: Span,
+    end: Span,
+    file: String,
+    code: String,
+    message: String
+}
+
+pub record TypeWarning {
+    span: Span,
+    end: Span,
+    file: String,
+    code: String,
+    message: String
+}
+
+pub record Diagnostic {
+    file: String,
+    start: Span,
+    end: Span,
+    severity: Severity,
+    code: String,
+    message: String
+}
+
+pub fn parseErrorMessage(e: ParseError) -> String = "$(e.span): $(e.message)"
+
+pub fn typeErrorMessage(e: TypeError) -> String {
+    if e.file != "" {
+        return "[$(e.file) $(e.span)]: $(e.message)"
+    }
+    return "$(e.span): $(e.message)"
+}

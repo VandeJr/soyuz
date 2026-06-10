@@ -1,0 +1,41 @@
+import (
+    { Node, SpecializedExprData, IdentifierData, TypeExpr } from @ast/ast
+    { nodePos } from @ast/ast_helpers
+    { Checker, Type, FuncType, RecordType, ClassType, EnumType, Unknown } from @checker/types
+    { checkNode, checkerErrorf } from @checker/checker
+    { instantiateFunc, typeArgsFromExprs } from @checker/check_generics
+)
+
+pub fn checkSpecializedExpr(c: Checker, data: SpecializedExprData, node: Node) -> Type {
+    val baseType = checkNode(c, data.base)
+    val specParams = typeArgsFromExprs(c, data.typeArgs)
+    if specParams == None { return Unknown }
+    val params = specParams.get()
+    return match baseType {
+        FuncType(_, _, generics, _, _) => {
+            if generics.size() == 0 {
+                checkerErrorf(c, nodePos(node), "$(data.base) não é genérico", [])
+                Unknown
+            } else if params.size() != generics.size() {
+                checkerErrorf(c, nodePos(node), "esperado $(generics.size()) argumentos de tipo, encontrado $(params.size())", [])
+                Unknown
+            } else { instantiateFunc(c, baseType, params) }
+        }
+        RecordType(_, _, generics) | ClassType(_, _, _, _, _, _, generics, _) | EnumType(_, _, _, generics) => {
+            if generics.size() == 0 {
+                checkerErrorf(c, nodePos(node), "tipo não é genérico", [])
+                Unknown
+            } else if params.size() != generics.size() {
+                checkerErrorf(c, nodePos(node), "esperado $(generics.size()) argumentos de tipo, encontrado $(params.size())", [])
+                Unknown
+            } else { SpecializedType { base: baseType, params: params } }
+        }
+        _ => {
+            match data.base {
+                Node.Identifier(_, _, id) => checkerErrorf(c, nodePos(node), "tipo explícito inválido para $(id.name)", [])
+                _ => UnitType
+            }
+            Unknown
+        }
+    }
+}

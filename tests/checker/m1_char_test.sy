@@ -1,0 +1,37 @@
+// M1 — Char type tests (port of m1_char_test.go)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkChar(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testCharLiteralType() {
+    val errs = checkChar("fn main() { val c: Char = 'a' }")
+    assert(errs.size() == 0, "erros inesperados em char literal")
+}
+
+test fn testCharTypeInference() {
+    val errs = checkChar("fn main() { val c = 'z' }")
+    assert(errs.size() == 0, "erros inesperados em char inference")
+}
+
+test fn testCharEscapeSequence() {
+    val errs = checkChar("fn main() { val nl = '\\n' }")
+    assert(errs.size() == 0, "erros inesperados em char escape")
+}
+
+test fn testCharAsFuncParam() {
+    val src = "
+fn identity(c: Char) -> Char = c
+fn main() { val r: Char = identity('x') }
+"
+    val errs = checkChar(src)
+    assert(errs.size() == 0, "erros inesperados em char param")
+}

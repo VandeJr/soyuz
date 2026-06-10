@@ -1,0 +1,99 @@
+import (
+    { Node, CallExprData, MemberExprData, IdentifierData, NamedArgData } from @ast/ast
+    { nodePos, nodeId } from @ast/ast_helpers
+    { Checker, Type, FuncType, EnumType, SpecializedType } from @checker/types
+    { getNodeType, checkerErrorf } from @checker/checker
+)
+
+pub fn variantFieldNamesForCall(c: Checker, callee: Node) -> List[String] = match callee {
+    Node.MemberExpr(_, _, data) => match getNodeType(c, nodeId(data.object)) {
+        Some(EnumType(_, _, vfn, _)) => vfn.get(data.property) ?: []
+        _ => []
+    }
+    Node.Identifier(_, _, data) => match c.scope.resolve(data.name) {
+        Some(sym) => fieldNamesFromFuncReturn(sym.typ, data.name)
+        None => []
+    }
+    _ => []
+}
+
+fn fieldNamesFromFuncReturn(ft: Type, variantName: String) -> List[String] = match ft {
+    FuncType(_, ret, _, _, _) => fieldNamesFromReturn(ret, variantName)
+    _ => []
+}
+
+fn fieldNamesFromReturn(ret: Type, variantName: String) -> List[String] = match ret {
+    EnumType(_, _, vfn, _) => vfn.get(variantName) ?: []
+    SpecializedType(base, _, _) => match base {
+        EnumType(_, _, vfn, _) => vfn.get(variantName) ?: []
+        _ => []
+    }
+    _ => []
+}
+
+pub fn resolveNamedCallArgs(c: Checker, n: CallExprData, node: Node, ft: FuncType, fieldNames: List[String]) {
+    if !hasNamedArg(n.args) { return }
+    if fieldNames.size() == 0 {
+        checkerErrorf(c, nodePos(node), "argumentos nomeados não suportados nesta chamada", [])
+        return
+    }
+    if fieldNames.size() != ft.params.size() {
+        checkerErrorf(c, nodePos(node), "número de campos do construtor não corresponde aos parâmetros", [])
+        return
+    }
+    var named: Map[String, Node] = [:]
+    var positional: List[Node] = []
+    for arg in n.args {
+        match arg {
+            Node.NamedArg(_, span, data) => {
+                if named.contains(data.name) {
+                    checkerErrorf(c, span, "argumento duplicado: $(data.name)", [])
+                } else {
+                    named[data.name] = data.value
+                }
+            }
+            _ => positional.append(arg)
+        }
+    }
+    if positional.size() > 0 && named.size() > 0 {
+        checkerErrorf(c, nodePos(node), "não misture argumentos posicionais e nomeados", [])
+        return
+    }
+    var ordered: List[Node] = []
+    if positional.size() > 0 {
+        if positional.size() != ft.params.size() {
+            checkerErrorf(c, nodePos(node), "esperado $(ft.params.size()) argumentos posicionais, encontrado $(positional.size())", [])
+            return
+        }
+        ordered = positional
+    } else {
+        for i in range(0, fieldNames.size()) {
+            val fname = fieldNames[i]
+            if fname == "" {
+                checkerErrorf(c, nodePos(node), "argumento posicional obrigatório na posição $(i + 1)", [])
+                return
+            }
+            val valNode = named.get(fname)
+            if valNode == None {
+                checkerErrorf(c, nodePos(node), "argumento ausente: $(fname)", [])
+            } else {
+                ordered.append(valNode.get())
+            }
+        }
+        for k in named.keys() {
+            var found = false
+            for fn in fieldNames { if fn == k { found = true } }
+            if !found {
+                checkerErrorf(c, nodePos(node), "argumento desconhecido: $(k)", [])
+            }
+        }
+    }
+    n.args = ordered
+}
+
+fn hasNamedArg(args: List[Node]) -> Bool {
+    for a in args {
+        match a { Node.NamedArg(_, _, _) => return true, _ => UnitType }
+    }
+    return false
+}

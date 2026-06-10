@@ -1,0 +1,267 @@
+pub record Span {
+    line: Int,
+    column: Int,
+    startOffset: Int,
+    endOffset: Int
+}
+
+pub enum TokenType {
+    ILLEGAL 
+	EOF
+	SEMICOLON // virtual — inserted by lexer on newline
+
+	// Literals
+	IDENT
+	INT_LITERAL
+	FLOAT_LITERAL
+	STRING_LITERAL
+	CHAR_LITERAL // 'a'
+	STRING_PART  // parte de string interpolada: "olá "
+	INTERP_START // $(
+	INTERP_END   // ) fechando interpolação
+
+	// Arithmetic
+	PLUS     // +
+	MINUS    // -
+	ASTERISK // *
+	SLASH    // /
+	PERCENT  // %
+
+	// Comparison
+	EQUALS     // ==
+	NOT_EQUALS // !=
+	LT         // <
+	GT         // >
+	LTE        // <=
+	GTE        // >=
+
+	// Logic
+	AND  // &&
+	OR   // ||
+	BANG // !
+
+	// Assignment
+	ASSIGN // =
+
+	// Symbols
+	COLON       // :
+	DOT         // .
+	COMMA       // ,
+	QUESTION    // ?
+	AT          // @
+	HASH        // #
+	UNDERSCORE  // _
+	AMPERSAND   // &
+	PIPE_SINGLE // |
+
+	// Paired
+	LPAREN   // (
+	RPAREN   // )
+	LBRACE   // {
+	RBRACE   // }
+	LBRACKET // [
+	RBRACKET // ]
+
+	// Compound symbols
+	ARROW            // ->
+	FAT_ARROW        // =>
+	PIPE             // |>
+	PIPE_QUEST       // |?>
+	ASYNC_PIPE       // ~>
+	ASYNC_PIPE_QUEST // ~?>
+	RANGE            // ..
+	RANGE_INCL       // ..=
+	SAFE_NAV         // ?.
+	ELVIS            // ?:
+	SHL              // <<
+	SHR              // >>
+	CARET      // ^
+	TILDE      // ~
+
+	// Keywords — declarations
+	VAL
+	VAR
+	FN
+	EXTERN
+	RETURN
+	EXTEND
+
+	// Keywords — types
+	RECORD
+	CLASS
+	INTERFACE
+	ENUM
+
+	// Keywords — control flow
+	IF
+	ELSE
+	WHEN
+	MATCH
+	FOR
+	WHILE
+	LOOP
+	BREAK
+	CONTINUE
+	IN
+
+	// Keywords — modules
+	IMPORT
+	PUB
+	TEST
+
+	// Keywords — OOP
+	SELF
+
+	// Keywords — concurrency
+	TASK
+	SELECT
+
+	// Keywords — built-in types
+	INT_TYPE
+	FLOAT_TYPE
+	BOOL_TYPE
+	STRING_TYPE
+	CHAR_TYPE
+	UNIT_TYPE
+
+	// Keywords — values
+	TRUE
+	FALSE
+	NONE
+
+	// Keywords — Result / Option constructors
+	OK
+	ERR
+	SOME
+}
+
+pub record Token {
+    type: TokenType,
+    lexeme: String,
+    span: Span
+}
+
+pub fn printToken(t: TokenType) -> String = match t {
+    ILLEGAL=>           "ILLEGAL",
+    EOF=>               "EOF",
+    SEMICOLON=>         "SEMICOLON",
+    IDENT=>             "IDENT",
+    INT_LITERAL=>       "INT_LITERAL",
+    FLOAT_LITERAL=>     "FLOAT_LITERAL",
+    STRING_LITERAL=>    "STRING_LITERAL",
+    CHAR_LITERAL=>      "CHAR_LITERAL",
+    STRING_PART=>       "STRING_PART",
+    INTERP_START=>      "INTERP_START",
+    INTERP_END=>        "INTERP_END",
+    PLUS=>              "PLUS",
+    MINUS=>             "MINUS",
+    ASTERISK=>          "ASTERISK",
+    SLASH=>             "SLASH",
+    PERCENT=>           "PERCENT",
+    EQUALS=>            "EQUALS",
+    NOT_EQUALS=>        "NOT_EQUALS",
+    LT=>                "LT",
+    GT=>                "GT",
+    LTE=>               "LTE",
+    GTE=>               "GTE",
+    AND=>               "AND",
+    OR=>                "OR",
+    BANG=>              "BANG",
+    ASSIGN=>            "ASSIGN",
+    COLON=>             "COLON",
+    DOT=>               "DOT",
+    COMMA=>             "COMMA",
+    QUESTION=>          "QUESTION",
+    AT=>                "AT",
+    HASH=>              "HASH",
+    UNDERSCORE=>        "UNDERSCORE",
+    AMPERSAND=>         "AMPERSAND",
+    PIPE_SINGLE=>       "PIPE_SINGLE",
+    LPAREN=>            "LPAREN",
+    RPAREN=>            "RPAREN",
+    LBRACE=>            "LBRACE",
+    RBRACE=>            "RBRACE",
+    LBRACKET=>          "LBRACKET",
+    RBRACKET=>          "RBRACKET",
+    ARROW=>             "ARROW",
+    FAT_ARROW=>         "FAT_ARROW",
+    PIPE=>              "PIPE",
+    PIPE_QUEST=>        "PIPE_QUEST",
+    ASYNC_PIPE=>        "ASYNC_PIPE",
+    ASYNC_PIPE_QUEST=>  "ASYNC_PIPE_QUEST",
+    RANGE=>             "RANGE",
+    RANGE_INCL=>        "RANGE_INCL",
+    SAFE_NAV=>          "SAFE_NAV",
+    ELVIS=>             "ELVIS",
+    SHL=>               "SHL",
+    SHR=>               "SHR",
+    CARET=>             "CARET",
+    TILDE=>             "TILDE",
+    VAL=>               "VAL",
+    VAR=>               "VAR",
+    FN=>                "FN",
+    EXTERN=>            "EXTERN",
+    RETURN=>            "RETURN",
+    EXTEND=>            "EXTEND",
+    RECORD=>            "RECORD",
+    CLASS=>             "CLASS",
+    INTERFACE=>         "INTERFACE",
+    ENUM=>              "ENUM",
+    IF=>                "IF",
+    ELSE=>              "ELSE",
+    WHEN=>              "WHEN",
+    MATCH=>             "MATCH",
+    FOR=>               "FOR",
+    WHILE=>             "WHILE",
+    LOOP=>              "LOOP",
+    BREAK=>             "BREAK",
+    CONTINUE=>          "CONTINUE",
+    IN=>                "IN",
+    IMPORT=>            "IMPORT",
+    PUB=>               "PUB",
+    TEST=>              "TEST",
+    SELF=>              "SELF",
+    TASK=>              "TASK",
+    SELECT=>            "SELECT",
+    INT_TYPE=>          "INT_TYPE",
+    FLOAT_TYPE=>        "FLOAT_TYPE",
+    BOOL_TYPE=>         "BOOL_TYPE",
+    STRING_TYPE=>       "STRING_TYPE",
+    CHAR_TYPE=>         "CHAR_TYPE",
+    UNIT_TYPE=>         "UNIT_TYPE",
+    TRUE=>              "TRUE",
+    FALSE=>             "FALSE",
+    NONE=>              "NONE",
+    OK=>                "OK",
+    ERR=>               "ERR",
+    SOME=>              "SOME",
+}
+
+pub fn canInsertSemicolon(t: TokenType) -> Bool = match t {
+    IDENT => true
+    INT_LITERAL => true
+    FLOAT_LITERAL => true
+    STRING_LITERAL => true
+    CHAR_LITERAL => true
+    INTERP_END => true
+    TRUE => true
+    FALSE => true
+    NONE => true
+    OK => true
+    ERR => true
+    SOME => true
+    SELF => true
+    RPAREN => true
+    RBRACE => true
+    RBRACKET => true
+    RETURN => true
+    BREAK => true
+    CONTINUE => true
+    INT_TYPE => true
+    FLOAT_TYPE => true
+    BOOL_TYPE => true
+    STRING_TYPE => true
+    CHAR_TYPE => true
+    UNIT_TYPE => true
+    _ => false
+}

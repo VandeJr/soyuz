@@ -1,0 +1,123 @@
+import (
+    { Pattern, Node, RecordPatternField } from @ast/ast
+    { nodePos } from @ast/ast_helpers
+    { Checker, Type, EnumType, FuncType, SpecializedType, TupleType, RecordType, IntType, Unknown } from @checker/types
+    { checkNode, checkerErrorf } from @checker/checker
+    { isAssignable, substitute } from @checker/check_exprs
+)
+
+pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) = match pat {
+    Pattern.Wildcard(_, _) => UnitType
+    Pattern.Binding(_, _, name) => c.scope.define(name, subjectType, true)
+    Pattern.Literal(_, span, value) => {
+        val litType = checkNode(c, value)
+        if !isAssignable(c, subjectType, litType) {
+            checkerErrorf(c, span, "literal pattern incompatible with subject type: $(subjectType.toString()) and $(litType.toString())", [])
+        }
+    }
+    Pattern.Constructor(_, span, name, args) => checkConstructorPattern(c, span, name, args, subjectType)
+    Pattern.Record(_, span, name, fields) => checkRecordPattern(c, span, name, fields, subjectType)
+    Pattern.Range(_, span, from, to, _) => {
+        val fromType = checkNode(c, from)
+        val toType = checkNode(c, to)
+        if fromType != IntType || toType != IntType {
+            checkerErrorf(c, span, "range pattern only supported for Int, got $(fromType.toString()) and $(toType.toString())", [])
+        }
+    }
+    Pattern.Tuple(_, span, elements) => match subjectType {
+        TupleType(ttElems) => {
+            if elements.size() != ttElems.size() {
+                checkerErrorf(c, span, "tuple pattern tem $(elements.size()) elementos, mas valor tem $(ttElems.size())", [])
+            } else {
+                for i in range(0, elements.size()) {
+                    checkPattern(c, elements[i], ttElems[i])
+                }
+            }
+        }
+        _ => checkerErrorf(c, span, "tuple pattern requer um tuple, obteve $(subjectType.toString())", [])
+    }
+}
+
+fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Pattern], subjectType: Type) {
+    var typeSub: Map[String, Type] = [:]
+    var unwrapped = subjectType
+    match subjectType {
+        SpecializedType(base, _, params) => {
+            unwrapped = base
+            match base {
+                EnumType(_, _, _, generics) if generics.size() == params.size() => {
+                    for i in range(0, generics.size()) {
+                        typeSub[generics[i]] = params[i]
+                    }
+                }
+                _ => UnitType
+            }
+        }
+        _ => UnitType
+    }
+    var et: Option[EnumType] = match unwrapped {
+        EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
+        _ => None
+    }
+    if et == None {
+        match c.scope.resolve(name) {
+            Some(sym) => et = enumFromSymbol(sym.typ, name)
+            None => UnitType
+        }
+    }
+    match et {
+        None => checkerErrorf(c, span, "constructor pattern $(name) requires an Enum, got $(subjectType.toString())", [])
+        Some(enumType) => {
+            val fieldTypes = enumType.variants.get(name)
+            if fieldTypes == None {
+                checkerErrorf(c, span, "variant $(name) not found in enum $(enumType.name)", [])
+            } else {
+                val fts = fieldTypes.get()
+                if args.size() != fts.size() {
+                    checkerErrorf(c, span, "incorrect number of arguments for variant $(name): expected $(fts.size()), got $(args.size())", [])
+                } else {
+                    for i in range(0, args.size()) {
+                        var ft = fts[i]
+                        if typeSub.size() > 0 { ft = substitute(c, ft, typeSub) }
+                        checkPattern(c, args[i], ft)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn enumFromSymbol(t: Type, variantName: String) -> Option[EnumType] = match t {
+    FuncType(_, ret, _, _, _) => enumFromReturn(ret, variantName)
+    EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
+    _ => None
+}
+
+fn enumFromReturn(ret: Type, variantName: String) -> Option[EnumType] = match ret {
+    EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
+    SpecializedType(base, _, _) => match base {
+        EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
+        _ => None
+    }
+    _ => None
+}
+
+fn checkRecordPattern(c: Checker, span: Span, name: String, fields: List[RecordPatternField], subjectType: Type) = match subjectType {
+    RecordType(rtName, rtFields, _) => {
+        if name != rtName {
+            checkerErrorf(c, span, "incompatible record name: expected $(rtName), got $(name)", [])
+        }
+        for f in fields {
+            val fieldType = rtFields.get(f.name)
+            if fieldType == None {
+                checkerErrorf(c, span, "record $(rtName) does not have field $(f.name)", [])
+            } else {
+                match f.pattern {
+                    Some(p) => checkPattern(c, p, fieldType.get())
+                    None => c.scope.define(f.name, fieldType.get(), true)
+                }
+            }
+        }
+    }
+    _ => checkerErrorf(c, span, "record pattern requires a Record, got $(subjectType.toString())", [])
+}

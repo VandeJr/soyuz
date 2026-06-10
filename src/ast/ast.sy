@@ -1,0 +1,510 @@
+import ({ Span } from @lexer/tokens)
+
+// nodeId and nodePos are in ast_helpers.sy
+
+pub enum VarKind {
+    Val
+    Var
+}
+
+pub fn varKindFromLexeme(lex: String) -> VarKind = match lex {
+    "val" => VarKind.Val
+    "var" => VarKind.Var
+    _ => VarKind.Val
+}
+
+pub enum ImportPathKind {
+    Legacy
+    Stdlib
+    ProjectRoot
+    PackageAlias
+    Relative
+}
+
+pub enum LiteralPatternValue {
+    Int(String)
+    Float(String)
+    String(String)
+    Char(Char)
+    Bool(Bool)
+}
+
+pub enum TypeExpr {
+    Named(nodeId: Int, span: Span, name: String)
+    Generic(nodeId: Int, span: Span, name: String, params: List[TypeExpr])
+    Optional(nodeId: Int, span: Span, inner: TypeExpr)
+    Tuple(nodeId: Int, span: Span, elements: List[TypeExpr])
+    Func(nodeId: Int, span: Span, paramTypes: List[TypeExpr], returnType: Option[TypeExpr])
+}
+
+pub enum Pattern {
+    Wildcard(nodeId: Int, span: Span)
+    Binding(nodeId: Int, span: Span, name: String)
+    Literal(nodeId: Int, span: Span, value: LiteralPatternValue)
+    Constructor(nodeId: Int, span: Span, name: String, args: List[Pattern])
+    Record(nodeId: Int, span: Span, name: String, fields: List[RecordPatternField])
+    Tuple(nodeId: Int, span: Span, elements: List[Pattern])
+    Range(nodeId: Int, span: Span, from: LiteralPatternValue, to: Pattern, inclusive: Bool)
+}
+
+pub record GenericParam {
+    name: String,
+    constraints: List[TypeExpr]
+}
+
+pub record FuncParam {
+    span: Span,
+    pattern: Pattern,
+    typeExpr: Option[TypeExpr],
+    defaultExpr: Option[Node]
+}
+
+pub record RecordField {
+    span: Span,
+    name: String,
+    typeExpr: TypeExpr
+}
+
+pub record InterfaceMethod {
+    span: Span,
+    isPub: Bool,
+    name: String,
+    params: List[FuncParam],
+    returnType: Option[TypeExpr]
+}
+
+pub record EnumField {
+    name: String,
+    typeExpr: TypeExpr
+}
+
+pub record EnumVariant {
+    span: Span,
+    name: String,
+    fields: List[EnumField]
+}
+
+pub record ImportName {
+    name: String,
+    alias: String
+}
+
+pub record MapEntry {
+    key: Node,
+    value: Node
+}
+
+pub record RecordLiteralField {
+    span: Span,
+    name: String,
+    value: Node
+}
+
+pub record MatchArm {
+    span: Span,
+    pattern: Pattern,
+    guard: Option[Node],
+    body: Node
+}
+
+pub record SelectArm {
+    span: Span,
+    binding: String,
+    chanExpr: Option[Node],
+    isDefault: Bool,
+    body: Node
+}
+
+pub record RecordPatternField {
+    name: String,
+    pattern: Option[Pattern]
+}
+
+pub record VarDeclData {
+    namePos: Span,
+    isPub: Bool,
+    kind: VarKind,
+    name: String,
+    pattern: Option[Pattern],
+    typeExpr: Option[TypeExpr],
+    init: Option[Node]
+}
+
+pub record FuncDeclData {
+    namePos: Span,
+    isPub: Bool,
+    name: String,
+    generics: List[GenericParam],
+    params: List[FuncParam],
+    whenGuard: Option[Node],
+    returnType: Option[TypeExpr],
+    body: Option[Node],
+    isExprBody: Bool,
+    isTest: Bool,
+    isIgnore: Bool
+}
+
+pub record RecordDeclData {
+    isPub: Bool,
+    name: String,
+    generics: List[GenericParam],
+    fields: List[RecordField]
+}
+
+pub record ClassDeclData {
+    isPub: Bool,
+    name: String,
+    generics: List[GenericParam],
+    interfaces: List[TypeExpr],
+    body: List[Node]
+}
+
+pub record InterfaceDeclData {
+    isPub: Bool,
+    name: String,
+    generics: List[GenericParam],
+    methods: List[InterfaceMethod]
+}
+
+pub record EnumDeclData {
+    isPub: Bool,
+    name: String,
+    generics: List[GenericParam],
+    variants: List[EnumVariant]
+}
+
+pub record ExtendDeclData {
+    typeName: String,
+    methods: List[Node]
+}
+
+pub record ImportDeclData {
+    path: String,
+    names: List[ImportName],
+    namespace: String,
+    pathKind: ImportPathKind,
+    packageAlias: String,
+    isStdlib: Bool,
+    resolvedFiles: List[String]
+}
+
+pub record ExternDeclData {
+    isPub: Bool,
+    name: String,
+    params: List[FuncParam],
+    returnType: Option[TypeExpr]
+}
+
+pub record BlockStmtData {
+    statements: List[Node]
+}
+
+pub record ReturnStmtData {
+    value: Option[Node]
+}
+
+pub record BreakStmtData {
+    value: Option[Node]
+}
+
+pub record IfStmtData {
+    condition: Node,
+    consequent: Node,
+    alternate: Option[Node]
+}
+
+pub record ForStmtData {
+    binding: String,
+    iterable: Node,
+    body: Node
+}
+
+pub record WhileStmtData {
+    condition: Node,
+    body: Node
+}
+
+pub record LoopStmtData {
+    body: Node
+}
+
+pub record ExprStmtData {
+    expr: Node
+}
+
+pub record IdentifierData {
+    name: String
+}
+
+pub record IntLiteralData {
+    value: String
+}
+
+pub record FloatLiteralData {
+    value: String
+}
+
+pub record StringLiteralData {
+    value: String
+}
+
+pub record CharLiteralData {
+    value: Char
+}
+
+pub record BoolLiteralData {
+    value: Bool
+}
+
+pub record BinaryExprData {
+    operator: String,
+    left: Node,
+    right: Node
+}
+
+pub record UnaryExprData {
+    operator: String,
+    operand: Node
+}
+
+pub record AssignExprData {
+    left: Node,
+    right: Node
+}
+
+pub record CallExprData {
+    callee: Node,
+    args: List[Node]
+}
+
+pub record NamedArgData {
+    name: String,
+    value: Node
+}
+
+pub record MemberExprData {
+    object: Node,
+    property: String
+}
+
+pub record SafeNavExprData {
+    object: Node,
+    property: String
+}
+
+pub record ElvisExprData {
+    left: Node,
+    right: Node
+}
+
+pub record PipeExprData {
+    left: Node,
+    right: Node
+}
+
+pub record PipeQuestExprData {
+    left: Node,
+    right: Node
+}
+
+pub record AsyncPipeExprData {
+    steps: List[Node]
+}
+
+pub record AsyncPipeQuestStepData {
+    step: Node
+}
+
+pub record IndexExprData {
+    object: Node,
+    index: Node
+}
+
+pub record RangeExprData {
+    from: Node,
+    to: Node,
+    inclusive: Bool
+}
+
+pub record TupleExprData {
+    elements: List[Node]
+}
+
+pub record ListExprData {
+    elements: List[Node]
+}
+
+pub record MapExprData {
+    entries: List[MapEntry]
+}
+
+pub record OkExprData {
+    value: Node
+}
+
+pub record ErrExprData {
+    value: Node
+}
+
+pub record SomeExprData {
+    value: Node
+}
+
+pub record SpecializedExprData {
+    base: Node,
+    typeArgs: List[TypeExpr]
+}
+
+pub record RecordLiteralData {
+    name: String,
+    typeArgs: List[TypeExpr],
+    fields: List[RecordLiteralField]
+}
+
+pub record MatchExprData {
+    subject: Node,
+    arms: List[MatchArm]
+}
+
+pub record TaskExprData {
+    inner: Node
+}
+
+pub record SelectExprData {
+    arms: List[SelectArm]
+}
+
+pub record ArrowFuncData {
+    params: List[FuncParam],
+    returnType: Option[TypeExpr],
+    body: Node
+}
+
+pub record InterpolatedStringData {
+    parts: List[Node]
+}
+
+pub enum Node {
+    Program(nodeId: Int, span: Span, body: List[Node])
+    VarDecl(nodeId: Int, span: Span, data: VarDeclData)
+    FuncDecl(nodeId: Int, span: Span, data: FuncDeclData)
+    RecordDecl(nodeId: Int, span: Span, data: RecordDeclData)
+    ClassDecl(nodeId: Int, span: Span, data: ClassDeclData)
+    InterfaceDecl(nodeId: Int, span: Span, data: InterfaceDeclData)
+    EnumDecl(nodeId: Int, span: Span, data: EnumDeclData)
+    ExtendDecl(nodeId: Int, span: Span, data: ExtendDeclData)
+    ImportDecl(nodeId: Int, span: Span, data: ImportDeclData)
+    ExternDecl(nodeId: Int, span: Span, data: ExternDeclData)
+    BlockStmt(nodeId: Int, span: Span, data: BlockStmtData)
+    ReturnStmt(nodeId: Int, span: Span, data: ReturnStmtData)
+    BreakStmt(nodeId: Int, span: Span, data: BreakStmtData)
+    ContinueStmt(nodeId: Int, span: Span)
+    IfStmt(nodeId: Int, span: Span, data: IfStmtData)
+    ForStmt(nodeId: Int, span: Span, data: ForStmtData)
+    ForTaskStmt(nodeId: Int, span: Span, data: ForStmtData)
+    WhileStmt(nodeId: Int, span: Span, data: WhileStmtData)
+    LoopStmt(nodeId: Int, span: Span, data: LoopStmtData)
+    ExprStmt(nodeId: Int, span: Span, data: ExprStmtData)
+    Identifier(nodeId: Int, span: Span, data: IdentifierData)
+    SelfExpr(nodeId: Int, span: Span)
+    IntLiteral(nodeId: Int, span: Span, data: IntLiteralData)
+    FloatLiteral(nodeId: Int, span: Span, data: FloatLiteralData)
+    StringLiteral(nodeId: Int, span: Span, data: StringLiteralData)
+    CharLiteral(nodeId: Int, span: Span, data: CharLiteralData)
+    BoolLiteral(nodeId: Int, span: Span, data: BoolLiteralData)
+    NoneLit(nodeId: Int, span: Span)
+    BinaryExpr(nodeId: Int, span: Span, data: BinaryExprData)
+    UnaryExpr(nodeId: Int, span: Span, data: UnaryExprData)
+    AssignExpr(nodeId: Int, span: Span, data: AssignExprData)
+    CallExpr(nodeId: Int, span: Span, data: CallExprData)
+    NamedArg(nodeId: Int, span: Span, data: NamedArgData)
+    MemberExpr(nodeId: Int, span: Span, data: MemberExprData)
+    SafeNavExpr(nodeId: Int, span: Span, data: SafeNavExprData)
+    ElvisExpr(nodeId: Int, span: Span, data: ElvisExprData)
+    PipeExpr(nodeId: Int, span: Span, data: PipeExprData)
+    PipeQuestExpr(nodeId: Int, span: Span, data: PipeQuestExprData)
+    AsyncPipeExpr(nodeId: Int, span: Span, data: AsyncPipeExprData)
+    AsyncPipeQuestStep(nodeId: Int, span: Span, data: AsyncPipeQuestStepData)
+    IndexExpr(nodeId: Int, span: Span, data: IndexExprData)
+    RangeExpr(nodeId: Int, span: Span, data: RangeExprData)
+    TupleExpr(nodeId: Int, span: Span, data: TupleExprData)
+    ListExpr(nodeId: Int, span: Span, data: ListExprData)
+    MapExpr(nodeId: Int, span: Span, data: MapExprData)
+    OkExpr(nodeId: Int, span: Span, data: OkExprData)
+    ErrExpr(nodeId: Int, span: Span, data: ErrExprData)
+    SomeExpr(nodeId: Int, span: Span, data: SomeExprData)
+    SpecializedExpr(nodeId: Int, span: Span, data: SpecializedExprData)
+    RecordLiteral(nodeId: Int, span: Span, data: RecordLiteralData)
+    MatchExpr(nodeId: Int, span: Span, data: MatchExprData)
+    TaskExpr(nodeId: Int, span: Span, data: TaskExprData)
+    SelectExpr(nodeId: Int, span: Span, data: SelectExprData)
+    ArrowFunc(nodeId: Int, span: Span, data: ArrowFuncData)
+    InterpolatedString(nodeId: Int, span: Span, data: InterpolatedStringData)
+}
+
+pub fn typeExprPos(te: TypeExpr) -> Span = match te {
+    Named(_, span, _) => span
+    Generic(_, span, _, _) => span
+    Optional(_, span, _) => span
+    Tuple(_, span, _) => span
+    Func(_, span, _, _) => span
+}
+
+pub fn patternPos(p: Pattern) -> Span = match p {
+    Wildcard(_, span) => span
+    Binding(_, span, _) => span
+    Literal(_, span, _) => span
+    Constructor(_, span, _, _) => span
+    Record(_, span, _, _) => span
+    Tuple(_, span, _) => span
+    Range(_, span, _, _, _) => span
+}
+
+pub fn trimPrefixStr(s: String, prefix: String) -> String {
+    if s.startsWith(prefix) {
+        return s.substring(prefix.len(), s.len())
+    }
+    return s
+}
+
+pub fn importDeclPathSegments(path: String, kind: ImportPathKind, packageAlias: String) -> List[String] {
+    match kind {
+        Stdlib => {
+            val p = trimPrefixStr(path, "@soyuz/")
+            if p.len() == 0 {
+                return []
+            }
+            return p.split("/")
+        }
+        ProjectRoot => {
+            val p = trimPrefixStr(path, "@/")
+            if p.len() == 0 {
+                return []
+            }
+            return p.split("/")
+        }
+        PackageAlias => {
+            var p = path
+            if p.startsWith("@") {
+                p = p.substring(1, p.len())
+            }
+            if packageAlias != "" {
+                p = trimPrefixStr(p, "$(packageAlias)/")
+            }
+            if p.len() == 0 {
+                return []
+            }
+            return p.split("/")
+        }
+        Relative => path.split("/")
+        _ => {
+            if path.startsWith("@soyuz/") {
+                val p = trimPrefixStr(path, "@soyuz/")
+                return p.split("/")
+            }
+            return path.split("/")
+        }
+    }
+}
+
+pub fn importDeclIsModuleImport(data: ImportDeclData) -> Bool = data.names.size() == 0

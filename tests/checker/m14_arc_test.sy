@@ -1,0 +1,19 @@
+// M14 — arc tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM14(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM14Baseline() {
+    // TODO: port milestone 14 tests from soyuz-go
+    val errs = checkM14("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M14 baseline stub")
+}

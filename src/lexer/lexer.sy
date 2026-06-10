@@ -1,0 +1,461 @@
+import (
+    { matchKeywords } from @lexer/keywords
+    { Token, TokenType, Span, canInsertSemicolon } from @lexer/tokens
+)
+
+
+pub class Lexer {
+    val source: String
+
+    var currentOffset: Int = 0
+
+    var startOffset: Int = 0
+
+    var currentLine: Int = 1
+
+    var currentColumn: Int = 1
+
+    var interpDepth: Int = 0
+
+    var parenDepth: Int = 0
+
+    var pending: List[Token] = []
+
+    var lastToken: TokenType = TokenType.ILLEGAL
+
+    fn emit(self, tok: Token) -> Token {
+        self.lastToken = tok.type
+        return tok
+    }
+
+    pub fn nextToken(self) -> Token {
+        if self.pending.size() > 0 {
+            val tok = self.pending.pop()
+            self.lastToken = tok.type
+            return tok
+        }
+
+        self.skipWhitespace()
+
+        // Newline — virtual semicolon or skip
+        if self.peek() == '\n' {
+            if canInsertSemicolon(self.lastToken) && self.shouldSuppressSemicolon() {
+                self.currentLine = self.currentLine + 1
+                self.currentColumn = 1
+                self.advance()
+                return self.nextToken()
+            }
+            val lineBefore = self.currentLine
+            self.currentLine = self.currentLine + 1
+            self.currentColumn = 1
+            self.advance()
+            if canInsertSemicolon(self.lastToken) {
+                val tok = Token {
+                    type: TokenType.SEMICOLON,
+                    lexeme: ";",
+                    span: Span { line: lineBefore, column: self.currentColumn, startOffset: self.currentOffset, endOffset: self.currentOffset }
+                }
+                self.lastToken = TokenType.SEMICOLON
+                return tok
+            }
+            return self.nextToken()
+        }
+
+        // Line / block comments
+        if self.peek() == '/' {
+            if self.peekNext() == '/' {
+                loop {
+                    if self.isAtEnd() || self.peek() == '\n' {
+                        break
+                    }
+                    self.advance()
+                }
+                return self.nextToken()
+            }
+            if self.peekNext() == '*' {
+                self.advance()
+                self.advance()
+                loop {
+                    if self.isAtEnd() {
+                        break
+                    }
+                    if self.peek() == '*' && self.peekNext() == '/' {
+                        self.advance()
+                        self.advance()
+                        break
+                    }
+                    if self.peek() == '\n' {
+                        self.currentLine = self.currentLine + 1
+                        self.currentColumn = 1
+                    }
+                    self.advance()
+                }
+                return self.nextToken()
+            }
+        }
+
+        self.startOffset = self.currentOffset
+        if self.isAtEnd() {
+            if canInsertSemicolon(self.lastToken) {
+                return self.emit(self.makeToken(TokenType.SEMICOLON))
+            }
+            return self.emit(self.makeToken(TokenType.EOF))
+        }
+
+        val c = self.advance()
+        val tok = match c {
+            '(' => {
+                if self.interpDepth > 0 {
+                    self.parenDepth = self.parenDepth + 1
+                }
+                self.makeToken(TokenType.LPAREN)
+            }
+            ')' if self.interpDepth > 0 && self.parenDepth > 0 => {
+                self.parenDepth = self.parenDepth - 1
+                self.makeToken(TokenType.RPAREN)
+            }
+            ')' if self.interpDepth > 0 => {
+                self.interpDepth = self.interpDepth - 1
+                val interpEndToken = self.makeToken(TokenType.INTERP_END)
+                self.startOffset = self.currentOffset
+                val strToken = self.readString(true)
+                if strToken.lexeme != "" {
+                    self.pending.append(strToken)
+                }
+                interpEndToken
+            }
+            ')' => self.makeToken(TokenType.RPAREN)
+            '{' => self.makeToken(TokenType.LBRACE)
+            '}' => self.makeToken(TokenType.RBRACE)
+            '[' => self.makeToken(TokenType.LBRACKET)
+            ']' => self.makeToken(TokenType.RBRACKET)
+            ';' => self.makeToken(TokenType.SEMICOLON)
+            ':' => self.makeToken(TokenType.COLON)
+            ',' => self.makeToken(TokenType.COMMA)
+            '+' => self.makeToken(TokenType.PLUS)
+            '*' => self.makeToken(TokenType.ASTERISK)
+            '/' => self.makeToken(TokenType.SLASH)
+            '%' => self.makeToken(TokenType.PERCENT)
+            '^' => self.makeToken(TokenType.CARET)
+            '@' => self.makeToken(TokenType.AT)
+            '#' => self.makeToken(TokenType.HASH)
+            '_' if !self.isLetter(self.peek()) && !self.isDigit(self.peek()) => self.makeToken(TokenType.UNDERSCORE)
+            '=' => {
+                if self.matchChar('=') {
+                    return self.emit(self.makeToken(TokenType.EQUALS))
+                }
+                if self.matchChar('>') {
+                    return self.emit(self.makeToken(TokenType.FAT_ARROW))
+                }
+                return self.emit(self.makeToken(TokenType.ASSIGN))
+            }
+            '!' => {
+                if self.matchChar('=') {
+                    return self.emit(self.makeToken(TokenType.NOT_EQUALS))
+                }
+                return self.emit(self.makeToken(TokenType.BANG))
+            }
+            '-' => {
+                if self.matchChar('>') {
+                    return self.emit(self.makeToken(TokenType.ARROW))
+                }
+                return self.emit(self.makeToken(TokenType.MINUS))
+            }
+            '&' => {
+                if self.matchChar('&') {
+                    return self.makeToken(TokenType.AND)
+                }
+                return self.makeToken(TokenType.AMPERSAND)
+            }
+            '<' => {
+                if self.matchChar('=') {
+                    return self.makeToken(TokenType.LTE)
+                }
+                if self.matchChar('<') {
+                    return self.makeToken(TokenType.SHL)
+                }
+                return self.makeToken(TokenType.LT)
+            }
+            '>' => {
+                if self.matchChar('=') {
+                    return self.makeToken(TokenType.GTE)
+                }
+                if self.matchChar('>') {
+                    return self.makeToken(TokenType.SHR)
+                }
+                return self.makeToken(TokenType.GT)
+            }
+            '.' => {
+                if self.matchChar('.') {
+                    if self.matchChar('=') {
+                        return self.emit(self.makeToken(TokenType.RANGE_INCL))
+                    }
+                    return self.emit(self.makeToken(TokenType.RANGE))
+                }
+                return self.emit(self.makeToken(TokenType.DOT))
+            }
+            '?' => {
+                if self.matchChar('.') {
+                    return self.makeToken(TokenType.SAFE_NAV)
+                }
+                if self.matchChar(':') {
+                    return self.makeToken(TokenType.ELVIS)
+                }
+                return self.makeToken(TokenType.QUESTION)
+            }
+            '|' => {
+                if self.peek() == '?' && self.peekNext() == '>' {
+                    self.advance()
+                    self.advance()
+                    return self.emit(self.makeToken(TokenType.PIPE_QUEST))
+                }
+                if self.matchChar('>') {
+                    return self.emit(self.makeToken(TokenType.PIPE))
+                }
+                if self.matchChar('|') {
+                    return self.emit(self.makeToken(TokenType.OR))
+                }
+                return self.emit(self.makeToken(TokenType.PIPE_SINGLE))
+            }
+            '~' => {
+                if self.peek() == '?' && self.peekNext() == '>' {
+                    self.advance()
+                    self.advance()
+                    return self.emit(self.makeToken(TokenType.ASYNC_PIPE_QUEST))
+                }
+                if self.matchChar('>') {
+                    return self.emit(self.makeToken(TokenType.ASYNC_PIPE))
+                }
+                return self.emit(self.makeToken(TokenType.TILDE))
+            }
+            '"' => self.readString(false)
+            '\'' => self.readCharLiteral()
+            _ => {
+                if self.isLetter(c) {
+                    return self.emit(self.identifierOrKeyword())
+                }
+                if self.isDigit(c) {
+                    return self.emit(self.readNumber())
+                }
+                return self.emit(self.makeToken(TokenType.ILLEGAL))
+            }
+        }
+        return self.emit(tok)
+    }
+
+    fn shouldSuppressSemicolon(self) -> Bool {
+        return self.isNextToken("|>") || self.isNextToken("when") || self.isNextToken(".") || self.isNextToken("?.")
+    }
+
+    fn isNextToken(self, s: String) -> Bool {
+        var idx = self.currentOffset
+        if self.peek() == '\n' {
+            idx = self.currentOffset + 1
+        }
+        loop {
+            if idx >= self.source.len() {
+                return false
+            }
+            val c = self.source.unicodeAt(idx) ?: '\0'
+            if c != ' ' && c != '\t' && c != '\r' {
+                break
+            }
+            idx = idx + 1
+        }
+        var i = 0
+        loop {
+            if i >= s.len() {
+                break
+            }
+            val sc = s.unicodeAt(i) ?: '\0'
+            val dc = self.source.unicodeAt(idx + i) ?: '\0'
+            if sc != dc {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+
+    fn advance(self) -> Char {
+        val c = self.peek()
+        self.currentOffset = self.currentOffset + 1
+        self.currentColumn = self.currentColumn + 1
+        return c
+    }
+
+    fn peek(self) -> Char = self.source.unicodeAt(self.currentOffset) ?: '\0'
+
+    fn peekNext(self) -> Char = self.source.unicodeAt(self.currentOffset + 1) ?: '\0'
+
+    fn isAtEnd(self) -> Bool = self.peek() == '\0'
+
+    fn matchChar(self, expected: Char) when self.isAtEnd() -> Bool = false
+
+    fn matchChar(self, expected: Char) when self.peek() != expected -> Bool = false
+
+    fn matchChar(self, expected: Char) -> Bool {
+        self.currentOffset = self.currentOffset + 1
+        self.currentColumn = self.currentColumn + 1
+        return true
+    }
+
+    fn getLexeme(self) -> String {
+        var lexeme = ""
+        var i = self.startOffset
+        loop {
+            if i >= self.currentOffset {
+                break
+            }
+            val ch = self.source.unicodeAt(i) ?: '\0'
+            lexeme = "$(lexeme)$(ch)"
+            i = i + 1
+        }
+        return lexeme
+    }
+
+    fn skipWhitespace(self) {
+        loop {
+            match self.peek() {
+                ' ' => { self.advance(); () }
+                '\r' => { self.advance(); () }
+                '\t' => { self.advance(); () }
+                _ => break
+            }
+        }
+    }
+
+    fn isLetter(self, c: Char) -> Bool {
+        return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
+    }
+
+    fn isDigit(self, c: Char) -> Bool {
+        return c >= '0' && c <= '9'
+    }
+
+    fn identifierOrKeyword(self) -> Token {
+        loop {
+            val c = self.peek()
+            if self.isLetter(c) || self.isDigit(c) {
+                self.advance()
+            } else {
+                break
+            }
+        }
+        val lexeme = self.getLexeme()
+        val type = matchKeywords(lexeme)
+        return self.buildToken(type, lexeme)
+    }
+
+    fn readNumber(self) -> Token {
+        loop {
+            if !self.isDigit(self.peek()) {
+                break
+            }
+            self.advance()
+        }
+        if self.peek() == '.' && self.isDigit(self.peekNext()) {
+            self.advance()
+            loop {
+                if !self.isDigit(self.peek()) {
+                    break
+                }
+                self.advance()
+            }
+            return self.makeToken(TokenType.FLOAT_LITERAL)
+        }
+        return self.makeToken(TokenType.INT_LITERAL)
+    }
+
+    fn readString(self, isContinuation: Bool) -> Token {
+        if !isContinuation {
+            // opening quote already consumed
+        }
+        var isInterpolated = false
+        loop {
+            val c = self.peek()
+            match c {
+                '"' => {
+                    self.advance()
+                    break
+                }
+                '\0' => {
+                    break
+                }
+                '\n' => {
+                    self.currentLine = self.currentLine + 1
+                    self.currentColumn = 1
+                    self.advance()
+                    ()
+                }
+                '\\' => {
+                    self.advance()
+                    self.advance()
+                    ()
+                }
+                '$' if self.peekNext() == '(' => {
+                    isInterpolated = true
+                    break
+                }
+                _ => {
+                    self.advance()
+                    ()
+                }
+            }
+        }
+        if isInterpolated {
+            val strToken = self.makeToken(TokenType.STRING_PART)
+            self.startOffset = self.currentOffset
+            self.advance()
+            self.advance()
+            val interpStartToken = self.makeToken(TokenType.INTERP_START)
+            self.pending.append(interpStartToken)
+            self.interpDepth = self.interpDepth + 1
+            return strToken
+        }
+        return self.makeToken(TokenType.STRING_LITERAL)
+    }
+
+    fn readCharLiteral(self) -> Token {
+        val c = self.peek()
+        match c {
+            '\\' => {
+                self.advance()
+                self.advance()
+            }
+            '\'' => {
+                '\''
+            }
+            _ => {
+                self.advance()
+            }
+        }
+        if self.peek() == '\'' {
+            self.advance()
+        }
+        return self.makeToken(TokenType.CHAR_LITERAL)
+    }
+
+    fn makeToken(self, type: TokenType) -> Token {
+        return self.buildToken(type, self.getLexeme())
+    }
+
+    fn buildToken(self, type: TokenType, lexeme: String) -> Token {
+        val startCol = self.currentColumn - (self.currentOffset - self.startOffset)
+        val span = Span { line: self.currentLine, column: startCol, startOffset: self.startOffset, endOffset: self.currentOffset }
+        return Token { type: type, lexeme: lexeme, span: span }
+    }
+}
+
+pub fn tokenize(source: String) -> List[Token] {
+    val lexer = Lexer { source: source, currentOffset: 0, startOffset: 0, currentLine: 1, currentColumn: 1, interpDepth: 0, parenDepth: 0, pending: [], lastToken: TokenType.ILLEGAL }
+    var tokens: List[Token] = []
+    loop {
+        val t = lexer.nextToken()
+        tokens.append(t)
+        if t.type == TokenType.EOF {
+            break
+        }
+    }
+    return tokens
+}

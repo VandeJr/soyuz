@@ -1,0 +1,13 @@
+[project]
+name    = "soyuz"
+version = "0.1.0"
+type    = "binary"
+entry   = "main.sy"
+test    = "test_runner.sy"
+
+[packages]
+lexer  = "src/lexer"
+ast    = "src/ast"
+parser = "src/parser"
+diag   = "src/diag"
+checker = "src/checker"

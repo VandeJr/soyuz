@@ -1,0 +1,19 @@
+// M10 — extern tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM10(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM10Baseline() {
+    // TODO: port milestone 10 tests from soyuz-go
+    val errs = checkM10("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M10 baseline stub")
+}

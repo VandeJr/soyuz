@@ -1,0 +1,19 @@
+// M15 — task_pipe tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM15(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM15Baseline() {
+    // TODO: port milestone 15 tests from soyuz-go
+    val errs = checkM15("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M15 baseline stub")
+}

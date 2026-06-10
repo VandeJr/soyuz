@@ -1,0 +1,128 @@
+// M0 baseline — port of soyuz-go/internal/checker/checker_test.go
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkSource(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testCheckVarDecl() {
+    val errs = checkSource("val x: Int = \"não sou um int\"")
+    assert(errs.size() > 0, "esperado erro de tipo")
+    assertEq(errs[0].message, "incompatible type: expected Int, got String")
+}
+
+test fn testCheckValidVarDecl() {
+    val errs = checkSource("val x: Int = 42")
+    assert(errs.size() == 0, "não esperado erros")
+}
+
+test fn testCheckBinaryExpr() {
+    val errs = checkSource("val x = 1 + \"erro\"")
+    assert(errs.size() > 0, "esperado erro de tipo em expressão binária")
+}
+
+test fn testCheckMutability() {
+    val src = "
+val x = 10
+x = 20
+"
+    val errs = checkSource(src)
+    assert(errs.size() > 0, "esperado erro ao tentar alterar variável val")
+    assertEq(errs[0].message, "cannot assign to immutable variable (val): x")
+}
+
+test fn testCheckFuncDecl() {
+    val src = "
+fn soma(a: Int, b: Int) -> Int {
+    return a + b
+}
+val r = soma(1, 2)
+"
+    val errs = checkSource(src)
+    assert(errs.size() == 0, "não esperado erros")
+}
+
+test fn testCheckFuncError() {
+    val src = "
+fn soma(a: Int, b: Int) -> Int {
+    return \"não sou um int\"
+}
+"
+    val errs = checkSource(src)
+    assert(errs.size() > 0, "esperado erro de retorno na função")
+}
+
+test fn testCheckRecordLiteral() {
+    val src = "
+record Ponto { x: Int, y: Int }
+val p = Ponto { x: 1, y: 2 }
+"
+    val errs = checkSource(src)
+    assert(errs.size() == 0, "não esperado erros em record literal válido")
+}
+
+test fn testCheckRecordLiteralError() {
+    val src = "
+record Ponto { x: Int, y: Int }
+val p = Ponto { x: 1 }
+"
+    val errs = checkSource(src)
+    assert(errs.size() > 0, "esperado erro por campo faltante no record")
+}
+
+test fn testCheckMatchExpr() {
+    val src = "
+enum Res { Sim, Nao }
+val msg = match Sim() {
+    Sim => \"yes\"
+    Nao => \"no\"
+}
+"
+    val errs = checkSource(src)
+    assert(errs.size() == 0, "não esperado erros em match válido")
+}
+
+test fn testCheckOptionBuiltin() {
+    val src = "
+val x: Int? = Some(42)
+val y: String? = None
+"
+    val errs = checkSource(src)
+    assert(errs.size() == 0, "não esperado erros em Option válido")
+}
+
+test fn testCheckGenericInference() {
+    val src = "
+fn identity[T](x: T) -> T = x
+val r1 = identity(10)
+val r2 = identity(\"soyuz\")
+val r3: Int = identity(20)
+"
+    val errs = checkSource(src)
+    assert(errs.size() == 0, "expected no errors in valid generic inference")
+}
+
+test fn testFuncDefaultArgs() {
+    val src = "
+fn greet(nome: String, prefixo: String = \"Olá\") -> String = prefixo
+val r = greet(\"Vand\")
+"
+    val errs = checkSource(src)
+    assert(errs.size() == 0, "erros inesperados em default args")
+}
+
+test fn testFuncDefaultArgsMissing() {
+    val src = "
+fn soma(a: Int, b: Int) -> Int = a
+val r = soma(1)
+"
+    val errs = checkSource(src)
+    assert(errs.size() > 0, "esperado erro por argumento faltando sem default")
+}

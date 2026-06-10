@@ -1,0 +1,218 @@
+import (
+    { ParseError } from @diag/errors
+    { Token, TokenType, Span, printToken } from @lexer/tokens
+    { Node } from @ast/ast
+)
+
+pub class Parser {
+    val tokens: List[Token]
+    var pos: Int = 0
+    var errors: List[ParseError] = []
+    var nextNodeId: Int = 0
+
+    pub fn new(tokens: List[Token]) -> Parser = Parser { tokens: tokens, pos: 0, errors: [], nextNodeId: 0 }
+
+    pub fn errorsList(self) -> List[ParseError] = self.errors
+
+    pub fn hasErrors(self) -> Bool = self.errors.size() > 0
+
+    pub fn parse(self) -> Node {
+        val progSpan = self.peek().span
+        var body: List[Node] = []
+        self.skipSemicolons()
+        loop {
+            if self.check(TokenType.EOF) {
+                break
+            }
+            if self.check(TokenType.IMPORT) {
+                val decls = self.parseImportBlock()
+                var di = 0
+                loop {
+                    if di >= decls.size() {
+                        break
+                    }
+                    body.append(decls.get(di))
+                    di = di + 1
+                }
+            } else {
+                match self.parseTopLevel() {
+                    Some(node) => body.append(node)
+                    None => ()
+                }
+            }
+            self.skipSemicolons()
+        }
+        return Node.Program(self.allocNodeId(), progSpan, body)
+    }
+
+    fn allocNodeId(self) -> Int {
+        val id = self.nextNodeId
+        self.nextNodeId = self.nextNodeId + 1
+        return id
+    }
+
+    fn peek(self) -> Token {
+        if self.pos >= self.tokens.size() {
+            return Token { type: TokenType.EOF, lexeme: "", span: Span { line: 0, column: 0, startOffset: 0, endOffset: 0 } }
+        }
+        return self.tokens.get(self.pos)
+    }
+
+    fn peekN(self, n: Int) -> Token {
+        val idx = self.pos + n
+        if idx >= self.tokens.size() {
+            return Token { type: TokenType.EOF, lexeme: "", span: Span { line: 0, column: 0, startOffset: 0, endOffset: 0 } }
+        }
+        return self.tokens.get(idx)
+    }
+
+    fn advance(self) -> Token {
+        val tok = self.tokens.get(self.pos)
+        if self.pos < self.tokens.size() - 1 {
+            self.pos = self.pos + 1
+        }
+        return tok
+    }
+
+    fn check(self, t: TokenType) -> Bool = self.peek().type == t
+
+    fn checkAny(self, types: List[TokenType]) -> Bool {
+        val cur = self.peek().type
+        var i = 0
+        loop {
+            if i >= types.size() {
+                break
+            }
+            if cur == types.get(i) {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    fn expect(self, t: TokenType) -> Token {
+        val tok = self.peek()
+        if tok.type == t {
+            return self.advance()
+        }
+        self.errorf(tok.span, "esperado $(printToken(t)), encontrado $(printToken(tok.type)) ($(tok.lexeme))")
+        return tok
+    }
+
+    fn consume(self, t: TokenType) -> Bool {
+        if self.check(t) {
+            self.advance()
+            return true
+        }
+        return false
+    }
+
+    fn expectName(self) -> Token {
+        val tok = self.peek()
+        if tok.type == TokenType.IDENT || self.isNameLikeKeyword(tok.type) {
+            return self.advance()
+        }
+        self.errorf(tok.span, "esperado identificador, encontrado $(printToken(tok.type)) ($(tok.lexeme))")
+        return tok
+    }
+
+    fn isNameLikeKeyword(self, t: TokenType) -> Bool = match t {
+        TokenType.OK => true
+        TokenType.ERR => true
+        TokenType.SOME => true
+        TokenType.NONE => true
+        TokenType.TRUE => true
+        TokenType.FALSE => true
+        TokenType.INT_TYPE => true
+        TokenType.FLOAT_TYPE => true
+        TokenType.BOOL_TYPE => true
+        TokenType.STRING_TYPE => true
+        TokenType.CHAR_TYPE => true
+        TokenType.UNIT_TYPE => true
+        TokenType.VAL => true
+        TokenType.VAR => true
+        TokenType.FN => true
+        TokenType.PUB => true
+        TokenType.SELF => true
+        TokenType.IN => true
+        TokenType.RECORD => true
+        TokenType.CLASS => true
+        TokenType.INTERFACE => true
+        TokenType.ENUM => true
+        TokenType.IMPORT => true
+        TokenType.EXTEND => true
+        TokenType.EXTERN => true
+        TokenType.RETURN => true
+        TokenType.BREAK => true
+        TokenType.CONTINUE => true
+        TokenType.IF => true
+        TokenType.ELSE => true
+        TokenType.WHEN => true
+        TokenType.MATCH => true
+        TokenType.FOR => true
+        TokenType.WHILE => true
+        TokenType.LOOP => true
+        TokenType.TASK => true
+        TokenType.SELECT => true
+        TokenType.TEST => true
+        _ => false
+    }
+
+    fn checkName(self) -> Bool = self.check(TokenType.IDENT) || self.isNameLikeKeyword(self.peek().type)
+
+    fn skipSemicolons(self) {
+        loop {
+            if !self.check(TokenType.SEMICOLON) {
+                break
+            }
+            self.advance()
+        }
+    }
+
+    fn errorf(self, span: Span, message: String) {
+        var end = span
+        if self.pos < self.tokens.size() {
+            val tok = self.tokens.get(self.pos)
+            if tok.span.line == span.line && tok.span.column == span.column {
+                var width = tok.lexeme.len()
+                if width < 1 {
+                    width = 1
+                }
+                end = Span {
+                    line: span.line,
+                    column: span.column + width,
+                    startOffset: span.startOffset,
+                    endOffset: span.endOffset
+                }
+            }
+        }
+        self.errors.append(ParseError { span: span, end: end, message: message })
+    }
+
+    fn synchronize(self) {
+        loop {
+            if self.check(TokenType.EOF) {
+                break
+            }
+            if self.check(TokenType.SEMICOLON) {
+                self.advance()
+                return
+            }
+            if self.checkAny([TokenType.FN, TokenType.VAL, TokenType.VAR, TokenType.CLASS, TokenType.RECORD, TokenType.INTERFACE, TokenType.ENUM, TokenType.IF, TokenType.FOR, TokenType.WHILE, TokenType.LOOP, TokenType.RETURN, TokenType.RBRACE]) {
+                return
+            }
+            self.advance()
+        }
+    }
+}
+
+pub fn isUppercase(s: String) -> Bool {
+    if s.isEmpty() {
+        return false
+    }
+    match s.unicodeAt(0) {
+        Some(c) => c >= 'A' && c <= 'Z'
+        None => false
+    }
+}

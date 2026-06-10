@@ -1,0 +1,43 @@
+// Port of soyuz-go/internal/lexer/lexer_test.go (subset)
+import (
+    { tokenize } from @lexer/lexer
+    { TokenType } from @lexer/tokens
+    { assertMsg } from @soyuz/testing
+)
+
+fn assertTokenTypes(input: String, expected: List[TokenType]) {
+    val tokens = tokenize(input)
+    assertMsg(tokens.size() == expected.size(), "token count mismatch")
+    var i = 0
+    loop {
+        if i >= expected.size() {
+            break
+        }
+        assertMsg(tokens.get(i).type == expected.get(i), "token type mismatch at index $(i)")
+        i = i + 1
+    }
+}
+
+test fn testBasicTokens() {
+    assertTokenTypes("val x: Int = 10", [TokenType.VAL, TokenType.IDENT, TokenType.COLON, TokenType.INT_TYPE, TokenType.ASSIGN, TokenType.INT_LITERAL, TokenType.SEMICOLON, TokenType.EOF])
+}
+
+test fn testFunctionDecl() {
+    val input = "fn soma(a: Int, b: Int) -> Int {\n    return a\n}"
+    assertTokenTypes(input, [TokenType.FN, TokenType.IDENT, TokenType.LPAREN, TokenType.IDENT, TokenType.COLON, TokenType.INT_TYPE, TokenType.COMMA, TokenType.IDENT, TokenType.COLON, TokenType.INT_TYPE, TokenType.RPAREN, TokenType.ARROW, TokenType.INT_TYPE, TokenType.LBRACE, TokenType.RETURN, TokenType.IDENT, TokenType.SEMICOLON, TokenType.RBRACE, TokenType.SEMICOLON, TokenType.EOF])
+}
+
+test fn testPipeOperator() {
+    assertTokenTypes("val r = buscar(1) |> validar |> transformar", [TokenType.VAL, TokenType.IDENT, TokenType.ASSIGN, TokenType.IDENT, TokenType.LPAREN, TokenType.INT_LITERAL, TokenType.RPAREN, TokenType.PIPE, TokenType.IDENT, TokenType.PIPE, TokenType.IDENT, TokenType.SEMICOLON, TokenType.EOF])
+}
+
+test fn testRanges() {
+    assertTokenTypes("0..10", [TokenType.INT_LITERAL, TokenType.RANGE, TokenType.INT_LITERAL, TokenType.SEMICOLON, TokenType.EOF])
+    assertTokenTypes("0..=10", [TokenType.INT_LITERAL, TokenType.RANGE_INCL, TokenType.INT_LITERAL, TokenType.SEMICOLON, TokenType.EOF])
+}
+
+test fn testSemicolonInsertion() {
+    val tokens = tokenize("val x = 10\nval y = 20")
+    assertMsg(tokens.get(3).lexeme == "10", "literal 10")
+    assertMsg(tokens.get(4).type == TokenType.SEMICOLON, "SEMICOLON virtual após INT_LITERAL 10")
+}

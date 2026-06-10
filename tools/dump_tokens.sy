@@ -1,0 +1,18 @@
+import (
+    { tokenize } from @lexer/lexer
+    { printToken, TokenType } from @lexer/tokens
+    { assertMsg } from @soyuz/testing
+)
+
+fn main() {
+    val tokens = tokenize("0..=10")
+    var i = 0
+    loop {
+        if i >= tokens.size() {
+            break
+        }
+        print("$(i): $(printToken(tokens.get(i).type))")
+        i = i + 1
+    }
+    assertMsg(tokens.get(2).type == TokenType.INT_LITERAL, "idx2 type")
+}

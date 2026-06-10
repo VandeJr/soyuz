@@ -1,0 +1,64 @@
+import (
+    {TokenType} from @lexer/tokens
+    { printToken } from @lexer/tokens
+)
+
+pub fn matchKeywords(v: String) -> TokenType = match v {
+    // Declarações
+    "val"=>    TokenType.VAL,
+        "var"=>    TokenType.VAR,
+        "fn"=>     TokenType.FN,
+        "extern"=> TokenType.EXTERN,
+        "return"=> TokenType.RETURN,
+        "pub"=>    TokenType.PUB,
+        "test"=>   TokenType.TEST,
+        "extend"=> TokenType.EXTEND,
+
+        // Tipos compostos
+        "record"=>    TokenType.RECORD,
+        "class"=>     TokenType.CLASS,
+        "interface"=> TokenType.INTERFACE,
+        "enum"=>      TokenType.ENUM,
+
+        // Controle de fluxo
+        "if"=>       TokenType.IF,
+        "else"=>     TokenType.ELSE,
+        "when"=>     TokenType.WHEN,
+        "match"=>    TokenType.MATCH,
+        "for"=>      TokenType.FOR,
+        "while"=>    TokenType.WHILE,
+        "loop"=>     TokenType.LOOP,
+        "break"=>    TokenType.BREAK,
+        "continue"=> TokenType.CONTINUE,
+        "in"=>       TokenType.IN,
+
+        // Módulos
+        "import"=> TokenType.IMPORT,
+
+        // OOP
+        "self"=> TokenType.SELF,
+
+        // Concurrency
+        "task"=>   TokenType.TASK,
+        "select"=> TokenType.SELECT,
+
+        // Tipos primitivos built-in
+        "Int"=>    TokenType.INT_TYPE,
+        "Float"=>  TokenType.FLOAT_TYPE,
+        "Bool"=>   TokenType.BOOL_TYPE,
+        "String"=> TokenType.STRING_TYPE,
+        "Char"=>   TokenType.CHAR_TYPE,
+        "Unit"=>   TokenType.UNIT_TYPE,
+
+        // Valores literais
+        "true"=>  TokenType.TRUE,
+        "false"=> TokenType.FALSE,
+        "None"=>  TokenType.NONE,
+
+        // Construtores de Result / Option
+        "Ok"=>   TokenType.OK,
+        "Err"=>  TokenType.ERR,
+        "Some"=> TokenType.SOME,
+        _ => TokenType.IDENT,
+}
+

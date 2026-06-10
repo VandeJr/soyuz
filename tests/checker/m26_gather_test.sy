@@ -1,0 +1,19 @@
+// M26 — gather tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM26(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM26Baseline() {
+    // TODO: port milestone 26 tests from soyuz-go
+    val errs = checkM26("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M26 baseline stub")
+}

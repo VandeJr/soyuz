@@ -1,0 +1,924 @@
+import (
+    { TokenType, Span, printToken } from @lexer/tokens
+    {
+        Node, TypeExpr, Pattern, varKindFromLexeme, ImportPathKind,
+        GenericParam, FuncParam, RecordField, InterfaceMethod, EnumVariant, EnumField,
+        ImportName, importDeclPathSegments,
+        VarDeclData, FuncDeclData, RecordDeclData, ClassDeclData, InterfaceDeclData,
+        EnumDeclData, ExtendDeclData, ImportDeclData, ExternDeclData, ExprStmtData
+    } from @ast/ast
+    { nodePos } from @ast/ast_helpers
+    { bindingPower } from @parser/parse_exprs
+    { Parser } from @parser/parser
+)
+
+record ImportPathSegmentResult {
+    segments: List[String],
+    isStdlib: Bool
+}
+
+record ImportPathClassified {
+    kind: ImportPathKind,
+    alias: String
+}
+
+extend Parser {
+    fn parseTopLevel(self) -> Option[Node] {
+        var isPub = false
+        if self.check(TokenType.PUB) {
+            self.advance()
+            isPub = true
+        }
+
+        return match self.peek().type {
+            VAL => {
+                val vd = self.parseVarDecl(isPub)
+                match vd {
+                    VarDecl(_, span, data) => {
+                        if data.name != "" {
+                            match data.init {
+                                Some(ArrowFunc(_, _, _)) => {
+                                    self.errorf(span, "funções nomeadas devem usar 'fn $(data.name)(...)', não 'val $(data.name) = fn(...)'")
+                                }
+                                _ => ()
+                            }
+                        }
+                    }
+                    _ => ()
+                }
+                Some(vd)
+            }
+            VAR => {
+                val vd = self.parseVarDecl(isPub)
+                match vd {
+                    VarDecl(_, span, data) => {
+                        if data.name != "" {
+                            match data.init {
+                                Some(ArrowFunc(_, _, _)) => {
+                                    self.errorf(span, "funções nomeadas devem usar 'fn $(data.name)(...)', não 'val $(data.name) = fn(...)'")
+                                }
+                                _ => ()
+                            }
+                        }
+                    }
+                    _ => ()
+                }
+                Some(vd)
+            }
+            FN => Some(self.parseFuncDecl(isPub))
+            TEST => self.parseTestFuncDecl()
+            EXTERN => Some(self.parseExternDecl(isPub))
+            RECORD => Some(self.parseRecordDecl(isPub))
+            CLASS => Some(self.parseClassDecl(isPub))
+            INTERFACE => Some(self.parseInterfaceDecl(isPub))
+            ENUM => Some(self.parseEnumDecl(isPub))
+            EXTEND => Some(self.parseExtendDecl())
+            _ => {
+                if isPub {
+                    self.errorf(self.peek().span, "esperado declaração após pub")
+                }
+                val expr = self.parseExpression(0)
+                self.consume(SEMICOLON)
+                Some(ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: expr }))
+            }
+        }
+    }
+
+    fn parseVarDecl(self, isPub: Bool) -> Node {
+        val span = self.peek().span
+        val kind = varKindFromLexeme(self.advance().lexeme)
+
+        var name = ""
+        var namePos = span
+        var pattern: Option[Pattern] = None
+
+        if self.check(TokenType.LPAREN) {
+            pattern = Some(self.parsePattern())
+        } else if self.check(TokenType.UNDERSCORE) {
+            val tok = self.advance()
+            name = "_"
+            namePos = tok.span
+        } else {
+            val tok = self.expect(IDENT)
+            name = tok.lexeme
+            namePos = tok.span
+        }
+
+        var typeExpr: Option[TypeExpr] = None
+        if self.consume(COLON) {
+            typeExpr = Some(self.parseTypeExpr())
+        }
+
+        var init: Option[Node] = None
+        if self.consume(ASSIGN) {
+            init = Some(self.parseExpression(0))
+        }
+        self.consume(SEMICOLON)
+
+        return VarDecl(
+            self.allocNodeId(),
+            span,
+            VarDeclData { namePos: namePos, isPub: isPub, kind: kind, name: name, pattern: pattern, typeExpr: typeExpr, init: init }
+        )
+    }
+
+    fn parseTestFuncDecl(self) -> Option[Node] {
+        self.expect(TEST)
+        var ignore = false
+        if self.check(TokenType.IDENT) && self.peek().lexeme == "ignore" {
+            self.advance()
+            ignore = true
+        }
+        if !self.check(TokenType.FN) {
+            self.errorf(self.peek().span, "esperado 'fn' após 'test'")
+            self.synchronize()
+            return None
+        }
+        match self.parseFuncDecl(false) {
+            FuncDecl(id, span, data) => {
+                return Some(FuncDecl(id, span, FuncDeclData {
+                    namePos: data.namePos,
+                    isPub: data.isPub,
+                    name: data.name,
+                    generics: data.generics,
+                    params: data.params,
+                    whenGuard: data.whenGuard,
+                    returnType: data.returnType,
+                    body: data.body,
+                    isExprBody: data.isExprBody,
+                    isTest: true,
+                    isIgnore: ignore
+                }))
+            }
+            other => Some(other)
+        }
+    }
+
+    fn parseFuncDecl(self, isPub: Bool) -> Node {
+        val span = self.expect(FN).span
+        val nameTok = self.expect(IDENT)
+        val name = nameTok.lexeme
+        val namePos = nameTok.span
+
+        var generics: List[GenericParam] = []
+        if self.check(TokenType.LBRACKET) {
+            generics = self.parseGenericParams()
+        }
+
+        val params = self.parseFuncParams()
+
+        var whenGuard: Option[Node] = None
+        if self.consume(WHEN) {
+            whenGuard = Some(self.parseExpression(bindingPower(ASSIGN)))
+        }
+
+        var returnType: Option[TypeExpr] = None
+        if self.consume(ARROW) {
+            returnType = Some(self.parseTypeExpr())
+        }
+
+        var body: Option[Node] = None
+        var isExpr = false
+
+        if self.check(TokenType.ASSIGN) || self.check(TokenType.FAT_ARROW) {
+            self.advance()
+            body = Some(self.parseExpression(0))
+            self.consume(SEMICOLON)
+            isExpr = true
+        } else if self.check(TokenType.LBRACE) {
+            body = Some(self.parseBlock())
+        } else {
+            self.errorf(self.peek().span, "esperado => ou { no corpo da função")
+            self.synchronize()
+        }
+
+        return FuncDecl(
+            self.allocNodeId(),
+            span,
+            FuncDeclData {
+                namePos: namePos,
+                isPub: isPub,
+                name: name,
+                generics: generics,
+                params: params,
+                whenGuard: whenGuard,
+                returnType: returnType,
+                body: body,
+                isExprBody: isExpr,
+                isTest: false,
+                isIgnore: false
+            }
+        )
+    }
+
+    fn parseGenericParams(self) -> List[GenericParam] {
+        self.expect(LBRACKET)
+        var params: List[GenericParam] = []
+        loop {
+            if self.check(TokenType.RBRACKET) || self.check(TokenType.EOF) {
+                break
+            }
+            val pname = self.expect(IDENT).lexeme
+            var constraints: List[TypeExpr] = []
+            if self.consume(COLON) {
+                constraints.append(self.parseTypeExpr())
+                loop {
+                    if !self.consume(PLUS) {
+                        break
+                    }
+                    constraints.append(self.parseTypeExpr())
+                }
+            }
+            params.append(GenericParam { name: pname, constraints: constraints })
+            if !self.check(TokenType.RBRACKET) {
+                self.consume(COMMA)
+            }
+        }
+        self.expect(RBRACKET)
+        return params
+    }
+
+    fn parseFuncParams(self) -> List[FuncParam] {
+        self.expect(LPAREN)
+        var params: List[FuncParam] = []
+        loop {
+            if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
+                break
+            }
+            params.append(self.parseFuncParam())
+            if !self.check(TokenType.RPAREN) {
+                self.consume(COMMA)
+            }
+        }
+        self.expect(RPAREN)
+        return params
+    }
+
+    fn parseFuncParam(self) -> FuncParam {
+        val span = self.peek().span
+        val pat = self.parsePattern()
+        var typeExpr: Option[TypeExpr] = None
+        if self.consume(COLON) {
+            typeExpr = Some(self.parseTypeExpr())
+        }
+        var defaultExpr: Option[Node] = None
+        if self.consume(ASSIGN) {
+            defaultExpr = Some(self.parseExpression(0))
+        }
+        return FuncParam { span: span, pattern: pat, typeExpr: typeExpr, defaultExpr: defaultExpr }
+    }
+
+    fn parseRecordDecl(self, isPub: Bool) -> Node {
+        val span = self.expect(RECORD).span
+        val name = self.expect(IDENT).lexeme
+        var generics: List[GenericParam] = []
+        if self.check(TokenType.LBRACKET) {
+            generics = self.parseGenericParams()
+        }
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var fields: List[RecordField] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            val fpos = self.peek().span
+            val fname = self.expect(IDENT).lexeme
+            self.expect(COLON)
+            val ftype = self.parseTypeExpr()
+            fields.append(RecordField { span: fpos, name: fname, typeExpr: ftype })
+            self.consume(COMMA)
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        self.consume(SEMICOLON)
+        return RecordDecl(self.allocNodeId(), span, RecordDeclData { isPub: isPub, name: name, generics: generics, fields: fields })
+    }
+
+    fn parseClassDecl(self, isPub: Bool) -> Node {
+        val span = self.expect(CLASS).span
+        val name = self.expect(IDENT).lexeme
+        var generics: List[GenericParam] = []
+        if self.check(TokenType.LBRACKET) {
+            generics = self.parseGenericParams()
+        }
+        var interfaces: List[TypeExpr] = []
+        if self.consume(COLON) {
+            interfaces.append(self.parseTypeExpr())
+            loop {
+                if !self.consume(COMMA) {
+                    break
+                }
+                interfaces.append(self.parseTypeExpr())
+            }
+        }
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var body: List[Node] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            val memberPub = self.consume(PUB)
+            match self.peek().type {
+                FN => body.append(self.parseFuncDecl(memberPub))
+                VAL => body.append(self.parseVarDecl(memberPub))
+                VAR => body.append(self.parseVarDecl(memberPub))
+                _ => {
+                    self.errorf(self.peek().span, "esperado membro de class (fn, val, var), encontrado $(printToken(self.peek().type))")
+                    self.synchronize()
+                }
+            }
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        self.consume(SEMICOLON)
+        return ClassDecl(self.allocNodeId(), span, ClassDeclData { isPub: isPub, name: name, generics: generics, interfaces: interfaces, body: body })
+    }
+
+    fn parseInterfaceDecl(self, isPub: Bool) -> Node {
+        val span = self.expect(INTERFACE).span
+        val name = self.expect(IDENT).lexeme
+        var generics: List[GenericParam] = []
+        if self.check(TokenType.LBRACKET) {
+            generics = self.parseGenericParams()
+        }
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var methods: List[InterfaceMethod] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            methods.append(self.parseInterfaceMethod())
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        self.consume(SEMICOLON)
+        return InterfaceDecl(self.allocNodeId(), span, InterfaceDeclData { isPub: isPub, name: name, generics: generics, methods: methods })
+    }
+
+    fn parseInterfaceMethod(self) -> InterfaceMethod {
+        val memberPub = self.consume(PUB)
+        val span = self.expect(FN).span
+        val name = self.expect(IDENT).lexeme
+        val params = self.parseFuncParams()
+        var returnType: Option[TypeExpr] = None
+        if self.consume(ARROW) {
+            returnType = Some(self.parseTypeExpr())
+        }
+        self.consume(SEMICOLON)
+        return InterfaceMethod { span: span, isPub: memberPub, name: name, params: params, returnType: returnType }
+    }
+
+    fn parseEnumDecl(self, isPub: Bool) -> Node {
+        val span = self.expect(ENUM).span
+        val name = self.expect(IDENT).lexeme
+        var generics: List[GenericParam] = []
+        if self.check(TokenType.LBRACKET) {
+            generics = self.parseGenericParams()
+        }
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var variants: List[EnumVariant] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            variants.append(self.parseEnumVariant())
+            self.consume(COMMA)
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        self.consume(SEMICOLON)
+        return EnumDecl(self.allocNodeId(), span, EnumDeclData { isPub: isPub, name: name, generics: generics, variants: variants })
+    }
+
+    fn parseEnumVariant(self) -> EnumVariant {
+        val span = self.peek().span
+        val name = self.expectName().lexeme
+        var fields: List[EnumField] = []
+        if self.consume(LPAREN) {
+            loop {
+                if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
+                    break
+                }
+                var fieldName = ""
+                if self.checkName() && self.peekN(1).type == COLON {
+                    fieldName = self.advance().lexeme
+                    self.advance()
+                }
+                val fieldType = self.parseTypeExpr()
+                fields.append(EnumField { name: fieldName, typeExpr: fieldType })
+                if !self.check(TokenType.RPAREN) {
+                    self.consume(COMMA)
+                }
+            }
+            self.expect(RPAREN)
+        } else if self.consume(LBRACE) {
+            loop {
+                if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                    break
+                }
+                var fieldName = ""
+                if self.checkName() && self.peekN(1).type == COLON {
+                    fieldName = self.advance().lexeme
+                    self.advance()
+                }
+                val fieldType = self.parseTypeExpr()
+                fields.append(EnumField { name: fieldName, typeExpr: fieldType })
+                if !self.check(TokenType.RBRACE) {
+                    self.consume(COMMA)
+                }
+            }
+            self.expect(RBRACE)
+        }
+        return EnumVariant { span: span, name: name, fields: fields }
+    }
+
+    fn parseExternDecl(self, isPub: Bool) -> Node {
+        val span = self.expect(EXTERN).span
+        self.expect(FN)
+        val nameTok = self.expect(IDENT)
+        val params = self.parseFuncParams()
+        var returnType: Option[TypeExpr] = None
+        if self.consume(ARROW) {
+            returnType = Some(self.parseTypeExpr())
+        }
+        self.consume(SEMICOLON)
+        return ExternDecl(self.allocNodeId(), span, ExternDeclData { isPub: isPub, name: nameTok.lexeme, params: params, returnType: returnType })
+    }
+
+    fn parseExtendDecl(self) -> Node {
+        val span = self.expect(EXTEND).span
+        val typeName = self.parseExtendTypeName()
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var methods: List[Node] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            val memberPub = self.consume(PUB)
+            if !self.check(TokenType.FN) {
+                self.errorf(self.peek().span, "esperado fn em bloco extend")
+                self.synchronize()
+            } else {
+                methods.append(self.parseFuncDecl(memberPub))
+            }
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        self.consume(SEMICOLON)
+        return ExtendDecl(self.allocNodeId(), span, ExtendDeclData { typeName: typeName, methods: methods })
+    }
+
+    fn parseExtendTypeName(self) -> String = match self.peek().type {
+        STRING_TYPE => { self.advance(); "String" }
+        INT_TYPE => { self.advance(); "Int" }
+        FLOAT_TYPE => { self.advance(); "Float" }
+        BOOL_TYPE => { self.advance(); "Bool" }
+        CHAR_TYPE => { self.advance(); "Char" }
+        IDENT => self.advance().lexeme
+        _ => {
+            self.errorf(self.peek().span, "esperado nome de tipo após extend")
+            ""
+        }
+    }
+
+    fn parseImportBlock(self) -> List[Node] {
+        val pos = self.expect(IMPORT).span
+        if self.check(TokenType.LPAREN) {
+            return self.parseImportParenBlock(pos)
+        }
+        if self.check(TokenType.AT) || self.check(TokenType.DOT) || self.check(TokenType.STRING_LITERAL) {
+            match self.parseImportPath() {
+                Some(path) => {
+                    var names: List[ImportName] = []
+                    if self.consume(DOT) && self.check(TokenType.LBRACE) {
+                        names = self.parseImportNames()
+                    }
+                    self.consume(SEMICOLON)
+                    return [self.makeImportDeclFromPath(pos, path, names)]
+                }
+                None => {
+                    self.synchronize()
+                    return []
+                }
+            }
+        }
+        match self.parseImportPathSegments() {
+            Some(result) => {
+                var decl = self.makeImportDeclFromSegments(pos, result.segments, result.isStdlib, [])
+                if self.consume(DOT) && self.check(TokenType.LBRACE) {
+                    match decl {
+                        ImportDecl(id, span, data) => {
+                            decl = ImportDecl(id, span, ImportDeclData {
+                                path: data.path,
+                                names: self.parseImportNames(),
+                                namespace: data.namespace,
+                                pathKind: data.pathKind,
+                                packageAlias: data.packageAlias,
+                                isStdlib: data.isStdlib,
+                                resolvedFiles: data.resolvedFiles
+                            })
+                        }
+                        _ => ()
+                    }
+                }
+                self.consume(SEMICOLON)
+                return [decl]
+            }
+            None => {
+                self.synchronize()
+                return []
+            }
+        }
+    }
+
+    fn parseImportParenBlock(self, pos: Span) -> List[Node] {
+        self.expect(LPAREN)
+        var decls: List[Node] = []
+        loop {
+            if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
+                break
+            }
+            match self.parseImportSpec(pos) {
+                Some(spec) => decls.append(spec)
+                None => self.advance()
+            }
+            self.consume(SEMICOLON)
+            self.skipSemicolons()
+        }
+        if self.check(TokenType.RPAREN) {
+            self.advance()
+        } else {
+            self.errorf(self.peek().span, "esperado ')' no bloco import")
+        }
+        self.consume(SEMICOLON)
+        return decls
+    }
+
+    fn parseImportPathSegments(self) -> Option[ImportPathSegmentResult] {
+        var segments: List[String] = []
+        var isStdlib = false
+
+        if self.check(TokenType.AT) {
+            self.advance()
+            if self.check(TokenType.SLASH) {
+                self.advance()
+                match self.parsePathSegmentsAfterSlash() {
+                    Some(segs) => return Some(ImportPathSegmentResult { segments: segs, isStdlib: false })
+                    None => return None
+                }
+            }
+            if self.check(TokenType.IDENT) {
+                val ident = self.advance().lexeme
+                if ident == "soyuz" {
+                    isStdlib = true
+                    if self.check(TokenType.SLASH) || self.check(TokenType.DOT) {
+                        match self.parsePathSegmentsAfterDotOrSlash() {
+                            Some(segs) => return Some(ImportPathSegmentResult { segments: segs, isStdlib: isStdlib })
+                            None => return None
+                        }
+                    }
+                    return Some(ImportPathSegmentResult { segments: [], isStdlib: isStdlib })
+                }
+                segments.append(ident)
+                match self.parsePathSegmentsAfterDotOrSlash() {
+                    Some(segs) => {
+                        var i = 0
+                        loop {
+                            if i >= segs.size() {
+                                break
+                            }
+                            segments.append(segs.get(i))
+                            i = i + 1
+                        }
+                        return Some(ImportPathSegmentResult { segments: segments, isStdlib: false })
+                    }
+                    None => return None
+                }
+            }
+            self.errorf(self.peek().span, "esperado caminho após '@'")
+            return None
+        }
+
+        if self.check(TokenType.DOT) {
+            match self.parseRelativePathSegments() {
+                Some(segs) => return Some(ImportPathSegmentResult { segments: segs, isStdlib: false })
+                None => return None
+            }
+        }
+
+        if self.check(TokenType.IDENT) {
+            segments.append(self.advance().lexeme)
+        } else {
+            self.errorf(self.peek().span, "esperado caminho de módulo após import")
+            return None
+        }
+
+        loop {
+            if !self.check(TokenType.DOT) && !self.check(TokenType.SLASH) {
+                break
+            }
+            if self.check(TokenType.DOT) && self.peekN(1).type == LBRACE {
+                break
+            }
+            self.advance()
+            if !self.check(TokenType.IDENT) {
+                self.errorf(self.peek().span, "esperado segmento de módulo após '.' ou '/'")
+                return None
+            }
+            segments.append(self.advance().lexeme)
+        }
+
+        return Some(ImportPathSegmentResult { segments: segments, isStdlib: isStdlib })
+    }
+
+    fn parseRelativePathSegments(self) -> Option[List[String]] {
+        var parts: List[String] = []
+        loop {
+            if !self.check(TokenType.DOT) {
+                break
+            }
+            self.advance()
+            if self.check(TokenType.DOT) && self.peekN(1).type == DOT {
+                self.advance()
+                parts.append("..")
+            } else {
+                parts.append(".")
+            }
+            if self.check(TokenType.SLASH) {
+                self.advance()
+            } else if self.check(TokenType.IDENT) {
+                ()
+            } else {
+                break
+            }
+            if self.check(TokenType.IDENT) {
+                parts.append(self.advance().lexeme)
+            }
+            loop {
+                if !self.check(TokenType.SLASH) {
+                    break
+                }
+                self.advance()
+                if self.check(TokenType.IDENT) {
+                    parts.append(self.advance().lexeme)
+                }
+            }
+            if self.check(TokenType.DOT) && self.peekN(1).type != LBRACE {
+                continue
+            }
+            break
+        }
+        if parts.size() == 0 {
+            self.errorf(self.peek().span, "esperado caminho relativo ./ ou ../")
+            return None
+        }
+        return Some(parts)
+    }
+
+    fn parsePathSegmentsAfterSlash(self) -> Option[List[String]] {
+        var segs: List[String] = []
+        loop {
+            if !self.check(TokenType.IDENT) {
+                break
+            }
+            segs.append(self.advance().lexeme)
+            if !self.check(TokenType.SLASH) {
+                break
+            }
+            self.advance()
+        }
+        return Some(segs)
+    }
+
+    fn parsePathSegmentsAfterDotOrSlash(self) -> Option[List[String]] {
+        var segs: List[String] = []
+        loop {
+            if !self.check(TokenType.DOT) && !self.check(TokenType.SLASH) {
+                break
+            }
+            if self.check(TokenType.DOT) && self.peekN(1).type == LBRACE {
+                break
+            }
+            self.advance()
+            if !self.check(TokenType.IDENT) {
+                self.errorf(self.peek().span, "esperado segmento após '.' ou '/'")
+                return None
+            }
+            segs.append(self.advance().lexeme)
+        }
+        return Some(segs)
+    }
+
+    fn parseImportNames(self) -> List[ImportName] {
+        self.expect(LBRACE)
+        var names: List[ImportName] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            val tok = self.peek()
+            if tok.type != IDENT {
+                self.errorf(tok.span, "esperado identificador na lista de import")
+                self.advance()
+            } else {
+                names.append(ImportName { name: self.advance().lexeme, alias: "" })
+            }
+            self.consume(COMMA)
+        }
+        self.expect(RBRACE)
+        return names
+    }
+
+    fn parseImportSpec(self, blockPos: Span) -> Option[Node] {
+        if self.check(TokenType.LBRACE) {
+            val names = self.parseImportNames()
+            if !self.check(TokenType.IDENT) || self.peek().lexeme != "from" {
+                self.errorf(self.peek().span, "esperado 'from' após nomes importados")
+                return None
+            }
+            self.advance()
+            match self.parseImportPath() {
+                Some(path) => return Some(self.makeImportDeclFromPath(blockPos, path, names))
+                None => return None
+            }
+        }
+        if self.check(TokenType.STRING_LITERAL) {
+            val path = self.advance().lexeme
+            return Some(self.makeImportDeclFromPath(blockPos, path, []))
+        }
+        if self.check(TokenType.AT) || self.check(TokenType.DOT) {
+            match self.parseImportPath() {
+                Some(path) => return Some(self.makeImportDeclFromPath(blockPos, path, []))
+                None => return None
+            }
+        }
+        self.errorf(self.peek().span, "esperado {names} from path ou path no import")
+        return None
+    }
+
+    fn parseImportPath(self) -> Option[String] {
+        if self.check(TokenType.STRING_LITERAL) {
+            return Some(self.advance().lexeme)
+        }
+        if self.check(TokenType.AT) {
+            return self.parseAtImportPath()
+        }
+        if self.check(TokenType.DOT) {
+            return self.parseDotImportPath()
+        }
+        if self.check(TokenType.IDENT) {
+            return self.parseLegacyIdentPath()
+        }
+        self.errorf(self.peek().span, "esperado caminho de import após 'from'")
+        return None
+    }
+
+    fn parseAtImportPath(self) -> Option[String] {
+        self.advance()
+        if self.check(TokenType.SLASH) {
+            self.advance()
+            match self.parsePathSegmentsAfterSlash() {
+                Some(segs) => return Some("@/$(segs.join("/"))")
+                None => return None
+            }
+        }
+        if !self.check(TokenType.IDENT) {
+            self.errorf(self.peek().span, "esperado identificador após '@'")
+            return None
+        }
+        val first = self.advance().lexeme
+        if first == "soyuz" {
+            match self.parsePathSegmentsAfterDotOrSlash() {
+                Some(segs) => {
+                    if segs.size() > 0 {
+                        return Some("@soyuz/$(segs.join("/"))")
+                    }
+                    return Some("@soyuz")
+                }
+                None => return Some("@soyuz")
+            }
+        }
+        var segs: List[String] = [first]
+        match self.parsePathSegmentsAfterDotOrSlash() {
+            Some(more) => {
+                var i = 0
+                loop {
+                    if i >= more.size() {
+                        break
+                    }
+                    segs.append(more.get(i))
+                    i = i + 1
+                }
+                return Some("@$(segs.join("/"))")
+            }
+            None => return None
+        }
+    }
+
+    fn parseDotImportPath(self) -> Option[String] {
+        match self.parseRelativePathSegments() {
+            Some(segs) => return Some(segs.join("/"))
+            None => return None
+        }
+    }
+
+    fn parseLegacyIdentPath(self) -> Option[String] {
+        var segs: List[String] = [self.advance().lexeme]
+        match self.parsePathSegmentsAfterDotOrSlash() {
+            Some(more) => {
+                var i = 0
+                loop {
+                    if i >= more.size() {
+                        break
+                    }
+                    segs.append(more.get(i))
+                    i = i + 1
+                }
+                return Some(segs.join("/"))
+            }
+            None => return None
+        }
+    }
+
+    fn trimImportQuotes(path: String) -> String {
+        var p = path
+        if p.startsWith("\"") || p.startsWith("'") {
+            if p.len() >= 2 {
+                p = p.substring(1, p.len() - 1)
+            }
+        }
+        return p
+    }
+
+    fn classifyImportPath(path: String) -> ImportPathClassified {
+        if path.startsWith("@soyuz/") || path == "@soyuz" {
+            return ImportPathClassified { kind: ImportPathKind.Stdlib, alias: "" }
+        }
+        if path.startsWith("@/") {
+            return ImportPathClassified { kind: ImportPathKind.ProjectRoot, alias: "" }
+        }
+        if path.startsWith("@") {
+            val rest = path.substring(1, path.len())
+            match rest.indexOf("/") {
+                Some(idx) => return ImportPathClassified { kind: ImportPathKind.PackageAlias, alias: rest.substring(0, idx) }
+                None => return ImportPathClassified { kind: ImportPathKind.PackageAlias, alias: rest }
+            }
+        }
+        if path.startsWith("./") || path.startsWith("../") || path == "." || path == ".." {
+            return ImportPathClassified { kind: ImportPathKind.Relative, alias: "" }
+        }
+        if path.startsWith("@soyuz") {
+            return ImportPathClassified { kind: ImportPathKind.Stdlib, alias: "" }
+        }
+        return ImportPathClassified { kind: ImportPathKind.Legacy, alias: "" }
+    }
+
+    fn makeImportDeclFromPath(self, pos: Span, path: String, names: List[ImportName]) -> Node {
+        val cleanPath = trimImportQuotes(path)
+        val classified = classifyImportPath(cleanPath)
+        return self.buildImportDecl(pos, cleanPath, classified.kind, classified.alias, names)
+    }
+
+    fn makeImportDeclFromSegments(self, pos: Span, segments: List[String], isStdlib: Bool, names: List[ImportName]) -> Node {
+        var path = ""
+        var kind = ImportPathKind.Legacy
+        val alias = ""
+        if isStdlib {
+            path = "@soyuz/$(segments.join("/"))"
+            kind = ImportPathKind.Stdlib
+        } else if segments.size() > 0 && (segments.get(0) == "." || segments.get(0) == "..") {
+            path = segments.join("/")
+            kind = ImportPathKind.Relative
+        } else {
+            path = segments.join("/")
+            kind = ImportPathKind.Legacy
+        }
+        return self.buildImportDecl(pos, path, kind, alias, names)
+    }
+
+    fn buildImportDecl(self, pos: Span, path: String, kind: ImportPathKind, alias: String, names: List[ImportName]) -> Node {
+        val segments = importDeclPathSegments(path, kind, alias)
+        var namespace = ""
+        if segments.size() > 0 {
+            namespace = segments.get(segments.size() - 1)
+        }
+        return ImportDecl(
+            self.allocNodeId(),
+            pos,
+            ImportDeclData {
+                path: path,
+                names: names,
+                namespace: namespace,
+                pathKind: kind,
+                packageAlias: alias,
+                isStdlib: kind == ImportPathKind.Stdlib,
+                resolvedFiles: []
+            }
+        )
+    }
+}

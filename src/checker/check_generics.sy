@@ -1,0 +1,188 @@
+import (
+    { Node, TypeExpr, Pattern, FuncParam } from @ast/ast
+    { nodePos, nodeId } from @ast/ast_helpers
+    {
+        Checker, Type, FuncType, RecordType, ClassType, EnumType, TupleType,
+        TypeParameter, SpecializedType, IntType, FloatType, BoolType, StringType,
+        CharType, Unknown
+    } from @checker/types
+    { checkNode, getNodeType, checkerErrorf } from @checker/checker
+)
+
+pub fn inferGenerics(c: Checker, f: FuncType, args: List[Node]) -> List[Type] {
+    var inferred: Map[String, Type] = [:]
+    for i in range(0, args.size()) {
+        if i >= f.params.size() { break }
+        val argType = inferExprType(c, args[i])
+        unify(c, f.params[i], argType, inferred)
+    }
+    var results: List[Type] = []
+    for name in f.generics {
+        results.append(inferred.get(name) ?: Unknown)
+    }
+    return results
+}
+
+pub fn inferExprType(c: Checker, n: Node) -> Type {
+    val id = nodeId(n)
+    match getNodeType(c, id) {
+        Some(t) if t != Unknown => return t
+        _ => UnitType
+    }
+    return match n {
+        Node.IntLiteral(_, _, _) => IntType
+        Node.FloatLiteral(_, _, _) => FloatType
+        Node.BoolLiteral(_, _, _) => BoolType
+        Node.StringLiteral(_, _, _) => StringType
+        Node.CharLiteral(_, _, _) => CharType
+        Node.NamedArg(_, _, data) => inferExprType(c, data.value)
+        Node.Identifier(_, _, data) => match c.scope.resolve(data.name) {
+            Some(sym) => sym.typ
+            None => Unknown
+        }
+        Node.MemberExpr(_, _, data) => {
+            val objType = inferExprType(c, data.object)
+            resolveMemberType(c, objType, data.property, nodePos(n))
+        }
+        Node.SpecializedExpr(_, _, data) => inferSpecializedExprType(c, data, n)
+        Node.CallExpr(_, _, data) => inferCallExprType(c, data)
+        _ => checkNode(c, n)
+    }
+}
+
+fn inferSpecializedExprType(c: Checker, data: SpecializedExprData, n: Node) -> Type {
+    val baseType = inferExprType(c, data.base)
+    val specParams = typeArgsFromExprs(c, data.typeArgs)
+    if specParams == None { return Unknown }
+    return match baseType {
+        FuncType(_, _, generics, _, _) if specParams.get().size() == generics.size() =>
+            instantiateFunc(c, baseType, specParams.get())
+        RecordType(_, _, _) | ClassType(_, _, _, _, _, _, _, _) | EnumType(_, _, _, _) =>
+            SpecializedType { base: baseType, params: specParams.get() }
+        _ => Unknown
+    }
+}
+
+fn inferCallExprType(c: Checker, data: CallExprData) -> Type {
+    val calleeType = match data.callee {
+        Node.SpecializedExpr(_, _, seData) => inferSpecializedExprType(c, seData, data.callee)
+        _ => inferExprType(c, data.callee)
+    }
+    return match calleeType {
+        FuncType(params, ret, generics, _, _) => {
+            if generics.size() > 0 && data.args.size() > 0 {
+                instantiateFunc(c, calleeType, inferGenerics(c, calleeType, data.args)).returnType
+            } else { ret }
+        }
+        _ => Unknown
+    }
+}
+
+pub fn unify(c: Checker, param: Type, actual: Type, inferred: Map[String, Type]) {
+    match param {
+        TypeParameter(name) => {
+            if !inferred.contains(name) {
+                inferred[name] = actual
+            }
+        }
+        TupleType(pElems) => match actual {
+            TupleType(aElems) if pElems.size() == aElems.size() => {
+                for i in range(0, pElems.size()) {
+                    unify(c, pElems[i], aElems[i], inferred)
+                }
+            }
+            _ => UnitType
+        }
+        SpecializedType(pBase, _, pParams) => match actual {
+            SpecializedType(aBase, _, aParams) if pBase.toString() == aBase.toString() => {
+                for i in range(0, pParams.size()) {
+                    if i < aParams.size() {
+                        unify(c, pParams[i], aParams[i], inferred)
+                    }
+                }
+            }
+            _ => UnitType
+        }
+        _ => UnitType
+    }
+}
+
+pub fn instantiateFunc(c: Checker, f: FuncType, specParams: List[Type]) -> FuncType {
+    if specParams.size() == 0 { return f }
+    var sub: Map[String, Type] = [:]
+    for i in range(0, f.generics.size()) {
+        if i < specParams.size() {
+            sub[f.generics[i]] = specParams[i]
+        }
+    }
+    var newParams: List[Type] = []
+    for p in f.params {
+        newParams.append(substitute(c, p, sub))
+    }
+    return FuncType { params: newParams, returnType: substitute(c, f.returnType, sub), generics: f.generics, defaults: f.defaults, isOptional: f.isOptional }
+}
+
+pub fn substitute(c: Checker, t: Type, sub: Map[String, Type]) -> Type = match t {
+    TypeParameter(name) => sub.get(name) ?: t
+    SpecializedType(base, _, params) => {
+        var newParams: List[Type] = []
+        for p in params { newParams.append(substitute(c, p, sub)) }
+        SpecializedType { base: base, params: newParams }
+    }
+    TupleType(elems) => {
+        var newElems: List[Type] = []
+        for e in elems { newElems.append(substitute(c, e, sub)) }
+        TupleType { elements: newElems }
+    }
+    _ => t
+}
+
+pub fn typeArgsFromExprs(c: Checker, args: List[TypeExpr]) -> Option[List[Type]] {
+    if args.size() == 0 { return None }
+    var out: List[Type] = []
+    for te in args { out.append(resolveTypeExpr(c, te)) }
+    return Some(out)
+}
+
+import ({ Span } from @lexer/tokens)
+
+
+pub fn resolveTypeExpr(c: Checker, e: TypeExpr) -> Type = match e {
+    TypeExpr.Func(_, _, paramTypes, ret) => {
+        var params: List[Type] = []
+        for p in paramTypes { params.append(resolveTypeExpr(c, p)) }
+        FuncType { params: params, returnType: match ret { Some(r) => resolveTypeExpr(c, r), None => UnitType }, generics: [], defaults: [], isOptional: [] }
+    }
+    TypeExpr.Named(_, span, name) => resolveNamedType(c, span, name)
+    TypeExpr.Generic(_, _, name, params) => {
+        val base = resolveTypeExpr(c, TypeExpr.Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, name))
+        var p: List[Type] = []
+        for te in params { p.append(resolveTypeExpr(c, te)) }
+        SpecializedType { base: base, params: p }
+    }
+    TypeExpr.Optional(_, _, inner) => {
+        val innerT = resolveTypeExpr(c, inner)
+        val base = resolveTypeExpr(c, TypeExpr.Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
+        SpecializedType { base: base, params: [innerT] }
+    }
+    TypeExpr.Tuple(_, _, elements) => {
+        if elements.size() == 0 { return UnitType }
+        var elems: List[Type] = []
+        for te in elements { elems.append(resolveTypeExpr(c, te)) }
+        TupleType { elements: elems }
+    }
+}
+
+fn resolveNamedType(c: Checker, span: Span, name: String) -> Type = match name {
+    "Int" => IntType
+    "Float" => FloatType
+    "String" => StringType
+    "Bool" => BoolType
+    "Char" => CharType
+    "Unit" => UnitType
+    "Error" => match c.scope.resolve("Error") { Some(sym) => sym.typ, None => Unknown }
+    _ => match c.scope.resolve(name) {
+        Some(sym) => sym.typ
+        None => { checkerErrorf(c, span, "unknown type: $(name)", []); Unknown }
+    }
+}

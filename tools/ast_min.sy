@@ -1,0 +1,5 @@
+import ({ VarKind } from @ast/ast)
+
+fn main() {
+    val _ = VarKind.Val
+}

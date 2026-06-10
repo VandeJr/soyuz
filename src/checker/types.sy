@@ -1,0 +1,220 @@
+import (
+    { Span } from @lexer/tokens
+    { Node, FuncDeclData } from @ast/ast
+)
+
+pub interface Type {
+    pub fn toString(self) -> String
+}
+
+pub record BasicType {
+    name: String
+} : Type {
+    pub fn toString(self) -> String = self.name
+}
+
+pub record FuncType {
+    params: List[Type],
+    returnType: Type,
+    generics: List[String],
+    defaults: List[Option[Node]],
+    isOptional: List[Bool]
+} : Type {
+    pub fn toString(self) -> String {
+        var gen = ""
+        if self.generics.size() > 0 {
+            gen = "[" + self.generics.join(", ") + "]"
+        }
+        var paramStrs: List[String] = []
+        for i in range(0, self.params.size()) {
+            var p = self.params[i]
+            if i < self.isOptional.size() && self.isOptional[i] {
+                match p {
+                    SpecializedType(base, params) if params.size() == 1 => {
+                        paramStrs.append(params[0].toString() + "?")
+                    }
+                    _ => paramStrs.append(p.toString() + "?")
+                }
+            } else {
+                paramStrs.append(p.toString())
+            }
+        }
+        return gen + "(" + paramStrs.join(", ") + ") -> " + self.returnType.toString()
+    }
+}
+
+pub record RecordType {
+    name: String,
+    fields: Map[String, Type],
+    generics: List[String]
+} : Type {
+    pub fn toString(self) -> String = self.name
+}
+
+pub record EnumType {
+    name: String,
+    variants: Map[String, List[Type]],
+    variantFieldNames: Map[String, List[String]],
+    generics: List[String]
+} : Type {
+    pub fn toString(self) -> String = self.name
+}
+
+pub record InterfaceType {
+    name: String,
+    methods: Map[String, FuncType]
+} : Type {
+    pub fn toString(self) -> String = self.name
+}
+
+pub record ClassType {
+    name: String,
+    fields: Map[String, Type],
+    fieldPub: Map[String, Bool],
+    fieldInit: Map[String, Node],
+    methods: Map[String, List[FuncType]],
+    methodPub: Map[String, Bool],
+    implements: List[InterfaceType],
+    generics: List[String]
+} : Type {
+    pub fn toString(self) -> String = self.name
+
+    pub fn findMethod(self, name: String, arity: Int) -> Option[FuncType] {
+        val variants = self.methods.get(name) ?: []
+        if variants.size() == 0 {
+            return None
+        }
+        if arity < 0 || variants.size() == 1 {
+            return Some(variants[0])
+        }
+        for ft in variants {
+            if ft.params.size() == arity {
+                return Some(ft)
+            }
+        }
+        return Some(variants[0])
+    }
+}
+
+pub record TupleType {
+    elements: List[Type]
+} : Type {
+    pub fn toString(self) -> String {
+        if self.elements.size() == 0 {
+            return "Unit"
+        }
+        var parts: List[String] = []
+        for e in self.elements {
+            parts.append(e.toString())
+        }
+        return "(" + parts.join(", ") + ")"
+    }
+}
+
+pub record TypeParameter {
+    name: String
+} : Type {
+    pub fn toString(self) -> String = self.name
+}
+
+pub record SpecializedType {
+    base: Type,
+    params: List[Type]
+} : Type {
+    pub fn toString(self) -> String {
+        var paramStrs: List[String] = []
+        for p in self.params {
+            paramStrs.append(p.toString())
+        }
+        return self.base.toString() + "[" + paramStrs.join(", ") + "]"
+    }
+}
+
+pub val IntType: Type = BasicType { name: "Int" }
+pub val FloatType: Type = BasicType { name: "Float" }
+pub val BoolType: Type = BasicType { name: "Bool" }
+pub val StringType: Type = BasicType { name: "String" }
+pub val CharType: Type = BasicType { name: "Char" }
+pub val UnitType: Type = BasicType { name: "Unit" }
+pub val Unknown: Type = BasicType { name: "Unknown" }
+
+pub record TypeError {
+    span: Span,
+    end: Span,
+    file: String,
+    code: String,
+    message: String
+}
+
+pub record TypeWarning {
+    span: Span,
+    end: Span,
+    file: String,
+    code: String,
+    message: String
+}
+
+pub record Symbol {
+    typ: Type,
+    isReadonly: Bool
+}
+
+pub class Scope {
+    var parent: Option[Scope] = None
+    var symbols: Map[String, Symbol] = [:]
+
+    pub fn define(self, name: String, t: Type, readonly: Bool) {
+        self.symbols[name] = Symbol { typ: t, isReadonly: readonly }
+    }
+
+    pub fn resolve(self, name: String) -> Option[Symbol] {
+        if self.symbols.contains(name) {
+            return Some(self.symbols[name])
+        }
+        match self.parent {
+            Some(p) => return p.resolve(name)
+            None => return None
+        }
+    }
+}
+
+pub fn newScope(parent: Option[Scope]) -> Scope = Scope { parent: parent, symbols: [:] }
+
+pub record CheckContext {
+    returnType: Option[Type],
+    expectedType: Option[Type]
+}
+
+pub record PendingClassMethod {
+    fd: FuncDeclData,
+    fdNodeId: Int,
+    ct: ClassType,
+    selfType: Type,
+    paramTypes: List[Type],
+    retType: Type,
+    file: String
+}
+
+pub record PendingExtendMethod {
+    fd: FuncDeclData,
+    fdNodeId: Int,
+    typeName: String,
+    selfType: Type,
+    paramTypes: List[Type],
+    retType: Type,
+    file: String
+}
+
+pub record CheckResult {
+    errors: List[TypeError],
+    warnings: List[TypeWarning],
+    nodeTypes: List[Option[Type]],
+    specializations: Map[Int, FuncType],
+    funcVariants: Map[String, List[FuncDeclData]],
+    testFuncs: List[FuncDeclData],
+    captures: Map[Int, List[String]],
+    synthCallArgs: Map[Int, List[Node]],
+    curriedCalls: Map[Int, Node],
+    typeExtensions: Map[String, Map[String, List[FuncType]]]
+}
+

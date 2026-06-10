@@ -1,0 +1,19 @@
+// M24 — always tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM24(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM24Baseline() {
+    // TODO: port milestone 24 tests from soyuz-go
+    val errs = checkM24("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M24 baseline stub")
+}

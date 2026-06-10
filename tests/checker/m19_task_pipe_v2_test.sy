@@ -1,0 +1,19 @@
+// M19 — task_pipe_v2 tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM19(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM19Baseline() {
+    // TODO: port milestone 19 tests from soyuz-go
+    val errs = checkM19("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M19 baseline stub")
+}

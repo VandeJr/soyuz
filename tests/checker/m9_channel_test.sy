@@ -1,0 +1,19 @@
+// M9 — channel tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM9(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM9Baseline() {
+    // TODO: port milestone 9 tests from soyuz-go
+    val errs = checkM9("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M9 baseline stub")
+}

@@ -1,0 +1,6 @@
+// Side-effect imports: register extend Parser methods from split modules.
+import @parser/parse_patterns
+import @parser/parse_types
+import @parser/parse_exprs
+import @parser/parse_stmts
+import @parser/parse_decls

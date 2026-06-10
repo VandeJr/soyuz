@@ -1,0 +1,69 @@
+// M2 — String extension method tests (port of m2_string_test.go)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn stringExtPreamble(src: String) -> String = "
+extern fn soyuz_str_len(s: String) -> Int
+extern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+extern fn soyuz_str_to_upper(s: String) -> String
+extern fn soyuz_str_index_of(s: String, sub: String) -> Int
+
+pub class StringExtensions {
+  pub fn len(self) -> Int = soyuz_str_len(self)
+  pub fn substring(self, start: Int, end: Int) -> String = soyuz_str_substring(self, start, end)
+  pub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub)
+  pub fn toUpper(self) -> String = soyuz_str_to_upper(self)
+  pub fn indexOf(self, sub: String) -> Int = soyuz_str_index_of(self, sub)
+}
+" + src
+
+fn checkString(src: String) -> List[TypeError] {
+    val full = stringExtPreamble(src)
+    val tokens = tokenize(full)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testStringLenMethod() {
+    val errs = checkString("fn main() { val n: Int = \"hello\".len() }")
+    assert(errs.size() == 0, "erros inesperados em len")
+}
+
+test fn testStringSubstringMethod() {
+    val errs = checkString("fn main() { val s: String = \"hello\".substring(0, 3) }")
+    assert(errs.size() == 0, "erros inesperados em substring")
+}
+
+test fn testStringContainsMethod() {
+    val errs = checkString("fn main() { val b: Bool = \"hello world\".contains(\"world\") }")
+    assert(errs.size() == 0, "erros inesperados em contains")
+}
+
+test fn testStringToUpperMethod() {
+    val errs = checkString("fn main() { val s: String = \"hello\".toUpper() }")
+    assert(errs.size() == 0, "erros inesperados em toUpper")
+}
+
+test fn testStringIndexOfMethod() {
+    val src = "fn main() {
+        val i: Option[Int] = \"hello\".indexOf(\"ll\")
+        val _ = i
+    }"
+    val errs = checkString(src)
+    assert(errs.size() == 0, "erros inesperados em indexOf")
+}
+
+test fn testStringUnknownMethodError() {
+    val errs = checkString("fn main() { \"hello\".nonexistent() }")
+    assert(errs.size() > 0, "esperava erro para método inexistente em String")
+}
+
+test fn testStringMethodChain() {
+    val errs = checkString("fn main() { val n: Int = \"hello\".substring(0, 3).len() }")
+    assert(errs.size() == 0, "erros inesperados em chain")
+}

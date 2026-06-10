@@ -1,0 +1,6 @@
+soyuz-go/
+.cursor/
+target/
+main
+output
+result.txt

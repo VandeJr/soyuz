@@ -1,0 +1,19 @@
+// M22 — tap tests (stub — port from soyuz-go/internal/checker/)
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { newChecker, check } from @checker/checker
+    { TypeError, CheckResult } from @checker/types
+)
+
+fn checkM22(src: String) -> List[TypeError] {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return check(newChecker(), prog).errors
+}
+
+test fn testM22Baseline() {
+    // TODO: port milestone 22 tests from soyuz-go
+    val errs = checkM22("fn main() { val x: Int = 1 }")
+    assert(errs.size() == 0, "M22 baseline stub")
+}

@@ -1,0 +1,560 @@
+import (
+    { TokenType, Span } from @lexer/tokens
+    {
+        Node, TypeExpr, MatchArm, MapEntry, RecordLiteralField,
+        IntLiteralData, FloatLiteralData, StringLiteralData, CharLiteralData, BoolLiteralData,
+        OkExprData, ErrExprData, SomeExprData,
+        UnaryExprData, BinaryExprData, AssignExprData, CallExprData, NamedArgData,
+        MemberExprData, SafeNavExprData, ElvisExprData, PipeExprData, PipeQuestExprData,
+        AsyncPipeExprData, AsyncPipeQuestStepData, IndexExprData, RangeExprData,
+        TupleExprData, ListExprData, MapExprData, SpecializedExprData, RecordLiteralData,
+        MatchExprData, TaskExprData, ArrowFuncData, InterpolatedStringData, IdentifierData
+    } from @ast/ast
+    { Parser, isUppercase } from @parser/parser
+)
+
+pub fn bindingPower(t: TokenType) -> Int = match t {
+    PIPE => 2
+    PIPE_QUEST => 2
+    ASYNC_PIPE => 2
+    ASYNC_PIPE_QUEST => 2
+    ASSIGN => 4
+    ELVIS => 6
+    OR => 8
+    PIPE_SINGLE => 10
+    CARET => 12
+    AND => 14
+    AMPERSAND => 16
+    EQUALS => 18
+    NOT_EQUALS => 18
+    LT => 20
+    GT => 20
+    LTE => 20
+    GTE => 20
+    RANGE => 22
+    RANGE_INCL => 22
+    SHL => 24
+    SHR => 24
+    PLUS => 26
+    MINUS => 26
+    ASTERISK => 28
+    SLASH => 28
+    PERCENT => 28
+    DOT => 30
+    SAFE_NAV => 30
+    LPAREN => 32
+    LBRACKET => 32
+    _ => 0
+}
+
+fn isBinaryInfixToken(t: TokenType) -> Bool = match t {
+    PLUS => true
+    MINUS => true
+    ASTERISK => true
+    SLASH => true
+    PERCENT => true
+    EQUALS => true
+    NOT_EQUALS => true
+    LT => true
+    GT => true
+    LTE => true
+    GTE => true
+    AND => true
+    OR => true
+    PIPE_SINGLE => true
+    AMPERSAND => true
+    CARET => true
+    SHL => true
+    SHR => true
+    _ => false
+}
+
+extend Parser {
+    fn parseExpression(self, minBP: Int) -> Node {
+        var left = self.parsePrefix()
+        loop {
+            val bp = bindingPower(self.peek().type)
+            if bp <= minBP {
+                break
+            }
+            left = self.parseInfix(left)
+        }
+        return left
+    }
+
+    fn parsePrefix(self) -> Node {
+        val span = self.peek().span
+
+        return match self.peek().type {
+            INT_LITERAL => {
+                val tok = self.advance()
+                IntLiteral(self.allocNodeId(), tok.span, IntLiteralData { value: tok.lexeme })
+            }
+            FLOAT_LITERAL => {
+                val tok = self.advance()
+                FloatLiteral(self.allocNodeId(), tok.span, FloatLiteralData { value: tok.lexeme })
+            }
+            STRING_LITERAL => {
+                val tok = self.advance()
+                StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme })
+            }
+            CHAR_LITERAL => {
+                val tok = self.advance()
+                val ch = tok.lexeme.unicodeAt(0) ?: '\0'
+                CharLiteral(self.allocNodeId(), tok.span, CharLiteralData { value: ch })
+            }
+            STRING_PART => self.parseInterpolatedString()
+            INTERP_START => self.parseInterpolatedString()
+            TRUE => {
+                self.advance()
+                BoolLiteral(self.allocNodeId(), span, BoolLiteralData { value: true })
+            }
+            FALSE => {
+                self.advance()
+                BoolLiteral(self.allocNodeId(), span, BoolLiteralData { value: false })
+            }
+            NONE => {
+                self.advance()
+                NoneLit(self.allocNodeId(), span)
+            }
+            SELF => {
+                self.advance()
+                SelfExpr(self.allocNodeId(), span)
+            }
+            OK => {
+                self.advance()
+                self.expect(LPAREN)
+                val val = self.parseExpression(0)
+                self.expect(RPAREN)
+                OkExpr(self.allocNodeId(), span, OkExprData { value: val })
+            }
+            ERR => {
+                self.advance()
+                self.expect(LPAREN)
+                val val = self.parseExpression(0)
+                self.expect(RPAREN)
+                ErrExpr(self.allocNodeId(), span, ErrExprData { value: val })
+            }
+            SOME => {
+                self.advance()
+                self.expect(LPAREN)
+                val val = self.parseExpression(0)
+                self.expect(RPAREN)
+                SomeExpr(self.allocNodeId(), span, SomeExprData { value: val })
+            }
+            MINUS => {
+                self.advance()
+                val operand = self.parseExpression(28)
+                UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "-", operand: operand })
+            }
+            BANG => {
+                self.advance()
+                val operand = self.parseExpression(28)
+                UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "!", operand: operand })
+            }
+            TILDE => {
+                self.advance()
+                val operand = self.parseExpression(28)
+                UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "~", operand: operand })
+            }
+            LPAREN => self.parseParenOrTuple()
+            LBRACKET => self.parseListOrMap()
+            MATCH => self.parseMatchExpr()
+            IF => self.parseIf()
+            FOR => self.parseFor()
+            WHILE => self.parseWhile()
+            LOOP => self.parseLoop()
+            TASK => {
+                self.advance()
+                if self.peek().type == FN {
+                    self.errorf(span, "task não aceita lambda — extraia uma função nomeada")
+                }
+                val inner = self.parseExpression(0)
+                TaskExpr(self.allocNodeId(), span, TaskExprData { inner: inner })
+            }
+            SELECT => self.parseSelectExpr()
+            FN => {
+                if self.peekN(1).type == IDENT {
+                    self.errorf(span, "declaração de função não é uma expressão — use fn(...) => expr para funções anônimas")
+                }
+                self.parseAnonymousFunc()
+            }
+            IDENT => self.parseIdentOrRecordLiteral()
+            UNDERSCORE => {
+                val tok = self.advance()
+                Identifier(self.allocNodeId(), tok.span, IdentifierData { name: "_" })
+            }
+            _ => {
+                self.errorf(span, "token inesperado na expressão: $(self.peek().type) ($(self.peek().lexeme))")
+                val tok = self.advance()
+                Identifier(self.allocNodeId(), tok.span, IdentifierData { name: tok.lexeme })
+            }
+        }
+    }
+
+    fn parseInfix(self, left: Node) -> Node {
+        val tok = self.peek()
+        val bp = bindingPower(tok.type)
+
+        if isBinaryInfixToken(tok.type) {
+            self.advance()
+            val right = self.parseExpression(bp)
+            return BinaryExpr(self.allocNodeId(), tok.span, BinaryExprData { operator: tok.lexeme, left: left, right: right })
+        }
+
+        return match tok.type {
+            ASSIGN => {
+                self.advance()
+                val right = self.parseExpression(bp - 1)
+                AssignExpr(self.allocNodeId(), tok.span, AssignExprData { left: left, right: right })
+            }
+            PIPE => {
+                self.advance()
+                val right = self.parseExpression(bp)
+                PipeExpr(self.allocNodeId(), tok.span, PipeExprData { left: left, right: right })
+            }
+            PIPE_QUEST => {
+                self.advance()
+                val right = self.parseExpression(bp)
+                PipeQuestExpr(self.allocNodeId(), tok.span, PipeQuestExprData { left: left, right: right })
+            }
+            ASYNC_PIPE => {
+                self.advance()
+                val right = self.parseExpression(bp)
+                match left {
+                    AsyncPipeExpr(id, span, data) => {
+                        var newSteps = data.steps
+                        newSteps.append(right)
+                        AsyncPipeExpr(id, span, AsyncPipeExprData { steps: newSteps })
+                    }
+                    _ => AsyncPipeExpr(self.allocNodeId(), tok.span, AsyncPipeExprData { steps: [left, right] })
+                }
+            }
+            ASYNC_PIPE_QUEST => {
+                self.advance()
+                val right = self.parseExpression(bp)
+                val questStep = AsyncPipeQuestStep(
+                    self.allocNodeId(),
+                    tok.span,
+                    AsyncPipeQuestStepData { step: right }
+                )
+                match left {
+                    AsyncPipeExpr(id, span, data) => {
+                        var newSteps = data.steps
+                        newSteps.append(questStep)
+                        AsyncPipeExpr(id, span, AsyncPipeExprData { steps: newSteps })
+                    }
+                    _ => AsyncPipeExpr(self.allocNodeId(), tok.span, AsyncPipeExprData { steps: [left, questStep] })
+                }
+            }
+            ELVIS => {
+                self.advance()
+                val right = self.parseExpression(bp)
+                ElvisExpr(self.allocNodeId(), tok.span, ElvisExprData { left: left, right: right })
+            }
+            RANGE => {
+                self.advance()
+                val to = self.parseExpression(bp)
+                RangeExpr(self.allocNodeId(), tok.span, RangeExprData { from: left, to: to, inclusive: false })
+            }
+            RANGE_INCL => {
+                self.advance()
+                val to = self.parseExpression(bp)
+                RangeExpr(self.allocNodeId(), tok.span, RangeExprData { from: left, to: to, inclusive: true })
+            }
+            DOT => {
+                self.advance()
+                if self.check(INT_LITERAL) {
+                    val prop = self.advance().lexeme
+                    return MemberExpr(self.allocNodeId(), tok.span, MemberExprData { object: left, property: prop })
+                }
+                val prop = self.expectName().lexeme
+                MemberExpr(self.allocNodeId(), tok.span, MemberExprData { object: left, property: prop })
+            }
+            SAFE_NAV => {
+                self.advance()
+                val prop = self.expectName().lexeme
+                SafeNavExpr(self.allocNodeId(), tok.span, SafeNavExprData { object: left, property: prop })
+            }
+            LPAREN => {
+                self.advance()
+                val args = self.parseCallArgs()
+                self.expect(RPAREN)
+                CallExpr(self.allocNodeId(), tok.span, CallExprData { callee: left, args: args })
+            }
+            LBRACKET => {
+                if self.looksLikeTypeArgList() {
+                    val typeArgs = self.parseBracketTypeArgs()
+                    return SpecializedExpr(self.allocNodeId(), tok.span, SpecializedExprData { base: left, typeArgs: typeArgs })
+                }
+                self.advance()
+                val idx = self.parseExpression(0)
+                self.expect(RBRACKET)
+                IndexExpr(self.allocNodeId(), tok.span, IndexExprData { object: left, index: idx })
+            }
+            _ => left
+        }
+    }
+
+    fn parseCallArgs(self) -> List[Node] {
+        var args: List[Node] = []
+        loop {
+            if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
+                break
+            }
+            self.skipSemicolons()
+            if self.check(TokenType.RPAREN) {
+                break
+            }
+            if self.check(TokenType.IDENT) && self.peekN(1).type == COLON {
+                val pos = self.peek().span
+                val name = self.expect(IDENT).lexeme
+                self.expect(COLON)
+                val value = self.parseExpression(0)
+                args.append(NamedArg(self.allocNodeId(), pos, NamedArgData { name: name, value: value }))
+            } else {
+                args.append(self.parseExpression(0))
+            }
+            if !self.check(TokenType.RPAREN) {
+                self.consume(COMMA)
+            }
+            self.skipSemicolons()
+        }
+        return args
+    }
+
+    fn parseParenOrTuple(self) -> Node {
+        val span = self.expect(LPAREN).span
+        if self.check(TokenType.RPAREN) {
+            self.advance()
+            return TupleExpr(self.allocNodeId(), span, TupleExprData { elements: [] })
+        }
+        val first = self.parseExpression(0)
+        if self.consume(COMMA) {
+            var elements: List[Node] = [first]
+            loop {
+                if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
+                    break
+                }
+                elements.append(self.parseExpression(0))
+                if !self.check(TokenType.RPAREN) {
+                    self.consume(COMMA)
+                }
+            }
+            self.expect(RPAREN)
+            return TupleExpr(self.allocNodeId(), span, TupleExprData { elements: elements })
+        }
+        self.expect(RPAREN)
+        return first
+    }
+
+    fn parseListOrMap(self) -> Node {
+        val span = self.expect(LBRACKET).span
+        if self.check(TokenType.RBRACKET) {
+            self.advance()
+            return ListExpr(self.allocNodeId(), span, ListExprData { elements: [] })
+        }
+        val first = self.parseExpression(0)
+        if self.consume(COLON) {
+            val firstVal = self.parseExpression(0)
+            var entries: List[MapEntry] = [MapEntry { key: first, value: firstVal }]
+            loop {
+                if !self.consume(COMMA) {
+                    break
+                }
+                if self.check(TokenType.RBRACKET) {
+                    break
+                }
+                val key = self.parseExpression(0)
+                self.expect(COLON)
+                val val = self.parseExpression(0)
+                entries.append(MapEntry { key: key, value: val })
+            }
+            self.expect(RBRACKET)
+            return MapExpr(self.allocNodeId(), span, MapExprData { entries: entries })
+        }
+        var elements: List[Node] = [first]
+        loop {
+            if !self.consume(COMMA) {
+                break
+            }
+            if self.check(TokenType.RBRACKET) {
+                break
+            }
+            elements.append(self.parseExpression(0))
+        }
+        self.expect(RBRACKET)
+        return ListExpr(self.allocNodeId(), span, ListExprData { elements: elements })
+    }
+
+    fn parseIdentOrRecordLiteral(self) -> Node {
+        val tok = self.advance()
+        val name = tok.lexeme
+        if self.check(TokenType.LBRACKET) && self.looksLikeTypeArgList() {
+            val typeArgs = self.parseBracketTypeArgs()
+            if isUppercase(name) && self.check(TokenType.LBRACE) {
+                return self.parseRecordLiteralBody(tok.span, name, typeArgs)
+            }
+            return SpecializedExpr(
+                self.allocNodeId(),
+                tok.span,
+                SpecializedExprData {
+                    base: Identifier(self.allocNodeId(), tok.span, IdentifierData { name: name }),
+                    typeArgs: typeArgs
+                }
+            )
+        }
+        if isUppercase(name) && self.check(TokenType.LBRACE) {
+            return self.parseRecordLiteralBody(tok.span, name, [])
+        }
+        return Identifier(self.allocNodeId(), tok.span, IdentifierData { name: name })
+    }
+
+    fn looksLikeTypeArgList(self) -> Bool {
+        if !self.check(TokenType.LBRACKET) {
+            return false
+        }
+        val tok = self.peekN(1)
+        var next = EOF
+        if self.pos + 2 < self.tokens.size() {
+            next = self.peekN(2).type
+        }
+        return self.isTypeArgStart(tok.type, tok.lexeme, next)
+    }
+
+    fn isTypeArgStart(self, tt: TokenType, lex: String, next: TokenType) -> Bool = match tt {
+        INT_TYPE => true
+        FLOAT_TYPE => true
+        BOOL_TYPE => true
+        STRING_TYPE => true
+        CHAR_TYPE => true
+        UNIT_TYPE => true
+        LPAREN => true
+        IDENT => isUppercase(lex) || next == COMMA || next == RBRACKET
+        _ => false
+    }
+
+    fn parseBracketTypeArgs(self) -> List[TypeExpr] {
+        self.expect(LBRACKET)
+        var params: List[TypeExpr] = []
+        loop {
+            if self.check(TokenType.RBRACKET) || self.check(TokenType.EOF) {
+                break
+            }
+            params.append(self.parseTypeExpr())
+            if !self.check(TokenType.RBRACKET) {
+                self.consume(COMMA)
+            }
+        }
+        self.expect(RBRACKET)
+        return params
+    }
+
+    fn parseRecordLiteralBody(self, span: Span, name: String, typeArgs: List[TypeExpr]) -> Node {
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var fields: List[RecordLiteralField] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            val fpos = self.peek().span
+            val fname = self.expect(IDENT).lexeme
+            self.expect(COLON)
+            val fval = self.parseExpression(0)
+            fields.append(RecordLiteralField { span: fpos, name: fname, value: fval })
+            self.consume(COMMA)
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        return RecordLiteral(self.allocNodeId(), span, RecordLiteralData { name: name, typeArgs: typeArgs, fields: fields })
+    }
+
+    fn parseMatchExpr(self) -> Node {
+        val span = self.advance().span
+        val subject = self.parseExpression(0)
+        self.expect(LBRACE)
+        self.skipSemicolons()
+        var arms: List[MatchArm] = []
+        loop {
+            if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
+                break
+            }
+            arms.append(self.parseMatchArm())
+            self.skipSemicolons()
+        }
+        self.expect(RBRACE)
+        return MatchExpr(self.allocNodeId(), span, MatchExprData { subject: subject, arms: arms })
+    }
+
+    fn parseMatchArm(self) -> MatchArm {
+        val span = self.peek().span
+        val pat = self.parsePattern()
+        var guard: Option[Node] = None
+        if self.check(TokenType.WHEN) || self.check(TokenType.IF) {
+            self.advance()
+            guard = Some(self.parseExpression(0))
+        }
+        self.expect(FAT_ARROW)
+        val body = self.parseArmBody()
+        match body {
+            BlockStmt(_, _, _) => ()
+            _ => {
+                if !self.consume(COMMA) {
+                    self.consume(SEMICOLON)
+                }
+            }
+        }
+        return MatchArm { span: span, pattern: pat, guard: guard, body: body }
+    }
+
+    fn parseAnonymousFunc(self) -> Node {
+        val span = self.expect(FN).span
+        val params = self.parseFuncParams()
+        var returnType: Option[TypeExpr] = None
+        if self.consume(ARROW) {
+            returnType = Some(self.parseTypeExpr())
+        }
+        self.expect(FAT_ARROW)
+        val body = if self.check(TokenType.LBRACE) {
+            self.parseBlock()
+        } else {
+            self.parseExpression(0)
+        }
+        return ArrowFunc(self.allocNodeId(), span, ArrowFuncData { params: params, returnType: returnType, body: body })
+    }
+
+    fn parseInterpolatedString(self) -> Node {
+        val span = self.peek().span
+        var parts: List[Node] = []
+
+        loop {
+            match self.peek().type {
+                STRING_PART => {
+                    val tok = self.advance()
+                    parts.append(StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme }))
+                }
+                INTERP_START => {
+                    self.advance()
+                    val expr = self.parseExpression(0)
+                    parts.append(expr)
+                    self.expect(INTERP_END)
+                }
+                STRING_LITERAL => {
+                    val tok = self.advance()
+                    if tok.lexeme != "" {
+                        parts.append(StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme }))
+                    }
+                    if parts.size() == 1 {
+                        match parts.get(0) {
+                            StringLiteral(_, _, _) => return parts.get(0)
+                            _ => ()
+                        }
+                    }
+                    return InterpolatedString(self.allocNodeId(), span, InterpolatedStringData { parts: parts })
+                }
+                _ => return InterpolatedString(self.allocNodeId(), span, InterpolatedStringData { parts: parts })
+            }
+        }
+    }
+}
