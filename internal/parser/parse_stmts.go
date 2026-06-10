@@ -195,6 +195,9 @@ func (p *Parser) parseArmBody() Node {
 	if p.check(lexer.CONTINUE) {
 		return p.parseContinue()
 	}
+	if p.check(lexer.RETURN) {
+		return p.parseReturn()
+	}
 	expr := p.parseExpression(0)
 	p.consume(lexer.SEMICOLON)
 	return expr

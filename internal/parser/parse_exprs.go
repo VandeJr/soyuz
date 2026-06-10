@@ -438,13 +438,21 @@ func (p *Parser) parseRecordLiteralBody(pos lexer.Position, name string) *Record
 
 	var fields []RecordLiteralField
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+		before := p.pos
 		fpos := p.peek().Position
-		fname := p.expect(lexer.IDENT).Lexeme
+		if !p.check(lexer.IDENT) {
+			p.errorf(fpos, "esperado identificador de campo em literal record")
+			break
+		}
+		fname := p.advance().Lexeme
 		p.expect(lexer.COLON)
 		fval := p.parseExpression(0)
 		fields = append(fields, RecordLiteralField{Pos: fpos, Name: fname, Value: fval})
 		p.consume(lexer.COMMA)
 		p.skipSemicolons()
+		if !p.bumpOrBail(before) {
+			break
+		}
 	}
 	p.expect(lexer.RBRACE)
 	return &RecordLiteral{pos: pos, Name: name, Fields: fields}
@@ -458,8 +466,12 @@ func (p *Parser) parseMatchExpr() *MatchExpr {
 
 	var arms []MatchArm
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+		before := p.pos
 		arms = append(arms, p.parseMatchArm())
 		p.skipSemicolons()
+		if !p.bumpOrBail(before) {
+			break
+		}
 	}
 	p.expect(lexer.RBRACE)
 	return &MatchExpr{pos: pos, Subject: subject, Arms: arms}

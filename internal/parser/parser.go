@@ -17,6 +17,8 @@ func (e ParseError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Position, e.Message)
 }
 
+const maxParseErrors = 256
+
 // Parser is a recursive descent / Pratt parser for Soyuz (.sy).
 type Parser struct {
 	tokens []lexer.Token
@@ -123,10 +125,16 @@ func (p *Parser) isNameLikeKeyword(t lexer.TokenType) bool {
 	case lexer.OK, lexer.ERR, lexer.SOME, lexer.NONE,
 		lexer.TRUE, lexer.FALSE,
 		lexer.INT_TYPE, lexer.FLOAT_TYPE, lexer.BOOL_TYPE,
-		lexer.STRING_TYPE, lexer.UNIT_TYPE,
-		// field names that shadow declaration keywords
+		lexer.STRING_TYPE, lexer.CHAR_TYPE, lexer.UNIT_TYPE,
 		lexer.VAL, lexer.VAR, lexer.FN,
-		lexer.PUB, lexer.SELF, lexer.IN:
+		lexer.PUB, lexer.SELF, lexer.IN,
+		// declaration / control keywords used as enum variant names (e.g. AST Node)
+		lexer.RECORD, lexer.CLASS, lexer.INTERFACE, lexer.ENUM,
+		lexer.IMPORT, lexer.EXTEND, lexer.EXTERN,
+		lexer.RETURN, lexer.BREAK, lexer.CONTINUE,
+		lexer.IF, lexer.ELSE, lexer.WHEN, lexer.MATCH,
+		lexer.FOR, lexer.WHILE, lexer.LOOP,
+		lexer.TASK, lexer.SELECT, lexer.TEST:
 		return true
 	}
 	return false
@@ -143,7 +151,31 @@ func (p *Parser) skipSemicolons() {
 	}
 }
 
+// recoverDecl skips to the next likely declaration boundary and always advances
+// at least one token so error-recovery loops cannot spin on the same token.
+func (p *Parser) recoverDecl() {
+	before := p.pos
+	p.synchronize()
+	if p.pos == before && !p.check(lexer.EOF) {
+		p.advance()
+	}
+}
+
+// bumpOrBail reports whether the parser advanced since before; on stagnation it
+// records one recovery error, synchronizes, and returns false.
+func (p *Parser) bumpOrBail(before int) bool {
+	if p.pos != before {
+		return true
+	}
+	p.errorf(p.peek().Position, "erro de recuperação do parser")
+	p.recoverDecl()
+	return false
+}
+
 func (p *Parser) errorf(pos lexer.Position, format string, args ...any) {
+	if len(p.errors) >= maxParseErrors {
+		return
+	}
 	end := pos
 	if p.pos < len(p.tokens) {
 		tok := p.tokens[p.pos]

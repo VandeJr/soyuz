@@ -24,6 +24,8 @@ func (p *Parser) parseTopLevel() Node {
 		return vd
 	case lexer.FN:
 		return p.parseFuncDecl(pub)
+	case lexer.TEST:
+		return p.parseTestFuncDecl()
 	case lexer.EXTERN:
 		return p.parseExternDecl(pub)
 	case lexer.RECORD:
@@ -78,6 +80,25 @@ func (p *Parser) parseVarDecl(pub bool) *VarDecl {
 	p.consume(lexer.SEMICOLON)
 
 	return &VarDecl{pos: pos, NamePos: namePos, Pub: pub, Kind: kind, Name: name, Pattern: pattern, Type: typeExpr, Init: init}
+}
+
+func (p *Parser) parseTestFuncDecl() *FuncDecl {
+	p.expect(lexer.TEST)
+	ignore := false
+	// 'ignore' is not a keyword — detect it as the identifier "ignore" in this context.
+	if p.check(lexer.IDENT) && p.peek().Lexeme == "ignore" {
+		p.advance()
+		ignore = true
+	}
+	if !p.check(lexer.FN) {
+		p.errorf(p.peek().Position, "esperado 'fn' após 'test'")
+		p.synchronize()
+		return nil
+	}
+	fd := p.parseFuncDecl(false)
+	fd.IsTest = true
+	fd.IsIgnore = ignore
+	return fd
 }
 
 func (p *Parser) parseFuncDecl(pub bool) *FuncDecl {
@@ -300,7 +321,12 @@ func (p *Parser) parseEnumDecl(pub bool) *EnumDecl {
 
 	var variants []EnumVariant
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+		before := p.pos
 		variants = append(variants, p.parseEnumVariant())
+		if p.pos == before {
+			p.synchronize()
+			continue
+		}
 		p.consume(lexer.COMMA)
 		p.skipSemicolons()
 	}
@@ -368,15 +394,22 @@ func (p *Parser) parseExtendDecl() *ExtendDecl {
 
 	var methods []*FuncDecl
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
+		before := p.pos
 		memberPub := p.consume(lexer.PUB)
 		if !p.check(lexer.FN) {
 			p.errorf(p.peek().Position, "esperado fn em bloco extend")
-			p.synchronize()
+			p.recoverDecl()
+			if !p.bumpOrBail(before) {
+				break
+			}
 			continue
 		}
 		fd := p.parseFuncDecl(memberPub)
 		methods = append(methods, fd)
 		p.skipSemicolons()
+		if !p.bumpOrBail(before) {
+			break
+		}
 	}
 	p.expect(lexer.RBRACE)
 	p.consume(lexer.SEMICOLON)

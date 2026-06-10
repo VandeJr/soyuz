@@ -82,14 +82,7 @@ func (p *Parser) parsePattern() Pattern {
 	case lexer.IDENT:
 		name := p.advance().Lexeme
 		if isUppercase(name) {
-			if p.check(lexer.LPAREN) {
-				args := p.parseConstructorPatternArgs()
-				return &ConstructorPattern{pos: pos, Name: name, Args: args}
-			}
-			if p.check(lexer.LBRACE) {
-				return p.parseRecordPatternBody(pos, name)
-			}
-			return &ConstructorPattern{pos: pos, Name: name}
+			return p.parseNamedPattern(pos, name)
 		}
 		return &BindingPattern{pos: pos, Name: name}
 
@@ -106,10 +99,25 @@ func (p *Parser) parsePattern() Pattern {
 		return &TuplePattern{pos: pos, Elements: elements}
 
 	default:
+		if p.isNameLikeKeyword(p.peek().Type) {
+			name := p.advance().Lexeme
+			return p.parseNamedPattern(pos, name)
+		}
 		p.errorf(pos, "padrão inválido: %s (%q)", p.peek().Type, p.peek().Lexeme)
 		p.advance()
 		return &WildcardPattern{pos: pos}
 	}
+}
+
+func (p *Parser) parseNamedPattern(pos lexer.Position, name string) Pattern {
+	if p.check(lexer.LPAREN) {
+		args := p.parseConstructorPatternArgs()
+		return &ConstructorPattern{pos: pos, Name: name, Args: args}
+	}
+	if p.check(lexer.LBRACE) {
+		return p.parseRecordPatternBody(pos, name)
+	}
+	return &ConstructorPattern{pos: pos, Name: name}
 }
 
 func (p *Parser) parseConstructorPatternArgs() []Pattern {
@@ -118,9 +126,13 @@ func (p *Parser) parseConstructorPatternArgs() []Pattern {
 	}
 	var args []Pattern
 	for !p.check(lexer.RPAREN) && !p.check(lexer.EOF) {
+		before := p.pos
 		args = append(args, p.parsePattern())
 		if !p.check(lexer.RPAREN) {
 			p.consume(lexer.COMMA)
+		}
+		if !p.bumpOrBail(before) {
+			break
 		}
 	}
 	p.expect(lexer.RPAREN)
@@ -131,14 +143,23 @@ func (p *Parser) parseRecordPatternBody(pos lexer.Position, name string) *Record
 	p.expect(lexer.LBRACE)
 	var fields []RecordPatternField
 	for !p.check(lexer.RBRACE) && !p.check(lexer.EOF) {
-		fname := p.expect(lexer.IDENT).Lexeme
+		before := p.pos
+		if !p.check(lexer.IDENT) {
+			p.errorf(p.peek().Position, "esperado identificador de campo em padrão record")
+			break
+		}
+		fname := p.advance().Lexeme
 		var fpat Pattern
 		if p.consume(lexer.COLON) {
 			fpat = p.parsePattern()
 		}
 		fields = append(fields, RecordPatternField{Name: fname, Pattern: fpat})
-		if !p.check(lexer.RBRACE) {
-			p.consume(lexer.COMMA)
+		if p.check(lexer.RBRACE) {
+			break
+		}
+		p.consume(lexer.COMMA)
+		if !p.bumpOrBail(before) {
+			break
 		}
 	}
 	p.expect(lexer.RBRACE)
