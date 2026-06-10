@@ -1,0 +1,9 @@
+import @parser/load
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+)
+
+fn main() {
+    val _ = Parser.new(tokenize("val x = 1")).parse()
+}

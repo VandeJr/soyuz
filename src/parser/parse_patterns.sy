@@ -11,92 +11,92 @@ extend Parser {
         return match self.peek().type {
             UNDERSCORE => {
                 self.advance()
-                Wildcard(self.allocNodeId(), span)
+                Pattern.Wildcard(self.allocNodeId(), span)
             }
             SELF => {
                 self.advance()
-                Binding(self.allocNodeId(), span, "self")
+                Pattern.Binding(self.allocNodeId(), span, "self")
             }
             INT_LITERAL => {
                 val tok = self.advance()
                 val litVal = LiteralPatternValue.Int(tok.lexeme)
                 if self.checkAny([RANGE, RANGE_INCL]) {
-                    val inclusive = self.advance().type == RANGE_INCL
+                    val inclusive = self.advance().type == TokenType.RANGE_INCL
                     val to = self.parsePattern()
-                    return Range(self.allocNodeId(), span, litVal, to, inclusive)
+                    return Pattern.Range(self.allocNodeId(), span, litVal, to, inclusive)
                 }
-                Literal(self.allocNodeId(), span, litVal)
+                Pattern.Literal(self.allocNodeId(), span, litVal)
             }
             MINUS => {
                 self.advance()
                 match self.peek().type {
                     INT_LITERAL => {
                         val tok = self.advance()
-                        Literal(self.allocNodeId(), span, LiteralPatternValue.Int("-$(tok.lexeme)"))
+                        Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.Int("-$(tok.lexeme)"))
                     }
                     FLOAT_LITERAL => {
                         val tok = self.advance()
-                        Literal(self.allocNodeId(), span, LiteralPatternValue.Float("-$(tok.lexeme)"))
+                        Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.Float("-$(tok.lexeme)"))
                     }
                     _ => {
                         self.errorf(span, "esperado número após - em padrão")
-                        Wildcard(self.allocNodeId(), span)
+                        Pattern.Wildcard(self.allocNodeId(), span)
                     }
                 }
             }
             FLOAT_LITERAL => {
                 val tok = self.advance()
-                Literal(self.allocNodeId(), span, LiteralPatternValue.Float(tok.lexeme))
+                Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.Float(tok.lexeme))
             }
             STRING_LITERAL => {
                 val tok = self.advance()
-                Literal(self.allocNodeId(), span, LiteralPatternValue.String(tok.lexeme))
+                Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.String(tok.lexeme))
             }
             CHAR_LITERAL => {
                 val tok = self.advance()
                 val ch = tok.lexeme.unicodeAt(0) ?: '\0'
-                Literal(self.allocNodeId(), span, LiteralPatternValue.Char(ch))
+                Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.Char(ch))
             }
             TRUE => {
                 self.advance()
-                Literal(self.allocNodeId(), span, LiteralPatternValue.Bool(true))
+                Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.Bool(true))
             }
             FALSE => {
                 self.advance()
-                Literal(self.allocNodeId(), span, LiteralPatternValue.Bool(false))
+                Pattern.Literal(self.allocNodeId(), span, LiteralPatternValue.Bool(false))
             }
             NONE => {
                 self.advance()
-                Constructor(self.allocNodeId(), span, "None", [])
+                Pattern.Constructor(self.allocNodeId(), span, "None", [])
             }
             OK => {
                 val name = self.advance().lexeme
                 val args = self.parseConstructorPatternArgs()
-                Constructor(self.allocNodeId(), span, name, args)
+                Pattern.Constructor(self.allocNodeId(), span, name, args)
             }
             ERR => {
                 val name = self.advance().lexeme
                 val args = self.parseConstructorPatternArgs()
-                Constructor(self.allocNodeId(), span, name, args)
+                Pattern.Constructor(self.allocNodeId(), span, name, args)
             }
             SOME => {
                 val name = self.advance().lexeme
                 val args = self.parseConstructorPatternArgs()
-                Constructor(self.allocNodeId(), span, name, args)
+                Pattern.Constructor(self.allocNodeId(), span, name, args)
             }
             IDENT => {
                 val name = self.advance().lexeme
                 if isUppercase(name) {
                     if self.check(TokenType.LPAREN) {
                         val args = self.parseConstructorPatternArgs()
-                        return Constructor(self.allocNodeId(), span, name, args)
+                        return Pattern.Constructor(self.allocNodeId(), span, name, args)
                     }
                     if self.check(TokenType.LBRACE) {
                         return self.parseRecordPatternBody(span, name)
                     }
-                    return Constructor(self.allocNodeId(), span, name, [])
+                    return Pattern.Constructor(self.allocNodeId(), span, name, [])
                 }
-                Binding(self.allocNodeId(), span, name)
+                Pattern.Binding(self.allocNodeId(), span, name)
             }
             LPAREN => {
                 self.advance()
@@ -107,22 +107,22 @@ extend Parser {
                     }
                     elements.append(self.parsePattern())
                     if !self.check(TokenType.RPAREN) {
-                        self.consume(COMMA)
+                        self.consume(TokenType.COMMA)
                     }
                 }
-                self.expect(RPAREN)
+                self.expect(TokenType.RPAREN)
                 Tuple(self.allocNodeId(), span, elements)
             }
             _ => {
                 self.errorf(span, "padrão inválido: $(self.peek().type) ($(self.peek().lexeme))")
                 self.advance()
-                Wildcard(self.allocNodeId(), span)
+                Pattern.Wildcard(self.allocNodeId(), span)
             }
         }
     }
 
     fn parseConstructorPatternArgs(self) -> List[Pattern] {
-        if !self.consume(LPAREN) {
+        if !self.consume(TokenType.LPAREN) {
             return []
         }
         var args: List[Pattern] = []
@@ -132,31 +132,31 @@ extend Parser {
             }
             args.append(self.parsePattern())
             if !self.check(TokenType.RPAREN) {
-                self.consume(COMMA)
+                self.consume(TokenType.COMMA)
             }
         }
-        self.expect(RPAREN)
+        self.expect(TokenType.RPAREN)
         return args
     }
 
     fn parseRecordPatternBody(self, span: Span, name: String) -> Pattern {
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         var fields: List[RecordPatternField] = []
         loop {
             if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
                 break
             }
-            val fname = self.expect(IDENT).lexeme
+            val fname = self.expect(TokenType.IDENT).lexeme
             var fpat: Option[Pattern] = None
-            if self.consume(COLON) {
+            if self.consume(TokenType.COLON) {
                 fpat = Some(self.parsePattern())
             }
             fields.append(RecordPatternField { name: fname, pattern: fpat })
             if !self.check(TokenType.RBRACE) {
-                self.consume(COMMA)
+                self.consume(TokenType.COMMA)
             }
         }
-        self.expect(RBRACE)
-        return Record(self.allocNodeId(), span, name, fields)
+        self.expect(TokenType.RBRACE)
+        return Pattern.Record(self.allocNodeId(), span, name, fields)
     }
 }
