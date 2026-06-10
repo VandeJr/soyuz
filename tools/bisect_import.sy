@@ -1,0 +1,7 @@
+import @parser/parse_decls
+import @parser/parse_exprs
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+)
+fn main() {}

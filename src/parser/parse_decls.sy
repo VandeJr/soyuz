@@ -1,12 +1,6 @@
 import (
     { TokenType, Span, printToken } from @lexer/tokens
-    {
-        Node, TypeExpr, Pattern, varKindFromLexeme, ImportPathKind,
-        GenericParam, FuncParam, RecordField, InterfaceMethod, EnumVariant, EnumField,
-        ImportName, importDeclPathSegments,
-        VarDeclData, FuncDeclData, RecordDeclData, ClassDeclData, InterfaceDeclData,
-        EnumDeclData, ExtendDeclData, ImportDeclData, ExternDeclData, ExprStmtData
-    } from @ast/ast
+    { Node, TypeExpr, Pattern, varKindFromLexeme, ImportPathKind, GenericParam, FuncParam, RecordField, InterfaceMethod, EnumVariant, EnumField, ImportName, importDeclPathSegments, VarDeclData, FuncDeclData, RecordDeclData, ClassDeclData, InterfaceDeclData, EnumDeclData, ExtendDeclData, ImportDeclData, ExternDeclData, ExprStmtData } from @ast/ast
     { nodePos } from @ast/ast_helpers
     { bindingPower } from @parser/parse_exprs
     { Parser } from @parser/parser
@@ -78,8 +72,8 @@ extend Parser {
                     self.errorf(self.peek().span, "esperado declaração após pub")
                 }
                 val expr = self.parseExpression(0)
-                self.consume(SEMICOLON)
-                Some(ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: expr }))
+                self.consume(TokenType.SEMICOLON)
+                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: expr }))
             }
         }
     }
@@ -99,23 +93,23 @@ extend Parser {
             name = "_"
             namePos = tok.span
         } else {
-            val tok = self.expect(IDENT)
+            val tok = self.expect(TokenType.IDENT)
             name = tok.lexeme
             namePos = tok.span
         }
 
         var typeExpr: Option[TypeExpr] = None
-        if self.consume(COLON) {
+        if self.consume(TokenType.COLON) {
             typeExpr = Some(self.parseTypeExpr())
         }
 
         var init: Option[Node] = None
-        if self.consume(ASSIGN) {
+        if self.consume(TokenType.ASSIGN) {
             init = Some(self.parseExpression(0))
         }
-        self.consume(SEMICOLON)
+        self.consume(TokenType.SEMICOLON)
 
-        return VarDecl(
+        return Node.VarDecl(
             self.allocNodeId(),
             span,
             VarDeclData { namePos: namePos, isPub: isPub, kind: kind, name: name, pattern: pattern, typeExpr: typeExpr, init: init }
@@ -123,7 +117,7 @@ extend Parser {
     }
 
     fn parseTestFuncDecl(self) -> Option[Node] {
-        self.expect(TEST)
+        self.expect(TokenType.TEST)
         var ignore = false
         if self.check(TokenType.IDENT) && self.peek().lexeme == "ignore" {
             self.advance()
@@ -136,7 +130,7 @@ extend Parser {
         }
         match self.parseFuncDecl(false) {
             FuncDecl(id, span, data) => {
-                return Some(FuncDecl(id, span, FuncDeclData {
+                return Some(Node.FuncDecl(id, span, FuncDeclData {
                     namePos: data.namePos,
                     isPub: data.isPub,
                     name: data.name,
@@ -155,8 +149,8 @@ extend Parser {
     }
 
     fn parseFuncDecl(self, isPub: Bool) -> Node {
-        val span = self.expect(FN).span
-        val nameTok = self.expect(IDENT)
+        val span = self.expect(TokenType.FN).span
+        val nameTok = self.expect(TokenType.IDENT)
         val name = nameTok.lexeme
         val namePos = nameTok.span
 
@@ -168,12 +162,12 @@ extend Parser {
         val params = self.parseFuncParams()
 
         var whenGuard: Option[Node] = None
-        if self.consume(WHEN) {
-            whenGuard = Some(self.parseExpression(bindingPower(ASSIGN)))
+        if self.consume(TokenType.WHEN) {
+            whenGuard = Some(self.parseExpression(bindingPower(TokenType.ASSIGN)))
         }
 
         var returnType: Option[TypeExpr] = None
-        if self.consume(ARROW) {
+        if self.consume(TokenType.ARROW) {
             returnType = Some(self.parseTypeExpr())
         }
 
@@ -183,7 +177,7 @@ extend Parser {
         if self.check(TokenType.ASSIGN) || self.check(TokenType.FAT_ARROW) {
             self.advance()
             body = Some(self.parseExpression(0))
-            self.consume(SEMICOLON)
+            self.consume(TokenType.SEMICOLON)
             isExpr = true
         } else if self.check(TokenType.LBRACE) {
             body = Some(self.parseBlock())
@@ -192,7 +186,7 @@ extend Parser {
             self.synchronize()
         }
 
-        return FuncDecl(
+        return Node.FuncDecl(
             self.allocNodeId(),
             span,
             FuncDeclData {
@@ -212,18 +206,18 @@ extend Parser {
     }
 
     fn parseGenericParams(self) -> List[GenericParam] {
-        self.expect(LBRACKET)
+        self.expect(TokenType.LBRACKET)
         var params: List[GenericParam] = []
         loop {
             if self.check(TokenType.RBRACKET) || self.check(TokenType.EOF) {
                 break
             }
-            val pname = self.expect(IDENT).lexeme
+            val pname = self.expect(TokenType.IDENT).lexeme
             var constraints: List[TypeExpr] = []
-            if self.consume(COLON) {
+            if self.consume(TokenType.COLON) {
                 constraints.append(self.parseTypeExpr())
                 loop {
-                    if !self.consume(PLUS) {
+                    if !self.consume(TokenType.PLUS) {
                         break
                     }
                     constraints.append(self.parseTypeExpr())
@@ -231,15 +225,15 @@ extend Parser {
             }
             params.append(GenericParam { name: pname, constraints: constraints })
             if !self.check(TokenType.RBRACKET) {
-                self.consume(COMMA)
+                self.consume(TokenType.COMMA)
             }
         }
-        self.expect(RBRACKET)
+        self.expect(TokenType.RBRACKET)
         return params
     }
 
     fn parseFuncParams(self) -> List[FuncParam] {
-        self.expect(LPAREN)
+        self.expect(TokenType.LPAREN)
         var params: List[FuncParam] = []
         loop {
             if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
@@ -247,10 +241,10 @@ extend Parser {
             }
             params.append(self.parseFuncParam())
             if !self.check(TokenType.RPAREN) {
-                self.consume(COMMA)
+                self.consume(TokenType.COMMA)
             }
         }
-        self.expect(RPAREN)
+        self.expect(TokenType.RPAREN)
         return params
     }
 
@@ -258,24 +252,24 @@ extend Parser {
         val span = self.peek().span
         val pat = self.parsePattern()
         var typeExpr: Option[TypeExpr] = None
-        if self.consume(COLON) {
+        if self.consume(TokenType.COLON) {
             typeExpr = Some(self.parseTypeExpr())
         }
         var defaultExpr: Option[Node] = None
-        if self.consume(ASSIGN) {
+        if self.consume(TokenType.ASSIGN) {
             defaultExpr = Some(self.parseExpression(0))
         }
         return FuncParam { span: span, pattern: pat, typeExpr: typeExpr, defaultExpr: defaultExpr }
     }
 
     fn parseRecordDecl(self, isPub: Bool) -> Node {
-        val span = self.expect(RECORD).span
-        val name = self.expect(IDENT).lexeme
+        val span = self.expect(TokenType.RECORD).span
+        val name = self.expect(TokenType.IDENT).lexeme
         var generics: List[GenericParam] = []
         if self.check(TokenType.LBRACKET) {
             generics = self.parseGenericParams()
         }
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         self.skipSemicolons()
         var fields: List[RecordField] = []
         loop {
@@ -283,43 +277,43 @@ extend Parser {
                 break
             }
             val fpos = self.peek().span
-            val fname = self.expect(IDENT).lexeme
-            self.expect(COLON)
+            val fname = self.expect(TokenType.IDENT).lexeme
+            self.expect(TokenType.COLON)
             val ftype = self.parseTypeExpr()
             fields.append(RecordField { span: fpos, name: fname, typeExpr: ftype })
-            self.consume(COMMA)
+            self.consume(TokenType.COMMA)
             self.skipSemicolons()
         }
-        self.expect(RBRACE)
-        self.consume(SEMICOLON)
-        return RecordDecl(self.allocNodeId(), span, RecordDeclData { isPub: isPub, name: name, generics: generics, fields: fields })
+        self.expect(TokenType.RBRACE)
+        self.consume(TokenType.SEMICOLON)
+        return Node.RecordDecl(self.allocNodeId(), span, RecordDeclData { isPub: isPub, name: name, generics: generics, fields: fields })
     }
 
     fn parseClassDecl(self, isPub: Bool) -> Node {
-        val span = self.expect(CLASS).span
-        val name = self.expect(IDENT).lexeme
+        val span = self.expect(TokenType.CLASS).span
+        val name = self.expect(TokenType.IDENT).lexeme
         var generics: List[GenericParam] = []
         if self.check(TokenType.LBRACKET) {
             generics = self.parseGenericParams()
         }
         var interfaces: List[TypeExpr] = []
-        if self.consume(COLON) {
+        if self.consume(TokenType.COLON) {
             interfaces.append(self.parseTypeExpr())
             loop {
-                if !self.consume(COMMA) {
+                if !self.consume(TokenType.COMMA) {
                     break
                 }
                 interfaces.append(self.parseTypeExpr())
             }
         }
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         self.skipSemicolons()
         var body: List[Node] = []
         loop {
             if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
                 break
             }
-            val memberPub = self.consume(PUB)
+            val memberPub = self.consume(TokenType.PUB)
             match self.peek().type {
                 FN => body.append(self.parseFuncDecl(memberPub))
                 VAL => body.append(self.parseVarDecl(memberPub))
@@ -331,19 +325,19 @@ extend Parser {
             }
             self.skipSemicolons()
         }
-        self.expect(RBRACE)
-        self.consume(SEMICOLON)
-        return ClassDecl(self.allocNodeId(), span, ClassDeclData { isPub: isPub, name: name, generics: generics, interfaces: interfaces, body: body })
+        self.expect(TokenType.RBRACE)
+        self.consume(TokenType.SEMICOLON)
+        return Node.ClassDecl(self.allocNodeId(), span, ClassDeclData { isPub: isPub, name: name, generics: generics, interfaces: interfaces, body: body })
     }
 
     fn parseInterfaceDecl(self, isPub: Bool) -> Node {
-        val span = self.expect(INTERFACE).span
-        val name = self.expect(IDENT).lexeme
+        val span = self.expect(TokenType.INTERFACE).span
+        val name = self.expect(TokenType.IDENT).lexeme
         var generics: List[GenericParam] = []
         if self.check(TokenType.LBRACKET) {
             generics = self.parseGenericParams()
         }
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         self.skipSemicolons()
         var methods: List[InterfaceMethod] = []
         loop {
@@ -353,32 +347,32 @@ extend Parser {
             methods.append(self.parseInterfaceMethod())
             self.skipSemicolons()
         }
-        self.expect(RBRACE)
-        self.consume(SEMICOLON)
-        return InterfaceDecl(self.allocNodeId(), span, InterfaceDeclData { isPub: isPub, name: name, generics: generics, methods: methods })
+        self.expect(TokenType.RBRACE)
+        self.consume(TokenType.SEMICOLON)
+        return Node.InterfaceDecl(self.allocNodeId(), span, InterfaceDeclData { isPub: isPub, name: name, generics: generics, methods: methods })
     }
 
     fn parseInterfaceMethod(self) -> InterfaceMethod {
-        val memberPub = self.consume(PUB)
-        val span = self.expect(FN).span
-        val name = self.expect(IDENT).lexeme
+        val memberPub = self.consume(TokenType.PUB)
+        val span = self.expect(TokenType.FN).span
+        val name = self.expect(TokenType.IDENT).lexeme
         val params = self.parseFuncParams()
         var returnType: Option[TypeExpr] = None
-        if self.consume(ARROW) {
+        if self.consume(TokenType.ARROW) {
             returnType = Some(self.parseTypeExpr())
         }
-        self.consume(SEMICOLON)
+        self.consume(TokenType.SEMICOLON)
         return InterfaceMethod { span: span, isPub: memberPub, name: name, params: params, returnType: returnType }
     }
 
     fn parseEnumDecl(self, isPub: Bool) -> Node {
-        val span = self.expect(ENUM).span
-        val name = self.expect(IDENT).lexeme
+        val span = self.expect(TokenType.ENUM).span
+        val name = self.expect(TokenType.IDENT).lexeme
         var generics: List[GenericParam] = []
         if self.check(TokenType.LBRACKET) {
             generics = self.parseGenericParams()
         }
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         self.skipSemicolons()
         var variants: List[EnumVariant] = []
         loop {
@@ -386,80 +380,80 @@ extend Parser {
                 break
             }
             variants.append(self.parseEnumVariant())
-            self.consume(COMMA)
+            self.consume(TokenType.COMMA)
             self.skipSemicolons()
         }
-        self.expect(RBRACE)
-        self.consume(SEMICOLON)
-        return EnumDecl(self.allocNodeId(), span, EnumDeclData { isPub: isPub, name: name, generics: generics, variants: variants })
+        self.expect(TokenType.RBRACE)
+        self.consume(TokenType.SEMICOLON)
+        return Node.EnumDecl(self.allocNodeId(), span, EnumDeclData { isPub: isPub, name: name, generics: generics, variants: variants })
     }
 
     fn parseEnumVariant(self) -> EnumVariant {
         val span = self.peek().span
         val name = self.expectName().lexeme
         var fields: List[EnumField] = []
-        if self.consume(LPAREN) {
+        if self.consume(TokenType.LPAREN) {
             loop {
                 if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
                     break
                 }
                 var fieldName = ""
-                if self.checkName() && self.peekN(1).type == COLON {
+                if self.checkName() && self.peekN(1).type == TokenType.COLON {
                     fieldName = self.advance().lexeme
                     self.advance()
                 }
                 val fieldType = self.parseTypeExpr()
                 fields.append(EnumField { name: fieldName, typeExpr: fieldType })
                 if !self.check(TokenType.RPAREN) {
-                    self.consume(COMMA)
+                    self.consume(TokenType.COMMA)
                 }
             }
-            self.expect(RPAREN)
-        } else if self.consume(LBRACE) {
+            self.expect(TokenType.RPAREN)
+        } else if self.consume(TokenType.LBRACE) {
             loop {
                 if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
                     break
                 }
                 var fieldName = ""
-                if self.checkName() && self.peekN(1).type == COLON {
+                if self.checkName() && self.peekN(1).type == TokenType.COLON {
                     fieldName = self.advance().lexeme
                     self.advance()
                 }
                 val fieldType = self.parseTypeExpr()
                 fields.append(EnumField { name: fieldName, typeExpr: fieldType })
                 if !self.check(TokenType.RBRACE) {
-                    self.consume(COMMA)
+                    self.consume(TokenType.COMMA)
                 }
             }
-            self.expect(RBRACE)
+            self.expect(TokenType.RBRACE)
         }
         return EnumVariant { span: span, name: name, fields: fields }
     }
 
     fn parseExternDecl(self, isPub: Bool) -> Node {
-        val span = self.expect(EXTERN).span
-        self.expect(FN)
-        val nameTok = self.expect(IDENT)
+        val span = self.expect(TokenType.EXTERN).span
+        self.expect(TokenType.FN)
+        val nameTok = self.expect(TokenType.IDENT)
         val params = self.parseFuncParams()
         var returnType: Option[TypeExpr] = None
-        if self.consume(ARROW) {
+        if self.consume(TokenType.ARROW) {
             returnType = Some(self.parseTypeExpr())
         }
-        self.consume(SEMICOLON)
-        return ExternDecl(self.allocNodeId(), span, ExternDeclData { isPub: isPub, name: nameTok.lexeme, params: params, returnType: returnType })
+        self.consume(TokenType.SEMICOLON)
+        return Node.ExternDecl(self.allocNodeId(), span, ExternDeclData { isPub: isPub, name: nameTok.lexeme, params: params, returnType: returnType })
     }
 
     fn parseExtendDecl(self) -> Node {
-        val span = self.expect(EXTEND).span
+        val span = self.expect(TokenType.EXTEND).span
         val typeName = self.parseExtendTypeName()
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         self.skipSemicolons()
         var methods: List[Node] = []
         loop {
             if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
                 break
             }
-            val memberPub = self.consume(PUB)
+            val memberPub = self.consume(TokenType.PUB)
             if !self.check(TokenType.FN) {
                 self.errorf(self.peek().span, "esperado fn em bloco extend")
                 self.synchronize()
@@ -468,9 +462,9 @@ extend Parser {
             }
             self.skipSemicolons()
         }
-        self.expect(RBRACE)
-        self.consume(SEMICOLON)
-        return ExtendDecl(self.allocNodeId(), span, ExtendDeclData { typeName: typeName, methods: methods })
+        self.expect(TokenType.RBRACE)
+        self.consume(TokenType.SEMICOLON)
+        return Node.ExtendDecl(self.allocNodeId(), span, ExtendDeclData { typeName: typeName, methods: methods })
     }
 
     fn parseExtendTypeName(self) -> String = match self.peek().type {
@@ -487,7 +481,7 @@ extend Parser {
     }
 
     fn parseImportBlock(self) -> List[Node] {
-        val pos = self.expect(IMPORT).span
+        val pos = self.expect(TokenType.IMPORT).span
         if self.check(TokenType.LPAREN) {
             return self.parseImportParenBlock(pos)
         }
@@ -495,10 +489,10 @@ extend Parser {
             match self.parseImportPath() {
                 Some(path) => {
                     var names: List[ImportName] = []
-                    if self.consume(DOT) && self.check(TokenType.LBRACE) {
+                    if self.consume(TokenType.DOT) && self.check(TokenType.LBRACE) {
                         names = self.parseImportNames()
                     }
-                    self.consume(SEMICOLON)
+                    self.consume(TokenType.SEMICOLON)
                     return [self.makeImportDeclFromPath(pos, path, names)]
                 }
                 None => {
@@ -510,10 +504,10 @@ extend Parser {
         match self.parseImportPathSegments() {
             Some(result) => {
                 var decl = self.makeImportDeclFromSegments(pos, result.segments, result.isStdlib, [])
-                if self.consume(DOT) && self.check(TokenType.LBRACE) {
+                if self.consume(TokenType.DOT) && self.check(TokenType.LBRACE) {
                     match decl {
                         ImportDecl(id, span, data) => {
-                            decl = ImportDecl(id, span, ImportDeclData {
+                            decl = Node.ImportDecl(id, span, ImportDeclData {
                                 path: data.path,
                                 names: self.parseImportNames(),
                                 namespace: data.namespace,
@@ -526,7 +520,7 @@ extend Parser {
                         _ => ()
                     }
                 }
-                self.consume(SEMICOLON)
+                self.consume(TokenType.SEMICOLON)
                 return [decl]
             }
             None => {
@@ -537,7 +531,7 @@ extend Parser {
     }
 
     fn parseImportParenBlock(self, pos: Span) -> List[Node] {
-        self.expect(LPAREN)
+        self.expect(TokenType.LPAREN)
         var decls: List[Node] = []
         loop {
             if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
@@ -547,7 +541,7 @@ extend Parser {
                 Some(spec) => decls.append(spec)
                 None => self.advance()
             }
-            self.consume(SEMICOLON)
+            self.consume(TokenType.SEMICOLON)
             self.skipSemicolons()
         }
         if self.check(TokenType.RPAREN) {
@@ -555,7 +549,7 @@ extend Parser {
         } else {
             self.errorf(self.peek().span, "esperado ')' no bloco import")
         }
-        self.consume(SEMICOLON)
+        self.consume(TokenType.SEMICOLON)
         return decls
     }
 
@@ -622,7 +616,7 @@ extend Parser {
             if !self.check(TokenType.DOT) && !self.check(TokenType.SLASH) {
                 break
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type == LBRACE {
+            if self.check(TokenType.DOT) && self.peekN(1).type == TokenType.LBRACE {
                 break
             }
             self.advance()
@@ -643,7 +637,7 @@ extend Parser {
                 break
             }
             self.advance()
-            if self.check(TokenType.DOT) && self.peekN(1).type == DOT {
+            if self.check(TokenType.DOT) && self.peekN(1).type == TokenType.DOT {
                 self.advance()
                 parts.append("..")
             } else {
@@ -668,7 +662,7 @@ extend Parser {
                     parts.append(self.advance().lexeme)
                 }
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type != LBRACE {
+            if self.check(TokenType.DOT) && self.peekN(1).type != TokenType.LBRACE {
                 continue
             }
             break
@@ -701,7 +695,7 @@ extend Parser {
             if !self.check(TokenType.DOT) && !self.check(TokenType.SLASH) {
                 break
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type == LBRACE {
+            if self.check(TokenType.DOT) && self.peekN(1).type == TokenType.LBRACE {
                 break
             }
             self.advance()
@@ -715,22 +709,22 @@ extend Parser {
     }
 
     fn parseImportNames(self) -> List[ImportName] {
-        self.expect(LBRACE)
+        self.expect(TokenType.LBRACE)
         var names: List[ImportName] = []
         loop {
             if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
                 break
             }
             val tok = self.peek()
-            if tok.type != IDENT {
+            if tok.type != TokenType.IDENT {
                 self.errorf(tok.span, "esperado identificador na lista de import")
                 self.advance()
             } else {
                 names.append(ImportName { name: self.advance().lexeme, alias: "" })
             }
-            self.consume(COMMA)
+            self.consume(TokenType.COMMA)
         }
-        self.expect(RBRACE)
+        self.expect(TokenType.RBRACE)
         return names
     }
 
@@ -907,7 +901,7 @@ extend Parser {
         if segments.size() > 0 {
             namespace = segments.get(segments.size() - 1)
         }
-        return ImportDecl(
+        return Node.ImportDecl(
             self.allocNodeId(),
             pos,
             ImportDeclData {

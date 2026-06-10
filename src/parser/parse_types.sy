@@ -7,32 +7,32 @@ import (
 extend Parser {
     fn parseTypeExpr(self) -> TypeExpr {
         val span = self.peek().span
-        var t: TypeExpr = Named(self.allocNodeId(), span, "Unknown")
+        var t: TypeExpr = TypeExpr.Named(self.allocNodeId(), span, "Unknown")
 
         match self.peek().type {
             INT_TYPE => {
                 self.advance()
-                t = Named(self.allocNodeId(), span, "Int")
+                t = TypeExpr.Named(self.allocNodeId(), span, "Int")
             }
             FLOAT_TYPE => {
                 self.advance()
-                t = Named(self.allocNodeId(), span, "Float")
+                t = TypeExpr.Named(self.allocNodeId(), span, "Float")
             }
             BOOL_TYPE => {
                 self.advance()
-                t = Named(self.allocNodeId(), span, "Bool")
+                t = TypeExpr.Named(self.allocNodeId(), span, "Bool")
             }
             STRING_TYPE => {
                 self.advance()
-                t = Named(self.allocNodeId(), span, "String")
+                t = TypeExpr.Named(self.allocNodeId(), span, "String")
             }
             CHAR_TYPE => {
                 self.advance()
-                t = Named(self.allocNodeId(), span, "Char")
+                t = TypeExpr.Named(self.allocNodeId(), span, "Char")
             }
             UNIT_TYPE => {
                 self.advance()
-                t = Named(self.allocNodeId(), span, "Unit")
+                t = TypeExpr.Named(self.allocNodeId(), span, "Unit")
             }
             IDENT => {
                 val name = self.advance().lexeme
@@ -45,13 +45,13 @@ extend Parser {
                         }
                         params.append(self.parseTypeExpr())
                         if !self.check(TokenType.RBRACKET) {
-                            self.consume(COMMA)
+                            self.consume(TokenType.COMMA)
                         }
                     }
-                    self.expect(RBRACKET)
-                    t = Generic(self.allocNodeId(), span, name, params)
+                    self.expect(TokenType.RBRACKET)
+                    t = TypeExpr.Generic(self.allocNodeId(), span, name, params)
                 } else {
-                    t = Named(self.allocNodeId(), span, name)
+                    t = TypeExpr.Named(self.allocNodeId(), span, name)
                 }
             }
             LPAREN => {
@@ -63,27 +63,27 @@ extend Parser {
                     }
                     types.append(self.parseTypeExpr())
                     if !self.check(TokenType.RPAREN) {
-                        self.consume(COMMA)
+                        self.consume(TokenType.COMMA)
                     }
                 }
-                self.expect(RPAREN)
-                if self.consume(ARROW) {
+                self.expect(TokenType.RPAREN)
+                if self.consume(TokenType.ARROW) {
                     val ret = self.parseTypeExpr()
-                    t = Func(self.allocNodeId(), span, types, ret)
+                    t = TypeExpr.Func(self.allocNodeId(), span, types, ret)
                 } else {
-                    t = Tuple(self.allocNodeId(), span, types)
+                    t = TypeExpr.Tuple(self.allocNodeId(), span, types)
                 }
             }
             _ => {
                 self.errorf(span, "tipo inválido: $(printToken(self.peek().type)) ($(self.peek().lexeme))")
                 self.advance()
-                t = Named(self.allocNodeId(), span, "Unknown")
+                t = TypeExpr.Named(self.allocNodeId(), span, "Unknown")
             }
         }
 
         if self.check(TokenType.QUESTION) {
             self.advance()
-            t = Optional(self.allocNodeId(), span, t)
+            t = TypeExpr.Optional(self.allocNodeId(), span, t)
         }
         return t
     }
