@@ -52,7 +52,7 @@ extend Parser {
     fn parseReturn(self) -> Node {
         val span = self.advance().span
         var value: Option[Node] = None
-        if !self.checkAny([SEMICOLON, TokenType.RBRACE, EOF]) {
+        if !self.checkAny([TokenType.SEMICOLON, TokenType.RBRACE, TokenType.EOF]) {
             value = Some(self.parseExpression(0))
         }
         self.consume(TokenType.SEMICOLON)
@@ -62,7 +62,7 @@ extend Parser {
     fn parseBreak(self) -> Node {
         val span = self.advance().span
         var value: Option[Node] = None
-        if !self.checkAny([SEMICOLON, TokenType.COMMA, TokenType.RBRACE, EOF]) {
+        if !self.checkAny([TokenType.SEMICOLON, TokenType.COMMA, TokenType.RBRACE, TokenType.EOF]) {
             value = Some(self.parseExpression(0))
         }
         self.consume(TokenType.SEMICOLON)

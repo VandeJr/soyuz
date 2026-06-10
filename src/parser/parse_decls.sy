@@ -163,7 +163,7 @@ extend Parser {
 
         var whenGuard: Option[Node] = None
         if self.consume(TokenType.WHEN) {
-            whenGuard = Some(self.parseExpression(bindingPower(ASSIGN)))
+            whenGuard = Some(self.parseExpression(bindingPower(TokenType.ASSIGN)))
         }
 
         var returnType: Option[TypeExpr] = None
@@ -662,7 +662,7 @@ extend Parser {
                     parts.append(self.advance().lexeme)
                 }
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type != LBRACE {
+            if self.check(TokenType.DOT) && self.peekN(1).type != TokenType.LBRACE {
                 continue
             }
             break
@@ -716,7 +716,7 @@ extend Parser {
                 break
             }
             val tok = self.peek()
-            if tok.type != IDENT {
+            if tok.type != TokenType.IDENT {
                 self.errorf(tok.span, "esperado identificador na lista de import")
                 self.advance()
             } else {

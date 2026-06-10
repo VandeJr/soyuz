@@ -218,7 +218,7 @@ extend Parser {
                         newSteps.append(right)
                         Node.AsyncPipeExpr(id, span, AsyncPipeExprData { steps: newSteps })
                     }
-                    _ => AsyncPipeExpr(self.allocNodeId(), tok.span, AsyncPipeExprData { steps: [left, right] })
+                    _ => Node.AsyncPipeExpr(self.allocNodeId(), tok.span, AsyncPipeExprData { steps: [left, right] })
                 }
             }
             ASYNC_PIPE_QUEST => {
@@ -235,7 +235,7 @@ extend Parser {
                         newSteps.append(questStep)
                         Node.AsyncPipeExpr(id, span, AsyncPipeExprData { steps: newSteps })
                     }
-                    _ => AsyncPipeExpr(self.allocNodeId(), tok.span, AsyncPipeExprData { steps: [left, questStep] })
+                    _ => Node.AsyncPipeExpr(self.allocNodeId(), tok.span, AsyncPipeExprData { steps: [left, questStep] })
                 }
             }
             ELVIS => {
@@ -406,7 +406,7 @@ extend Parser {
             return false
         }
         val tok = self.peekN(1)
-        var next = EOF
+        var next = TokenType.EOF
         if self.pos + 2 < self.tokens.size() {
             next = self.peekN(2).type
         }
