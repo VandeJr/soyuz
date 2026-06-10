@@ -15,11 +15,12 @@ import (
         TupleType, TypeParameter, SpecializedType, IntType, FloatType, BoolType,
         StringType, CharType, UnitType, Unknown, newScope
     } from @checker/types
-    { checkNode, getNodeType, setNodeType, checkerErrorf, contextInnerType } from @checker/checker
+    { getNodeType, setNodeType, checkerErrorf, contextInnerType } from @checker/checker
     { resolveTypeExpr, substitute, unify, inferGenerics, instantiateFunc, typeArgsFromExprs } from @checker/check_generics
     { checkPattern } from @checker/check_patterns
     { variantFieldNamesForCall, resolveNamedCallArgs } from @checker/named_args
     { checkSpecializedExpr } from @checker/specialized_expr
+    { isAssignable } from @checker/assign
 )
 
 pub fn getKindName(t: Type) -> String = match t {
@@ -28,58 +29,10 @@ pub fn getKindName(t: Type) -> String = match t {
     _ => "type"
 }
 
-pub fn isCompatibleFunc(expected: FuncType, actual: FuncType) -> Bool {
-    if expected.params.size() != actual.params.size() { return false }
-    for i in range(0, expected.params.size()) {
-        if expected.params[i].toString() != actual.params[i].toString() { return false }
-    }
-    return expected.returnType.toString() == actual.returnType.toString()
-}
-
-pub fn isAssignable(c: Checker, expected: Type, actual: Type) -> Bool {
-    if expected == Unknown || actual == Unknown { return true }
-    if expected.toString() == actual.toString() { return true }
-    match expected {
-        TypeParameter(_) => return true
-        InterfaceType(_, _) => match actual {
-            ClassType(_, _, _, _, _, implements, _, _) => {
-                for impl in implements {
-                    match expected {
-                        InterfaceType(iname, _) if impl.name == iname => return true
-                        _ => UnitType
-                    }
-                }
-                false
-            }
-            _ => false
-        }
-        FuncType(_, ret, _, _, _) if ret == actual => false
-        SpecializedType(stBase, _, stParams) => {
-            if actual.toString() == stBase.toString() { return true }
-            match actual {
-                SpecializedType(actBase, _, actParams) if actBase.toString() == stBase.toString() => {
-                    for p in stParams { match p { TypeParameter(_) => return true, _ => UnitType } }
-                    if actParams.size() > 0 && actParams[0] == Unknown { return true }
-                    if stParams.size() == actParams.size() {
-                        var allOk = true
-                        for i in range(0, stParams.size()) {
-                            if !isAssignable(c, stParams[i], actParams[i]) { allOk = false }
-                        }
-                        if allOk { return true }
-                    }
-                    false
-                }
-                _ => false
-            }
-        }
-        _ => false
-    }
-}
-
 pub fn checkTupleExpr(c: Checker, data: TupleExprData) -> Type {
     if data.elements.size() == 0 { return UnitType }
     var elems: List[Type] = []
-    for e in data.elements { elems.append(checkNode(c, e)) }
+    for e in data.elements { elems.append(c.checkNode(e)) }
     return TupleType { elements: elems }
 }
 
@@ -91,7 +44,7 @@ pub fn checkListExpr(c: Checker, data: ListExprData) -> Type {
         _ => UnitType
     }
     for e in data.elements {
-        val t = checkNode(c, e)
+        val t = c.checkNode(e)
         if elemType == Unknown { elemType = t }
         else if !isAssignable(c, elemType, t) {
             if isAssignable(c, t, elemType) { elemType = t }
@@ -106,8 +59,8 @@ pub fn checkMapExpr(c: Checker, data: MapExprData) -> Type {
     var keyType: Type = Unknown
     var valType: Type = Unknown
     for entry in data.entries {
-        val kt = checkNode(c, entry.key)
-        val vt = checkNode(c, entry.value)
+        val kt = c.checkNode(entry.key)
+        val vt = c.checkNode(entry.value)
         if keyType == Unknown { keyType = kt }
         else if !isAssignable(c, keyType, kt) {
             checkerErrorf(c, nodePos(entry.key), "incompatible key type in map: expected $(keyType.toString()), got $(kt.toString())", [])
@@ -122,7 +75,7 @@ pub fn checkMapExpr(c: Checker, data: MapExprData) -> Type {
 }
 
 pub fn checkTaskExpr(c: Checker, data: TaskExprData) -> Type {
-    val innerType = checkNode(c, data.inner)
+    val innerType = c.checkNode(data.inner)
     val base = resolveTypeExpr(c, TypeExpr.Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Task"))
     return SpecializedType { base: base, params: [innerType] }
 }
@@ -140,8 +93,8 @@ pub fn checkIdentifier(c: Checker, data: IdentifierData, node: Node) -> Type = m
 }
 
 pub fn checkBinaryExpr(c: Checker, data: BinaryExprData, node: Node) -> Type {
-    val left = checkNode(c, data.left)
-    val right = checkNode(c, data.right)
+    val left = c.checkNode(data.left)
+    val right = c.checkNode(data.right)
     return match data.operator {
         "+" | "-" | "*" | "/" | "%" => {
             if left == IntType && right == IntType { IntType }
@@ -175,7 +128,7 @@ pub fn checkBinaryExpr(c: Checker, data: BinaryExprData, node: Node) -> Type {
 }
 
 pub fn checkUnaryExpr(c: Checker, data: UnaryExprData, node: Node) -> Type {
-    val operand = checkNode(c, data.operand)
+    val operand = c.checkNode(data.operand)
     return match data.operator {
         "-" => {
             if operand != IntType && operand != FloatType { checkerErrorf(c, nodePos(node), "unary - not supported for $(operand.toString())", []) }
@@ -194,8 +147,8 @@ pub fn checkUnaryExpr(c: Checker, data: UnaryExprData, node: Node) -> Type {
 }
 
 pub fn checkAssignExpr(c: Checker, data: AssignExprData, node: Node) -> Type {
-    val leftType = checkNode(c, data.left)
-    val rightType = checkNode(c, data.right)
+    val leftType = c.checkNode(data.left)
+    val rightType = c.checkNode(data.right)
     match data.left {
         Node.Identifier(_, _, id) => match c.scope.resolve(id.name) {
             Some(sym) if sym.isReadonly => checkerErrorf(c, nodePos(node), "cannot assign to immutable variable (val): $(id.name)", [])
@@ -211,7 +164,7 @@ pub fn checkAssignExpr(c: Checker, data: AssignExprData, node: Node) -> Type {
 }
 
 pub fn checkReturnStmt(c: Checker, data: ReturnStmtData, node: Node) -> Type {
-    val got = match data.value { Some(v) => checkNode(c, v), None => UnitType }
+    val got = match data.value { Some(v) => c.checkNode(v), None => UnitType }
     match c.context.returnType {
         Some(expected) if !isAssignable(c, expected, got) =>
             checkerErrorf(c, nodePos(node), "incompatible return: expected $(expected.toString()), got $(got.toString())", [])
@@ -225,11 +178,11 @@ pub fn checkBlock(c: Checker, node: Node) -> Type = match node {
         val parent = c.scope
         c.scope = newScope(Some(parent))
         var lastType: Type = UnitType
-        for stmt in data.statements { lastType = checkNode(c, stmt) }
+        for stmt in data.statements { lastType = c.checkNode(stmt) }
         c.scope = parent
         lastType
     }
-    n => checkNode(c, n)
+    n => c.checkNode(n)
 }
 
 pub fn checkForStmt(c: Checker, data: ForStmtData) -> Type {
@@ -239,7 +192,7 @@ pub fn checkForStmt(c: Checker, data: ForStmtData) -> Type {
     match data.iterable {
         Node.RangeExpr(_, _, _) => UnitType
         _ => {
-            val iterType = checkNode(c, data.iterable)
+            val iterType = c.checkNode(data.iterable)
             match iterType {
                 SpecializedType(ClassType(name, _, _, _, _, _, _, _), _, params) if params.size() > 0 => {
                     bindingType = match name {
@@ -262,7 +215,7 @@ pub fn checkForStmt(c: Checker, data: ForStmtData) -> Type {
 
 pub fn checkWhileStmt(c: Checker, data: WhileStmtData) -> Type {
     c.loopDepth = c.loopDepth + 1
-    checkNode(c, data.condition)
+    c.checkNode(data.condition)
     checkBlock(c, data.body)
     c.loopDepth = c.loopDepth - 1
     return UnitType
@@ -286,7 +239,7 @@ pub fn checkBreakStmt(c: Checker, data: BreakStmtData, node: Node) -> Type {
     }
     match data.value {
         Some(v) => {
-            val valType = checkNode(c, v)
+            val valType = c.checkNode(v)
             val idx = c.loopBreakTypes.size() - 1
             if c.loopBreakTypes[idx] == Unknown { c.loopBreakTypes[idx] = valType }
             else if !isAssignable(c, c.loopBreakTypes[idx], valType) && !isAssignable(c, valType, c.loopBreakTypes[idx]) {
@@ -304,13 +257,13 @@ pub fn checkContinueStmt(c: Checker, node: Node) -> Type {
 }
 
 pub fn checkInterpolatedString(c: Checker, data: InterpolatedStringData) -> Type {
-    for part in data.parts { checkNode(c, part) }
+    for part in data.parts { c.checkNode(part) }
     return StringType
 }
 
 pub fn checkElvisExpr(c: Checker, data: ElvisExprData) -> Type {
-    val leftType = checkNode(c, data.left)
-    checkNode(c, data.right)
+    val leftType = c.checkNode(data.left)
+    c.checkNode(data.right)
     match leftType {
         SpecializedType(EnumType(name, _, _, _), _, params) if name == "Option" && params.size() > 0 => params[0]
         _ => Unknown
@@ -358,7 +311,7 @@ pub fn resolveMemberType(c: Checker, objType: Type, property: String, span: Span
         }
     }
     SpecializedType(ClassType(cname, fields, fieldPub, _, methods, methodPub, _, generics), _, params) => {
-        var sub: Map[String, Type] = [:]
+        var sub: Map[String, Type] = Map[String, Type]{}
         for i in range(0, generics.size()) { if i < params.size() { sub[generics[i]] = params[i] } }
         match fields.get(property) {
             Some(ft) => if sub.size() > 0 { substitute(c, ft, sub) } else { ft }
@@ -396,12 +349,12 @@ pub fn resolveMemberType(c: Checker, objType: Type, property: String, span: Span
 }
 
 pub fn checkMemberExpr(c: Checker, data: MemberExprData, node: Node) -> Type {
-    val objType = checkNode(c, data.object)
+    val objType = c.checkNode(data.object)
     return resolveMemberType(c, objType, data.property, nodePos(node))
 }
 
 pub fn checkSafeNavExpr(c: Checker, data: SafeNavExprData, node: Node) -> Type {
-    val objType = checkNode(c, data.object)
+    val objType = c.checkNode(data.object)
     val (innerType, kind) = unwrapResultOption(objType)
     if kind != "Option" {
         checkerErrorf(c, nodePos(node), "safe navigation (?.) requer Option[T], obtido $(objType.toString())", [])
@@ -422,17 +375,17 @@ pub fn checkSelfExpr(c: Checker, node: Node) -> Type = match c.scope.resolve("se
 }
 
 pub fn checkSpecialization(c: Checker, data: IndexExprData, node: Node) -> Type {
-    val base = checkNode(c, data.object)
+    val base = c.checkNode(data.object)
     var param: Type = Unknown
     match data.index {
         Node.Identifier(_, _, id) => param = resolveTypeExpr(c, TypeExpr.Named(0, nodePos(node), id.name))
-        _ => param = checkNode(c, data.index)
+        _ => param = c.checkNode(data.index)
     }
     return SpecializedType { base: base, params: [param] }
 }
 
 pub fn checkMatchExpr(c: Checker, data: MatchExprData, node: Node) -> Type {
-    val subjectType = checkNode(c, data.subject)
+    val subjectType = c.checkNode(data.subject)
     var armsType: Type = Unknown
     for arm in data.arms {
         val parentScope = c.scope
@@ -440,12 +393,12 @@ pub fn checkMatchExpr(c: Checker, data: MatchExprData, node: Node) -> Type {
         checkPattern(c, arm.pattern, subjectType)
         match arm.guard {
             Some(g) => {
-                val guardType = checkNode(c, g)
+                val guardType = c.checkNode(g)
                 if guardType != BoolType { checkerErrorf(c, nodePos(g), "match guard must be Bool, got $(guardType.toString())", []) }
             }
             None => UnitType
         }
-        val bodyType = checkNode(c, arm.body)
+        val bodyType = c.checkNode(arm.body)
         if armsType == Unknown { armsType = bodyType }
         else if !isAssignable(c, armsType, bodyType) && !isAssignable(c, bodyType, armsType) {
             checkerErrorf(c, arm.pos, "arm type incompatible with previous arms: expected $(armsType.toString()), got $(bodyType.toString())", [])
@@ -465,7 +418,7 @@ pub fn checkPipeExpr(c: Checker, data: PipeExprData, node: Node) -> Type {
 }
 
 pub fn checkPipeQuestExpr(c: Checker, data: PipeQuestExprData, node: Node) -> Type {
-    val leftType = checkNode(c, data.left)
+    val leftType = c.checkNode(data.left)
     val (innerType, kind) = unwrapResultOption(leftType)
     if kind == "" {
         checkerErrorf(c, nodePos(data.left), "|?> requer Result ou Option à esquerda, obtido $(leftType.toString())", [])
@@ -476,13 +429,13 @@ pub fn checkPipeQuestExpr(c: Checker, data: PipeQuestExprData, node: Node) -> Ty
         Node.CallExpr(_, _, rc) => call = CallExprData { callee: rc.callee, args: [data.left].concat(rc.args) }
         _ => UnitType
     }
-    val calleeType = checkNode(c, call.callee)
+    val calleeType = c.checkNode(call.callee)
     match calleeType {
         FuncType(params, ret, _, _, _) => {
             if params.size() > 0 && innerType != Unknown && !isAssignable(c, params[0], innerType) && !isAssignable(c, innerType, params[0]) {
                 checkerErrorf(c, nodePos(node), "|?> argumento incompatível: esperado $(params[0].toString()), obtido $(innerType.toString())", [])
             }
-            for i in range(1, call.args.size()) { checkNode(c, call.args[i]) }
+            for i in range(1, call.args.size()) { c.checkNode(call.args[i]) }
             return asResultType(c, ret)
         }
         _ => { checkerErrorf(c, nodePos(data.right), "|?> lado direito deve ser chamável", []); Unknown }
@@ -506,7 +459,7 @@ pub fn checkAsyncPipeExpr(c: Checker, data: AsyncPipeExprData, node: Node) -> Ty
         checkerErrorf(c, nodePos(node), "~> requer pelo menos um step além do valor inicial", [])
         return Unknown
     }
-    var currentType = checkNode(c, data.steps[0])
+    var currentType = c.checkNode(data.steps[0])
     for rawStep in data.steps.slice(1, data.steps.size()) {
         var step = rawStep
         match rawStep {
@@ -540,7 +493,7 @@ pub fn checkArrowFunc(c: Checker, data: ArrowFuncData, nodeId: Int) -> Type {
     c.scope = newScope(Some(parentScope))
     val hints = c.arrowFuncHints.get(nodeId) ?: []
     var paramTypes: List[Type] = []
-    var paramNames: Map[String, Bool] = [:]
+    var paramNames: Map[String, Bool] = Map[String, Bool]{}
     for i in range(0, data.params.size()) {
         val p = data.params[i]
         var pt: Type = Unknown
@@ -555,7 +508,7 @@ pub fn checkArrowFunc(c: Checker, data: ArrowFuncData, nodeId: Int) -> Type {
     var expectedRet: Option[Type] = match data.returnType { Some(te) => Some(resolveTypeExpr(c, te)), None => None }
     val oldRet = c.context.returnType
     c.context.returnType = expectedRet
-    val bodyType = checkNode(c, data.body)
+    val bodyType = c.checkNode(data.body)
     var ret = match expectedRet { Some(r) => r, None => bodyType }
     match expectedRet {
         Some(r) if !isAssignable(c, r, bodyType) => checkerErrorf(c, nodePos(data.body), "incompatible return type in lambda: expected $(r.toString()), got $(bodyType.toString())", [])
@@ -574,7 +527,7 @@ pub fn checkSelectExpr(c: Checker, data: SelectExprData) -> Type {
         val parentScope = c.scope
         c.scope = newScope(Some(parentScope))
         if arm.isDefault {
-            val bodyType = checkNode(c, arm.body)
+            val bodyType = c.checkNode(arm.body)
             if first { resultType = bodyType; first = false }
             else if !isAssignable(c, resultType, bodyType) && !isAssignable(c, bodyType, resultType) {
                 checkerErrorf(c, arm.pos, "select arm $(i): tipo do corpo incompatível com arms anteriores (esperado $(resultType.toString()), obtido $(bodyType.toString())", [])
@@ -587,7 +540,7 @@ pub fn checkSelectExpr(c: Checker, data: SelectExprData) -> Type {
                     if isTaskAwaitCall(ch) {
                         match ch {
                             Node.CallExpr(_, _, call) => match call.callee {
-                                Node.MemberExpr(_, _, me) => match checkNode(c, me.object) {
+                                Node.MemberExpr(_, _, me) => match c.checkNode(me.object) {
                                     SpecializedType(ClassType(name, _, _, _, _, _, _, _), _, params) if name == "Task" && params.size() > 0 => innerType = params[0]
                                     _ => UnitType
                                 }
@@ -596,13 +549,13 @@ pub fn checkSelectExpr(c: Checker, data: SelectExprData) -> Type {
                             _ => UnitType
                         }
                     } else {
-                        match checkNode(c, ch) {
+                        match c.checkNode(ch) {
                             SpecializedType(EnumType(name, _, _, _), _, params) if name == "Option" && params.size() > 0 => innerType = params[0]
                             _ => UnitType
                         }
                     }
                     if arm.binding != "" { c.scope.define(arm.binding, innerType, true) }
-                    val bodyType = checkNode(c, arm.body)
+                    val bodyType = c.checkNode(arm.body)
                     if first { resultType = bodyType; first = false }
                     else if !isAssignable(c, resultType, bodyType) && !isAssignable(c, bodyType, resultType) {
                         checkerErrorf(c, arm.pos, "select arm $(i): tipo do corpo incompatível com arms anteriores (esperado $(resultType.toString()), obtido $(bodyType.toString())", [])
@@ -635,14 +588,14 @@ pub fn checkRecordLiteral(c: Checker, data: RecordLiteralData, node: Node) -> Ty
 }
 
 fn checkRecordLiteralFields(c: Checker, data: RecordLiteralData, node: Node, fields: Map[String, Type], typeName: String, resultType: Type, generics: List[String]) -> Type {
-    var inferred: Map[String, Type] = [:]
-    var provided: Map[String, Bool] = [:]
+    var inferred: Map[String, Type] = Map[String, Type]{}
+    var provided: Map[String, Bool] = Map[String, Bool]{}
     for f in data.fields {
         val expected = fields.get(f.name)
         if expected == None {
             checkerErrorf(c, f.span, "$(getKindName(resultType)) $(typeName) does not have field $(f.name)", [])
         } else {
-            val got = checkNode(c, f.value)
+            val got = c.checkNode(f.value)
             unify(c, expected.get(), got, inferred)
             if !isAssignable(c, expected.get(), got) {
                 match expected.get() { TypeParameter(_) => UnitType, _ => checkerErrorf(c, f.span, "incompatible type for field $(f.name): expected $(expected.get().toString()), got $(got.toString())", []) }
@@ -667,12 +620,12 @@ pub fn checkCallExpr(c: Checker, data: CallExprData, node: Node) -> Type {
     match data.callee {
         Node.SafeNavExpr(_, _, sn) => return checkSafeNavCall(c, data, node, sn)
         Node.MemberExpr(_, _, me) => {
-            val objType = match getNodeType(c, nodeId(me.object)) { Some(t) => t, None => checkNode(c, me.object) }
+            val objType = match getNodeType(c, nodeId(me.object)) { Some(t) => t, None => c.checkNode(me.object) }
             return checkMethodCall(c, data, node, me, objType)
         }
         _ => UnitType
     }
-    var calleeType = checkNode(c, data.callee)
+    var calleeType = c.checkNode(data.callee)
     return match calleeType {
         FuncType(params, ret, generics, defaults, isOptional) => {
             var ft = FuncType { params: params, returnType: ret, generics: generics, defaults: defaults, isOptional: isOptional }
@@ -689,7 +642,7 @@ pub fn checkCallExpr(c: Checker, data: CallExprData, node: Node) -> Type {
                 return ft.returnType
             }
             for i in range(0, data.args.size()) {
-                val at = checkNode(c, data.args[i])
+                val at = c.checkNode(data.args[i])
                 if !isAssignable(c, ft.params[i], at) {
                     checkerErrorf(c, nodePos(data.args[i]), "incompatible argument $(i + 1): expected $(ft.params[i].toString()), got $(at.toString())", [])
                 }
@@ -704,7 +657,7 @@ pub fn checkCallExpr(c: Checker, data: CallExprData, node: Node) -> Type {
 }
 
 fn checkSafeNavCall(c: Checker, data: CallExprData, node: Node, sn: SafeNavExprData) -> Type {
-    val objType = checkNode(c, sn.object)
+    val objType = c.checkNode(sn.object)
     val (innerType, kind) = unwrapResultOption(objType)
     if kind != "Option" {
         checkerErrorf(c, nodePos(node), "safe navigation (?.) requer Option[T], obtido $(objType.toString())", [])
@@ -714,7 +667,7 @@ fn checkSafeNavCall(c: Checker, data: CallExprData, node: Node, sn: SafeNavExprD
     match memberType {
         FuncType(params, ret, _, _, _) as ft => {
             for i in range(0, data.args.size()) {
-                val at = checkNode(c, data.args[i])
+                val at = c.checkNode(data.args[i])
                 if i < params.size() && !isAssignable(c, params[i], at) {
                     checkerErrorf(c, nodePos(data.args[i]), "incompatible argument $(i + 1): expected $(params[i].toString()), got $(at.toString())", [])
                 }
@@ -732,13 +685,13 @@ fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprDat
             val elemType = params[0]
             return match me.property {
                 "map" if data.args.size() == 1 => {
-                    val lambdaType = checkNode(c, data.args[0])
+                    val lambdaType = c.checkNode(data.args[0])
                     val retElem = match lambdaType { FuncType(_, r, _, _, _) => r, _ => Unknown }
-                    SpecializedType { base: ClassType { name: "List", generics: ["T"], fields: [:], fieldPub: [:], fieldInit: [:], methods: [:], methodPub: [:], implements: [] }, params: [retElem] }
+                    SpecializedType { base: ClassType { name: "List", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}, implements: [] }, params: [retElem] }
                 }
-                "filter" if data.args.size() == 1 => { checkNode(c, data.args[0]); objType }
-                "reduce" if data.args.size() == 2 => { checkNode(c, data.args[1]); checkNode(c, data.args[0]); match checkNode(c, data.args[1]) { t => t } }
-                "join" if data.args.size() == 1 => { checkNode(c, data.args[0]); StringType }
+                "filter" if data.args.size() == 1 => { c.checkNode(data.args[0]); objType }
+                "reduce" if data.args.size() == 2 => { c.checkNode(data.args[1]); c.checkNode(data.args[0]); match c.checkNode(data.args[1]) { t => t } }
+                "join" if data.args.size() == 1 => { c.checkNode(data.args[0]); StringType }
                 "isEmpty" => BoolType
                 "keys" | "values" => objType
                 _ => checkGenericMethodCall(c, data, node, me, objType)
@@ -760,7 +713,7 @@ fn checkGenericMethodCall(c: Checker, data: CallExprData, node: Node, me: Member
                 checkerErrorf(c, nodePos(node), "argumentos insuficientes: esperado $(params.size()), encontrado $(data.args.size())", [])
             }
             for i in range(0, data.args.size()) {
-                val at = checkNode(c, data.args[i])
+                val at = c.checkNode(data.args[i])
                 if i < params.size() && !isAssignable(c, params[i], at) {
                     checkerErrorf(c, nodePos(data.args[i]), "incompatible argument $(i + 1): expected $(params[i].toString()), got $(at.toString())", [])
                 }

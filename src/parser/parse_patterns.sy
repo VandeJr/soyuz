@@ -111,7 +111,7 @@ extend Parser {
                     }
                 }
                 self.expect(TokenType.RPAREN)
-                Tuple(self.allocNodeId(), span, elements)
+                Pattern.Tuple(self.allocNodeId(), span, elements)
             }
             _ => {
                 self.errorf(span, "padrão inválido: $(self.peek().type) ($(self.peek().lexeme))")

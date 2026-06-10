@@ -16,6 +16,39 @@ record ImportPathClassified {
     alias: String
 }
 
+fn trimImportQuotes(path: String) -> String {
+    var p = path
+    if p.startsWith("\"") || p.startsWith("'") {
+        if p.len() >= 2 {
+            p = p.substring(1, p.len() - 1)
+        }
+    }
+    return p
+}
+
+fn classifyImportPath(path: String) -> ImportPathClassified {
+    if path.startsWith("@soyuz/") || path == "@soyuz" {
+        return ImportPathClassified { kind: ImportPathKind.Stdlib, alias: "" }
+    }
+    if path.startsWith("@/") {
+        return ImportPathClassified { kind: ImportPathKind.ProjectRoot, alias: "" }
+    }
+    if path.startsWith("@") {
+        val rest = path.substring(1, path.len())
+        match rest.indexOf("/") {
+            Some(idx) => return ImportPathClassified { kind: ImportPathKind.PackageAlias, alias: rest.substring(0, idx) }
+            None => return ImportPathClassified { kind: ImportPathKind.PackageAlias, alias: rest }
+        }
+    }
+    if path.startsWith("./") || path.startsWith("../") || path == "." || path == ".." {
+        return ImportPathClassified { kind: ImportPathKind.Relative, alias: "" }
+    }
+    if path.startsWith("@soyuz") {
+        return ImportPathClassified { kind: ImportPathKind.Stdlib, alias: "" }
+    }
+    return ImportPathClassified { kind: ImportPathKind.Legacy, alias: "" }
+}
+
 extend Parser {
     fn parseTopLevel(self) -> Option[Node] {
         var isPub = false
@@ -516,6 +549,7 @@ extend Parser {
                                 isStdlib: data.isStdlib,
                                 resolvedFiles: data.resolvedFiles
                             })
+                            ()
                         }
                         _ => ()
                     }
@@ -539,7 +573,7 @@ extend Parser {
             }
             match self.parseImportSpec(pos) {
                 Some(spec) => decls.append(spec)
-                None => self.advance()
+                None => { self.advance(); () }
             }
             self.consume(TokenType.SEMICOLON)
             self.skipSemicolons()
@@ -837,39 +871,6 @@ extend Parser {
             }
             None => return None
         }
-    }
-
-    fn trimImportQuotes(path: String) -> String {
-        var p = path
-        if p.startsWith("\"") || p.startsWith("'") {
-            if p.len() >= 2 {
-                p = p.substring(1, p.len() - 1)
-            }
-        }
-        return p
-    }
-
-    fn classifyImportPath(path: String) -> ImportPathClassified {
-        if path.startsWith("@soyuz/") || path == "@soyuz" {
-            return ImportPathClassified { kind: ImportPathKind.Stdlib, alias: "" }
-        }
-        if path.startsWith("@/") {
-            return ImportPathClassified { kind: ImportPathKind.ProjectRoot, alias: "" }
-        }
-        if path.startsWith("@") {
-            val rest = path.substring(1, path.len())
-            match rest.indexOf("/") {
-                Some(idx) => return ImportPathClassified { kind: ImportPathKind.PackageAlias, alias: rest.substring(0, idx) }
-                None => return ImportPathClassified { kind: ImportPathKind.PackageAlias, alias: rest }
-            }
-        }
-        if path.startsWith("./") || path.startsWith("../") || path == "." || path == ".." {
-            return ImportPathClassified { kind: ImportPathKind.Relative, alias: "" }
-        }
-        if path.startsWith("@soyuz") {
-            return ImportPathClassified { kind: ImportPathKind.Stdlib, alias: "" }
-        }
-        return ImportPathClassified { kind: ImportPathKind.Legacy, alias: "" }
     }
 
     fn makeImportDeclFromPath(self, pos: Span, path: String, names: List[ImportName]) -> Node {

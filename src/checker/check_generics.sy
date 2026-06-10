@@ -6,11 +6,11 @@ import (
         TypeParameter, SpecializedType, IntType, FloatType, BoolType, StringType,
         CharType, Unknown
     } from @checker/types
-    { checkNode, getNodeType, checkerErrorf } from @checker/checker
+    { getNodeType, checkerErrorf } from @checker/checker
 )
 
 pub fn inferGenerics(c: Checker, f: FuncType, args: List[Node]) -> List[Type] {
-    var inferred: Map[String, Type] = [:]
+    var inferred: Map[String, Type] = Map[String, Type]{}
     for i in range(0, args.size()) {
         if i >= f.params.size() { break }
         val argType = inferExprType(c, args[i])
@@ -46,7 +46,7 @@ pub fn inferExprType(c: Checker, n: Node) -> Type {
         }
         Node.SpecializedExpr(_, _, data) => inferSpecializedExprType(c, data, n)
         Node.CallExpr(_, _, data) => inferCallExprType(c, data)
-        _ => checkNode(c, n)
+        _ => c.checkNode(n)
     }
 }
 
@@ -109,7 +109,7 @@ pub fn unify(c: Checker, param: Type, actual: Type, inferred: Map[String, Type])
 
 pub fn instantiateFunc(c: Checker, f: FuncType, specParams: List[Type]) -> FuncType {
     if specParams.size() == 0 { return f }
-    var sub: Map[String, Type] = [:]
+    var sub: Map[String, Type] = Map[String, Type]{}
     for i in range(0, f.generics.size()) {
         if i < specParams.size() {
             sub[f.generics[i]] = specParams[i]

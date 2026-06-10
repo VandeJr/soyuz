@@ -7,76 +7,71 @@ pub interface Type {
     pub fn toString(self) -> String
 }
 
-pub record BasicType {
-    name: String
-} : Type {
+pub class BasicType : Type {
+    val name: String
+
     pub fn toString(self) -> String = self.name
 }
 
-pub record FuncType {
-    params: List[Type],
-    returnType: Type,
-    generics: List[String],
-    defaults: List[Option[Node]],
-    isOptional: List[Bool]
-} : Type {
+pub class FuncType : Type {
+    val params: List[Type]
+    val returnType: Type
+    val generics: List[String]
+    val defaults: List[Option[Node]]
+    val isOptional: List[Bool]
+
     pub fn toString(self) -> String {
         var gen = ""
         if self.generics.size() > 0 {
-            gen = "[" + self.generics.join(", ") + "]"
+            gen = "[$(self.generics.join(", "))]"
         }
         var paramStrs: List[String] = []
         for i in range(0, self.params.size()) {
             var p = self.params[i]
             if i < self.isOptional.size() && self.isOptional[i] {
-                match p {
-                    SpecializedType(base, params) if params.size() == 1 => {
-                        paramStrs.append(params[0].toString() + "?")
-                    }
-                    _ => paramStrs.append(p.toString() + "?")
-                }
+                paramStrs.append("$(p.toString())?")
             } else {
                 paramStrs.append(p.toString())
             }
         }
-        return gen + "(" + paramStrs.join(", ") + ") -> " + self.returnType.toString()
+        return "$(gen)($(paramStrs.join(", "))) -> $(self.returnType.toString())"
     }
 }
 
-pub record RecordType {
-    name: String,
-    fields: Map[String, Type],
-    generics: List[String]
-} : Type {
+pub class RecordType : Type {
+    val name: String
+    val fields: Map[String, Type]
+    val generics: List[String]
+
     pub fn toString(self) -> String = self.name
 }
 
-pub record EnumType {
-    name: String,
-    variants: Map[String, List[Type]],
-    variantFieldNames: Map[String, List[String]],
-    generics: List[String]
-} : Type {
+pub class EnumType : Type {
+    val name: String
+    val variants: Map[String, List[Type]]
+    val variantFieldNames: Map[String, List[String]]
+    val generics: List[String]
+
     pub fn toString(self) -> String = self.name
 }
 
-pub record InterfaceType {
-    name: String,
-    methods: Map[String, FuncType]
-} : Type {
+pub class InterfaceType : Type {
+    val name: String
+    val methods: Map[String, FuncType]
+
     pub fn toString(self) -> String = self.name
 }
 
-pub record ClassType {
-    name: String,
-    fields: Map[String, Type],
-    fieldPub: Map[String, Bool],
-    fieldInit: Map[String, Node],
-    methods: Map[String, List[FuncType]],
-    methodPub: Map[String, Bool],
-    implements: List[InterfaceType],
-    generics: List[String]
-} : Type {
+pub class ClassType : Type {
+    val name: String
+    val fields: Map[String, Type]
+    val fieldPub: Map[String, Bool]
+    val fieldInit: Map[String, Node]
+    val methods: Map[String, List[FuncType]]
+    val methodPub: Map[String, Bool]
+    val implements: List[InterfaceType]
+    val generics: List[String]
+
     pub fn toString(self) -> String = self.name
 
     pub fn findMethod(self, name: String, arity: Int) -> Option[FuncType] {
@@ -96,9 +91,9 @@ pub record ClassType {
     }
 }
 
-pub record TupleType {
-    elements: List[Type]
-} : Type {
+pub class TupleType : Type {
+    val elements: List[Type]
+
     pub fn toString(self) -> String {
         if self.elements.size() == 0 {
             return "Unit"
@@ -107,26 +102,26 @@ pub record TupleType {
         for e in self.elements {
             parts.append(e.toString())
         }
-        return "(" + parts.join(", ") + ")"
+        return "($(parts.join(", ")))"
     }
 }
 
-pub record TypeParameter {
-    name: String
-} : Type {
+pub class TypeParameter : Type {
+    val name: String
+
     pub fn toString(self) -> String = self.name
 }
 
-pub record SpecializedType {
-    base: Type,
-    params: List[Type]
-} : Type {
+pub class SpecializedType : Type {
+    val base: Type
+    val params: List[Type]
+
     pub fn toString(self) -> String {
         var paramStrs: List[String] = []
         for p in self.params {
             paramStrs.append(p.toString())
         }
-        return self.base.toString() + "[" + paramStrs.join(", ") + "]"
+        return "$(self.base.toString())[$(paramStrs.join(", "))]"
     }
 }
 
@@ -161,7 +156,7 @@ pub record Symbol {
 
 pub class Scope {
     var parent: Option[Scope] = None
-    var symbols: Map[String, Symbol] = [:]
+    var symbols: Map[String, Symbol] = Map[String, Symbol]{}
 
     pub fn define(self, name: String, t: Type, readonly: Bool) {
         self.symbols[name] = Symbol { typ: t, isReadonly: readonly }
@@ -178,7 +173,7 @@ pub class Scope {
     }
 }
 
-pub fn newScope(parent: Option[Scope]) -> Scope = Scope { parent: parent, symbols: [:] }
+pub fn newScope(parent: Option[Scope]) -> Scope = Scope { parent: parent, symbols: Map[String, Symbol]{} }
 
 pub record CheckContext {
     returnType: Option[Type],
@@ -217,4 +212,3 @@ pub record CheckResult {
     curriedCalls: Map[Int, Node],
     typeExtensions: Map[String, Map[String, List[FuncType]]]
 }
-
