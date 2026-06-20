@@ -1,21 +1,13 @@
 import (
     { Span } from @lexer/tokens
-    {
-        Node, TypeExpr, Pattern, FuncDeclData, FuncParam, GenericParam, VarDeclData,
-        RecordDeclData, ClassDeclData, InterfaceDeclData, EnumDeclData, ExtendDeclData,
-        ExternDeclData, ImportDeclData, VarKind, importDeclIsModuleImport
-    } from @ast/ast
+    { Node, TypeExpr, Named, Pattern, LiteralPatternValue, FuncDeclData, VarDeclData, RecordDeclData, ClassDeclData, InterfaceDeclData, EnumDeclData, ExtendDeclData, ExternDeclData, ImportDeclData, VarKind } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
-    {
-        Checker, Type, FuncType, RecordType, EnumType, InterfaceType, ClassType,
-        TupleType, TypeParameter, SpecializedType, Scope, PendingClassMethod,
-        PendingExtendMethod, IntType, BoolType, StringType, UnitType, Unknown, newScope
-    } from @checker/types
-    { setNodeType, checkerErrorf, contextInnerType } from @checker/checker
+    { Checker, Type, FuncType, EnumType, InterfaceType, ClassType, Scope, PendingClassMethod, PendingExtendMethod, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, newScope, typeToString } from @checker/types
+    { setNodeType, checkerErrorf } from @checker/checker
     { resolveTypeExpr, instantiateFunc, substitute } from @checker/check_generics
     { checkPattern } from @checker/check_patterns
-    { getKindName } from @checker/check_exprs
     { isAssignable, isCompatibleFunc } from @checker/assign
+    { appendTypeExtension, mapHasStrFuncList, mapHasStrType } from @checker/map_util
 )
 
 pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
@@ -26,27 +18,39 @@ pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
     var paramIdx = 0
     for p in pm.fd.params {
         match p.pattern {
-            Pattern.Binding(_, _, name) if name != "self" => {
+            Binding(_, _, name) if name != "self" => {
                 if paramIdx < pm.paramTypes.size() {
-                    c.scope.define(name, pm.paramTypes[paramIdx], true)
+                    c.scope.define(name, pm.paramTypes.get(paramIdx), true)
                     paramIdx = paramIdx + 1
                 }
             }
-            _ => UnitType
+            _ => {}
         }
     }
     match pm.fd.whenGuard {
         Some(guard) => {
             val gt = c.checkNode(guard)
-            if gt != BoolType { checkerErrorf(c, nodePos(guard), "o guard 'when' deve ser Bool, encontrado $(gt.toString())", []) }
+            if typeToString(gt) != "Bool" {
+                checkerErrorf(c, nodePos(guard), "o guard 'when' deve ser Bool, encontrado $(typeToString(gt))", [])
+            }
         }
-        None => UnitType
+        None => {}
     }
     val oldRet = c.context.returnType
     c.context.returnType = Some(pm.retType)
-    val bodyType = c.checkNode(pm.fd.body.get())
-    if pm.fd.isExprBody && !isAssignable(c, pm.retType, bodyType) {
-        checkerErrorf(c, nodePos(pm.fd.body.get()), "incompatible return type in method $(pm.fd.name): expected $(pm.retType.toString()), got $(bodyType.toString())", [])
+    if match pm.fd.body {
+        Some(body) => {
+            val bodyType = c.checkNode(body)
+            if pm.fd.isExprBody {
+                if !isAssignable(c, pm.retType, bodyType) {
+                    checkerErrorf(c, nodePos(body), "incompatible return type in method $(pm.fd.name): expected $(typeToString(pm.retType)), got $(typeToString(bodyType))", [])
+                }
+            }
+            true
+        }
+        None => false
+    } {
+        {}
     }
     c.context.returnType = oldRet
     c.scope = parentScope
@@ -54,13 +58,13 @@ pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
 
 pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclData]) {
     if variants.size() == 0 { return }
-    val first = variants[0]
+    val first = variants.get(0)
     val parentScope = c.scope
     val funcScope = newScope(Some(parentScope))
     var genericNames: List[String] = []
     for g in first.generics {
         genericNames.append(g.name)
-        funcScope.define(g.name, TypeParameter { name: g.name }, true)
+        funcScope.define(g.name, Type.TypeParam(g.name), true)
     }
     var paramTypes: List[Type] = []
     var defaults: List[Option[Node]] = []
@@ -68,75 +72,100 @@ pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclDat
     val oldScope = c.scope
     c.scope = funcScope
     for p in first.params {
-        var pt = resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => TypeExpr.Named(0, p.span, "Unknown") })
-        if pt == Unknown { pt = inferTypeFromPattern(c, p.pattern) }
+        var pt = resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => Named(0, p.span, "Unknown") })
+        if typeToString(pt) == "Unknown" { pt = inferTypeFromPattern(c, p.pattern) }
         paramTypes.append(pt)
         var optional = false
-        match p.typeExpr { Some(TypeExpr.Optional(_, _, _)) => optional = true, _ => UnitType }
+        if match p.typeExpr {
+            Some(Optional(_, _, _)) => true
+            _ => false
+        } {
+            optional = true
+        }
         isOptional.append(optional)
-        var def = p.defaultExpr
-        if optional && def == None { def = Some(Node.NoneLit(0, p.span)) }
-        defaults.append(def)
-        match def {
+        defaults.append(None)
+        match p.defaultExpr {
             Some(d) => {
                 val defaultType = c.checkNode(d)
                 if !isAssignable(c, pt, defaultType) {
-                    checkerErrorf(c, nodePos(d), "valor padrão incompatível: esperado $(pt.toString()), encontrado $(defaultType.toString())", [])
+                    checkerErrorf(c, nodePos(d), "valor padrão incompatível: esperado $(typeToString(pt)), encontrado $(typeToString(defaultType))", [])
                 }
             }
-            None => UnitType
+            None => {}
         }
     }
     var retType: Type = UnitType
-    if first.returnType != None {
-        retType = resolveTypeExpr(c, first.returnType.get())
-    } else if first.isExprBody && first.body != None {
-        val bodyScope = newScope(Some(funcScope))
-        for i in range(0, first.params.size()) {
-            match first.params[i].pattern {
-                Pattern.Binding(_, _, n) if i < paramTypes.size() => bodyScope.define(n, paramTypes[i], true)
-                _ => UnitType
+    if match first.returnType {
+        Some(rt) => { retType = resolveTypeExpr(c, rt); true }
+        None => false
+    } {
+        {}
+    }
+    if first.returnType == None && first.isExprBody {
+        match first.body {
+            Some(body) => {
+                val bodyScope = newScope(Some(funcScope))
+                for i in range(0, first.params.size()) {
+                    match first.params.get(i).pattern {
+                        Binding(_, _, n) if i < paramTypes.size() => { bodyScope.define(n, paramTypes.get(i), true) }
+                        _ => {}
+                    }
+                }
+                c.scope = bodyScope
+                retType = c.checkNode(body)
+                c.inferredBodies.set(0, true)
             }
+            None => {}
         }
-        c.scope = bodyScope
-        retType = c.checkNode(first.body.get())
-        c.inferredBodies[0] = true
     }
     c.scope = oldScope
     val ft = FuncType { params: paramTypes, returnType: retType, generics: genericNames, defaults: defaults, isOptional: isOptional }
-    parentScope.define(name, ft, true)
-    for v in variants {
-        setNodeType(c, Node.FuncDecl(v.name == name ? 0 : 0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, v), ft)
-    }
+    parentScope.define(name, Type.Func(ft), true)
 }
 
 pub fn inferTypeFromPattern(c: Checker, pat: Pattern) -> Type = match pat {
-    Pattern.Literal(_, _, value) => c.checkNode(value)
-    Pattern.Constructor(_, _, name, _) => {
-        if name == "Some" || name == "None" {
-            val base = resolveTypeExpr(c, TypeExpr.Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
-            SpecializedType { base: base, params: [Unknown] }
-        } else if name == "Ok" || name == "Err" {
-            val base = resolveTypeExpr(c, TypeExpr.Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Result"))
-            SpecializedType { base: base, params: [Unknown] }
-        } else {
-            match c.scope.resolve(name) {
-                Some(sym) => match sym.typ {
-                    FuncType(_, ret, _, _, _) => ret
-                    _ => sym.typ
-                }
-                None => Unknown
+    Literal(_, _, value) => inferLiteralPatternType(value)
+    Constructor(_, _, name, _) => match name {
+        "Some" => {
+            val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
+            Type.Specialized(base, [Unknown])
+        }
+        "None" => {
+            val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
+            Type.Specialized(base, [Unknown])
+        }
+        "Ok" => {
+            val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Result"))
+            Type.Specialized(base, [Unknown])
+        }
+        "Err" => {
+            val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Result"))
+            Type.Specialized(base, [Unknown])
+        }
+        _ => match c.scope.resolve(name) {
+            Some(sym) => match sym.typ {
+                Func(ft) => ft.returnType
+                _ => sym.typ
             }
+            None => Unknown
         }
     }
-    Pattern.Record(_, _, name, _) => match c.scope.resolve(name) { Some(sym) => sym.typ, None => Unknown }
+    Record(_, _, name, _) => match c.scope.resolve(name) { Some(sym) => sym.typ, None => Unknown }
     _ => Unknown
+}
+
+fn inferLiteralPatternType(v: LiteralPatternValue) -> Type = match v {
+    Int(_) => IntType
+    Float(_) => FloatType
+    String(_) => StringType
+    Char(_) => CharType
+    Bool(_) => BoolType
 }
 
 pub fn checkFuncVariantsBody(c: Checker, name: String, variants: List[FuncDeclData]) {
     match c.scope.resolve(name) {
         Some(sym) => match sym.typ {
-            FuncType(_, _, _, _, _) as ft => {
+            Func(ft) => {
                 var hasCatchall = false
                 for v in variants {
                     if v.whenGuard == None {
@@ -152,14 +181,15 @@ pub fn checkFuncVariantsBody(c: Checker, name: String, variants: List[FuncDeclDa
                 }
                 for v in variants { checkFuncDeclBody(c, v, ft) }
             }
-            _ => UnitType
+            _ => {}
         }
-        None => UnitType
+        None => {}
     }
 }
 
 fn isCatchallPattern(p: Pattern) -> Bool = match p {
-    Pattern.Binding(_, _, _) | Pattern.Wildcard(_, _) => true
+    Binding(_, _, _) => true
+    Wildcard(_, _) => true
     _ => false
 }
 
@@ -167,26 +197,31 @@ fn checkFuncDeclBody(c: Checker, n: FuncDeclData, expectedFt: FuncType) {
     val parentScope = c.scope
     c.scope = newScope(Some(parentScope))
     for gName in expectedFt.generics {
-        c.scope.define(gName, TypeParameter { name: gName }, true)
+        c.scope.define(gName, Type.TypeParam(gName), true)
     }
     for i in range(0, n.params.size()) {
         if i < expectedFt.params.size() {
-            checkPattern(c, n.params[i].pattern, expectedFt.params[i])
+            checkPattern(c, n.params.get(i).pattern, expectedFt.params.get(i))
         }
     }
     match n.whenGuard {
         Some(guard) => {
             val gt = c.checkNode(guard)
-            if gt != BoolType { checkerErrorf(c, nodePos(guard), "o guard 'when' deve ser Bool, encontrado $(gt.toString())", []) }
+            if typeToString(gt) != "Bool" {
+                checkerErrorf(c, nodePos(guard), "o guard 'when' deve ser Bool, encontrado $(typeToString(gt))", [])
+            }
         }
-        None => UnitType
+        None => {}
     }
     val oldRet = c.context.returnType
     c.context.returnType = Some(expectedFt.returnType)
-    if c.inferredBodies.get(0) == Some(true) {
-        c.context.returnType = oldRet
-        c.scope = parentScope
-        return
+    match c.inferredBodies.get(0) {
+        Some(true) => {
+            c.context.returnType = oldRet
+            c.scope = parentScope
+            return
+        }
+        _ => {}
     }
     match n.body {
         Some(body) => {
@@ -194,22 +229,24 @@ fn checkFuncDeclBody(c: Checker, n: FuncDeclData, expectedFt: FuncType) {
             if n.isExprBody {
                 if n.returnType == None {
                     expectedFt.returnType = bodyType
-                } else if !isAssignable(c, expectedFt.returnType, bodyType) {
-                    checkerErrorf(c, nodePos(body), "incompatible return type: expected $(expectedFt.returnType.toString()), got $(bodyType.toString())", [])
+                } else {
+                    if !isAssignable(c, expectedFt.returnType, bodyType) {
+                        checkerErrorf(c, nodePos(body), "incompatible return type: expected $(typeToString(expectedFt.returnType)), got $(typeToString(bodyType))", [])
+                    }
                 }
             }
         }
-        None => UnitType
+        None => {}
     }
     c.context.returnType = oldRet
     c.scope = parentScope
 }
 
-pub fn checkFuncDecl(c: Checker, n: FuncDeclData, nodeId: Int) -> Type {
+pub fn checkFuncDecl(c: Checker, n: FuncDeclData, declNodeId: Int) -> Type {
     registerFuncVariants(c, n.name, [n])
     match c.scope.resolve(n.name) {
         Some(sym) => match sym.typ {
-            FuncType(_, _, _, _, _) as ft => { checkFuncDeclBody(c, n, ft); ft }
+            Func(ft) => { checkFuncDeclBody(c, n, ft); sym.typ }
             _ => Unknown
         }
         None => Unknown
@@ -222,11 +259,11 @@ pub fn checkRecordDecl(c: Checker, n: RecordDeclData) -> Type {
     var genericNames: List[String] = []
     for g in n.generics {
         genericNames.append(g.name)
-        c.scope.define(g.name, TypeParameter { name: g.name }, true)
+        c.scope.define(g.name, Type.TypeParam(g.name), true)
     }
     var fields: Map[String, Type] = Map[String, Type]{}
-    for f in n.fields { fields[f.name] = resolveTypeExpr(c, f.typeExpr) }
-    val rt = RecordType { name: n.name, fields: fields, generics: genericNames }
+    for f in n.fields { fields.set(f.name, resolveTypeExpr(c, f.typeExpr)) }
+    val rt = Type.Record(n.name, fields, genericNames)
     parentScope.define(n.name, rt, true)
     c.scope = parentScope
     return rt
@@ -238,17 +275,17 @@ pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
     var genericNames: List[String] = []
     for g in n.generics {
         genericNames.append(g.name)
-        c.scope.define(g.name, TypeParameter { name: g.name }, true)
+        c.scope.define(g.name, Type.TypeParam(g.name), true)
     }
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     var variantFieldNames: Map[String, List[String]] = Map[String, List[String]]{}
     val et = EnumType { name: n.name, variants: variants, variantFieldNames: variantFieldNames, generics: genericNames }
-    parentScope.define(n.name, et, true)
-    var constructorReturn: Type = et
+    parentScope.define(n.name, Type.Enum(et), true)
+    var constructorReturn: Type = Type.Enum(et)
     if genericNames.size() > 0 {
         var tparams: List[Type] = []
-        for name in genericNames { tparams.append(TypeParameter { name: name }) }
-        constructorReturn = SpecializedType { base: et, params: tparams }
+        for gname in genericNames { tparams.append(Type.TypeParam(gname)) }
+        constructorReturn = Type.Specialized(Type.Enum(et), tparams)
     }
     for v in n.variants {
         var fieldTypes: List[Type] = []
@@ -257,13 +294,13 @@ pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
             fieldTypes.append(resolveTypeExpr(c, f.typeExpr))
             fieldNames.append(f.name)
         }
-        variants[v.name] = fieldTypes
-        variantFieldNames[v.name] = fieldNames
+        variants.set(v.name, fieldTypes)
+        variantFieldNames.set(v.name, fieldNames)
         val vt = FuncType { params: fieldTypes, returnType: constructorReturn, generics: genericNames, defaults: [], isOptional: [] }
-        parentScope.define(v.name, vt, true)
+        parentScope.define(v.name, Type.Func(vt), true)
     }
     c.scope = parentScope
-    return et
+    return Type.Enum(et)
 }
 
 pub fn checkInterfaceDecl(c: Checker, n: InterfaceDeclData) -> Type {
@@ -272,25 +309,25 @@ pub fn checkInterfaceDecl(c: Checker, n: InterfaceDeclData) -> Type {
         var params: List[Type] = []
         for p in m.params {
             match p.pattern {
-                Pattern.Binding(_, _, name) if name == "self" => UnitType
-                _ => params.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => TypeExpr.Named(0, p.span, "Unknown") }))
+                Binding(_, _, name) if name == "self" => {}
+                _ => { params.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => Named(0, p.span, "Unknown") })) }
             }
         }
         val ret = match m.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
-        methods[m.name] = FuncType { params: params, returnType: ret, generics: [], defaults: [], isOptional: [] }
+        methods.set(m.name, FuncType { params: params, returnType: ret, generics: [], defaults: [], isOptional: [] })
     }
     val it = InterfaceType { name: n.name, methods: methods }
-    c.scope.define(n.name, it, true)
-    return it
+    c.scope.define(n.name, Type.Interface(it), true)
+    return Type.Interface(it)
 }
 
-pub fn checkClassDecl(c: Checker, n: ClassDeclData, nodeId: Int) -> Type {
+pub fn checkClassDecl(c: Checker, n: ClassDeclData, declNodeId: Int) -> Type {
     val parentScope = c.scope
     c.scope = newScope(Some(parentScope))
     var genericNames: List[String] = []
     for g in n.generics {
         genericNames.append(g.name)
-        c.scope.define(g.name, TypeParameter { name: g.name }, true)
+        c.scope.define(g.name, Type.TypeParam(g.name), true)
     }
     var fields: Map[String, Type] = Map[String, Type]{}
     var fieldPub: Map[String, Bool] = Map[String, Bool]{}
@@ -301,75 +338,119 @@ pub fn checkClassDecl(c: Checker, n: ClassDeclData, nodeId: Int) -> Type {
     for itExpr in n.interfaces {
         val itType = resolveTypeExpr(c, itExpr)
         match itType {
-            InterfaceType(_, _) as it => implements.append(it)
-            _ => checkerErrorf(c, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "$(itType.toString()) is not an interface", [])
+            Interface(it) => implements.append(it)
+            _ => checkerErrorf(c, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "$(typeToString(itType)) is not an interface", [])
         }
     }
     val ct = ClassType { name: n.name, fields: fields, fieldPub: fieldPub, fieldInit: fieldInit, methods: methods, methodPub: methodPub, implements: implements, generics: genericNames }
-    parentScope.define(n.name, ct, true)
+    parentScope.define(n.name, Type.Class(ct), true)
     for member in n.body {
         match member {
-            Node.VarDecl(_, _, vd) => {
+            VarDecl(_, _, vd) => {
                 val ft = match vd.typeExpr { Some(te) => resolveTypeExpr(c, te), None => Unknown }
-                fields[vd.name] = ft
-                fieldPub[vd.name] = vd.isPub
+                fields.set(vd.name, ft)
+                fieldPub.set(vd.name, vd.isPub)
                 match vd.init {
                     Some(init) => {
-                        fieldInit[vd.name] = init
+                        fieldInit.set(vd.name, init)
                         val defaultType = c.checkNode(init)
                         if !isAssignable(c, ft, defaultType) {
-                            checkerErrorf(c, nodePos(init), "valor padrão incompatível para campo $(vd.name): esperado $(ft.toString()), encontrado $(defaultType.toString())", [])
+                            checkerErrorf(c, nodePos(init), "valor padrão incompatível para campo $(vd.name): esperado $(typeToString(ft)), encontrado $(typeToString(defaultType))", [])
                         }
                     }
-                    None => UnitType
+                    None => {}
                 }
             }
-            _ => UnitType
+            _ => {}
         }
     }
     c.currentClass = Some(ct)
     for member in n.body {
         match member {
-            Node.FuncDecl(_, _, fd) => {
+            FuncDecl(_, _, fd) => {
                 var paramTypes: List[Type] = []
                 for p in fd.params {
                     match p.pattern {
-                        Pattern.Binding(_, _, name) if name == "self" => UnitType
-                        _ => paramTypes.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => TypeExpr.Named(0, p.span, "Unknown") }))
+                        Binding(_, _, name) if name == "self" => {}
+                        _ => { paramTypes.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => Named(0, p.span, "Unknown") })) }
                     }
                 }
                 val ret = match fd.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
                 val ft = FuncType { params: paramTypes, returnType: ret, generics: [], defaults: [], isOptional: [] }
-                methods[fd.name] = (methods.get(fd.name) ?: []).append(ft)
-                methodPub[fd.name] = fd.isPub
-                var selfType: Type = ct
+                if mapHasStrFuncList(methods, fd.name) {
+                    var existing = methods.get(fd.name)
+                    existing.append(ft)
+                    methods.set(fd.name, existing)
+                } else {
+                    methods.set(fd.name, [ft])
+                }
+                methodPub.set(fd.name, fd.isPub)
+                var selfType: Type = Type.Class(ct)
                 if ct.name == "StringExtensions" { selfType = StringType }
                 c.pendingClassMethods.append(PendingClassMethod { fd: fd, fdNodeId: nodeId(member), ct: ct, selfType: selfType, paramTypes: paramTypes, retType: ret, file: c.currentFile })
             }
-            _ => UnitType
+            _ => {}
+        }
+    }
+    for it in implements {
+        for name in it.methods.keys() {
+            val expectedFt = it.methods.get(name)
+            if !mapHasStrFuncList(methods, name) || methods.get(name).size() == 0 {
+                checkerErrorf(c, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "class $(n.name) does not implement method $(name) required by interface $(it.name)", [])
+            } else {
+                var found = false
+                for actualFt in methods.get(name) {
+                    if isCompatibleFunc(expectedFt, actualFt) {
+                        found = true
+                    }
+                }
+                if !found {
+                    checkerErrorf(c, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "method signature $(name) in $(n.name) incompatible with interface $(it.name)", [])
+                }
+            }
         }
     }
     c.currentClass = None
     c.scope = parentScope
-    return ct
+    return Type.Class(ct)
 }
 
 pub fn checkVarDecl(c: Checker, decl: VarDeclData) -> Type {
     var initType: Type = Unknown
-    match decl.init { Some(init) => initType = c.checkNode(init), None => UnitType }
-    match decl.typeExpr {
+    if match decl.init {
+        Some(init) => { initType = c.checkNode(init); true }
+        None => false
+    } {
+        {}
+    }
+    if match decl.typeExpr {
         Some(te) => {
             val expected = resolveTypeExpr(c, te)
-            if initType != Unknown && !isAssignable(c, expected, initType) {
-                checkerErrorf(c, nodePos(decl.init.get()), "incompatible type: expected $(expected.toString()), got $(initType.toString())", [])
+            if typeToString(initType) != "Unknown" {
+                if match decl.init {
+                    Some(init) => {
+                        if !isAssignable(c, expected, initType) {
+                            checkerErrorf(c, nodePos(init), "incompatible type: expected $(typeToString(expected)), got $(typeToString(initType))", [])
+                        }
+                        true
+                    }
+                    None => false
+                } {
+                    {}
+                }
             }
             initType = expected
+            true
         }
-        None => UnitType
+        None => false
+    } {
+        {}
     }
-    match decl.pattern {
-        Some(pat) => { checkPattern(c, pat, initType); return initType }
-        None => UnitType
+    if match decl.pattern {
+        Some(pat) => { checkPattern(c, pat, initType); true }
+        None => false
+    } {
+        return initType
     }
     if decl.name != "_" {
         c.scope.define(decl.name, initType, decl.kind != VarKind.Var)
@@ -379,36 +460,45 @@ pub fn checkVarDecl(c: Checker, decl: VarDeclData) -> Type {
 
 pub fn checkExternDecl(c: Checker, n: ExternDeclData) -> Type {
     var paramTypes: List[Type] = []
-    for p in n.params { paramTypes.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => TypeExpr.Named(0, p.span, "Unknown") })) }
+    for p in n.params { paramTypes.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => Named(0, p.span, "Unknown") })) }
     val retType = match n.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
     val ft = FuncType { params: paramTypes, returnType: retType, generics: [], defaults: [], isOptional: [] }
-    c.scope.define(n.name, ft, true)
-    return ft
+    c.scope.define(n.name, Type.Func(ft), true)
+    return Type.Func(ft)
 }
 
-pub fn checkExtendDecl(c: Checker, n: ExtendDeclData, nodeId: Int) -> Type {
-    val selfType = match c.extendSelfTypes.get(n.typeName) {
-        Some(st) => st
-        None => match c.scope.resolve(n.typeName) { Some(sym) => sym.typ, None => Unknown }
+pub fn checkExtendDecl(c: Checker, n: ExtendDeclData, extendNodeId: Int) -> Type {
+    var selfType: Type = Unknown
+    if mapHasStrType(c.extendSelfTypes, n.typeName) {
+        selfType = c.extendSelfTypes.get(n.typeName)
+    } else {
+        match c.scope.resolve(n.typeName) {
+            Some(sym) => { selfType = sym.typ }
+            None => { selfType = Unknown }
+        }
     }
-    if selfType == Unknown {
+    if typeToString(selfType) == "Unknown" {
         checkerErrorf(c, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "extend: tipo '$(n.typeName)' não encontrado", [])
         return Unknown
     }
-    c.extendSelfTypes[n.typeName] = selfType
-    for fd in n.methods {
-        var paramTypes: List[Type] = []
-        for p in fd.params {
-            match p.pattern {
-                Pattern.Binding(_, _, name) if name == "self" => UnitType
-                _ => paramTypes.append(match p.typeExpr { Some(te) => resolveTypeExpr(c, te), None => Unknown })
+    c.extendSelfTypes.set(n.typeName, selfType)
+    for methodNode in n.methods {
+        match methodNode {
+            FuncDecl(_, _, fd) => {
+                var paramTypes: List[Type] = []
+                for p in fd.params {
+                    match p.pattern {
+                        Binding(_, _, name) if name == "self" => {}
+                        _ => { paramTypes.append(match p.typeExpr { Some(te) => resolveTypeExpr(c, te), None => Unknown }) }
+                    }
+                }
+                val ret = match fd.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
+                val ft = FuncType { params: paramTypes, returnType: ret, generics: [], defaults: [], isOptional: [] }
+                appendTypeExtension(c.typeExtensions, n.typeName, fd.name, ft)
+                c.pendingExtendMethods.append(PendingExtendMethod { fd: fd, fdNodeId: extendNodeId, typeName: n.typeName, selfType: selfType, paramTypes: paramTypes, retType: ret, file: c.currentFile })
             }
+            _ => {}
         }
-        val ret = match fd.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
-        val ft = FuncType { params: paramTypes, returnType: ret, generics: [], defaults: [], isOptional: [] }
-        c.typeExtensions[n.typeName] = c.typeExtensions.get(n.typeName) ?: Map[String, List[FuncType]]{}
-        c.typeExtensions[n.typeName][fd.name] = (c.typeExtensions[n.typeName].get(fd.name) ?: []).append(ft)
-        c.pendingExtendMethods.append(PendingExtendMethod { fd: fd, fdNodeId: nodeId, typeName: n.typeName, selfType: selfType, paramTypes: paramTypes, retType: ret, file: c.currentFile })
     }
     return UnitType
 }
@@ -421,55 +511,77 @@ pub fn checkExtendMethodBody(c: Checker, pm: PendingExtendMethod) {
     var paramIdx = 0
     for p in pm.fd.params {
         match p.pattern {
-            Pattern.Binding(_, _, name) if name != "self" => {
+            Binding(_, _, name) if name != "self" => {
                 if paramIdx < pm.paramTypes.size() {
-                    c.scope.define(name, pm.paramTypes[paramIdx], true)
+                    c.scope.define(name, pm.paramTypes.get(paramIdx), true)
                     paramIdx = paramIdx + 1
                 }
             }
-            _ => UnitType
+            _ => {}
         }
     }
     val prev = c.context.returnType
     c.context.returnType = Some(pm.retType)
-    c.checkNode(pm.fd.body.get())
+    if match pm.fd.body {
+        Some(body) => { c.checkNode(body); true }
+        None => false
+    } {
+        {}
+    }
     c.context.returnType = prev
     c.scope = parentScope
 }
 
-pub fn registerModuleNamespaces(c: Checker, body: List[Node], imp: ImportDeclData) {
-    if imp.path == "" || imp.resolvedFiles.size() == 0 { return }
-    val modName = imp.namespace
-    var ns = ClassType { name: modName, fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}, implements: [], generics: [] }
-    for node in progBody(c, prog) {
-        match node {
-            Node.FuncDecl(_, _, fd) | Node.ExternDecl(_, _, ed) => {
-                val name = match node { Node.FuncDecl(_, _, f) => f.name, Node.ExternDecl(_, _, e) => e.name, _ => "" }
-                val pub = match node { Node.FuncDecl(_, _, f) => f.isPub, Node.ExternDecl(_, _, e) => e.isPub, _ => false }
-                if name != "" && pub {
-                    match c.scope.resolve(name) {
-                        Some(sym) => match sym.typ {
-                            FuncType(_, _, _, _, _) as ft => {
-                                ns.methods[name] = [ft]
-                                ns.methodPub[name] = true
-                            }
-                            _ => UnitType
+fn registerModuleFunc(c: Checker, ns: ClassType, node: Node) {
+    match node {
+        FuncDecl(_, _, fd) => {
+            if fd.isPub {
+                match c.scope.resolve(fd.name) {
+                    Some(sym) => match sym.typ {
+                        Func(ft) => {
+                            ns.methods.set(fd.name, [ft])
+                            ns.methodPub.set(fd.name, true)
                         }
-                        None => UnitType
+                        _ => {}
                     }
+                    None => {}
                 }
             }
-            _ => UnitType
         }
+        ExternDecl(_, _, ed) => {
+            if ed.isPub {
+                match c.scope.resolve(ed.name) {
+                    Some(sym) => match sym.typ {
+                        Func(ft) => {
+                            ns.methods.set(ed.name, [ft])
+                            ns.methodPub.set(ed.name, true)
+                        }
+                        _ => {}
+                    }
+                    None => {}
+                }
+            }
+        }
+        _ => {}
     }
-    if ns.methods.size() > 0 { c.scope.define(modName, ns, true) }
+}
+
+pub fn registerModuleNamespace(c: Checker, body: List[Node], imp: ImportDeclData) {
+    if imp.path == "" { return }
+    if imp.resolvedFiles.size() == 0 { return }
+    val modName = imp.namespace
+    var ns = ClassType { name: modName, fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}, implements: [], generics: [] }
+    for node in body {
+        registerModuleFunc(c, ns, node)
+    }
+    if ns.methods.size() > 0 { c.scope.define(modName, Type.Class(ns), true) }
 }
 
 pub fn collectFileImports(c: Checker, body: List[Node]) {
-    for node in progBody(c, prog) {
+    for node in body {
         match node {
-            Node.ImportDecl(_, _, data) => UnitType
-            _ => UnitType
+            ImportDecl(_, _, _) => {}
+            _ => {}
         }
     }
 }

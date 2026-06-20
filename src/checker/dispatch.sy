@@ -1,33 +1,14 @@
 import (
     { Span } from @lexer/tokens
-    {
-        Program, Node, FuncDeclData, ImportDeclData, VarKind,
-        importDeclIsModuleImport, TypeExpr
-    } from @ast/ast
+    { Program, Node, FuncDeclData, ImportDeclData, VarKind, importDeclIsModuleImport, TypeExpr, Named, BlockStmt } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
-    {
-        Checker, Type, BasicType, FuncType, RecordType, EnumType, InterfaceType, ClassType,
-        TupleType, TypeParameter, SpecializedType, CheckResult,
-        IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown
-    } from @checker/types
-    {
-        checkerErrorf, checkerWarnf, isTaskType, contextInnerType, setNodeType
-    } from @checker/checker
+    { Checker, Type, FuncType, EnumType, InterfaceType, ClassType, CheckResult, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, typeToString } from @checker/types
+    { checkerErrorf, checkerWarnf, isTaskType, contextInnerType, setNodeType } from @checker/checker
     { builtinTypeExtensions, builtinExtendSelfTypes } from @checker/builtins
-    { checkVarDecl, checkFuncDecl, checkRecordDecl, checkEnumDecl, checkInterfaceDecl,
-      checkClassDecl, checkExternDecl, checkExtendDecl, registerFuncVariants,
-      checkFuncVariantsBody, checkClassMethodBody, checkExtendMethodBody,
-      registerModuleNamespace, collectFileImports
-    } from @checker/check_decls
-    { checkReturnStmt, checkTupleExpr, checkListExpr, checkMapExpr, checkTaskExpr,
-      checkSelectExpr, checkMemberExpr, checkSafeNavExpr, checkSelfExpr, checkArrowFunc,
-      checkPipeExpr, checkPipeQuestExpr, checkAsyncPipeExpr, checkMatchExpr,
-      checkInterpolatedString, checkElvisExpr, checkCallExpr, checkSpecialization,
-      checkIdentifier, checkBinaryExpr, checkUnaryExpr, checkAssignExpr, checkForStmt,
-      checkBlock, checkRecordLiteral, resolveTypeExpr, checkWhileStmt, checkLoopStmt,
-      checkBreakStmt, checkContinueStmt
-    } from @checker/check_exprs
+    { checkVarDecl, checkFuncDecl, checkRecordDecl, checkEnumDecl, checkInterfaceDecl, checkClassDecl, checkExternDecl, checkExtendDecl, registerFuncVariants, checkFuncVariantsBody, checkClassMethodBody, checkExtendMethodBody, registerModuleNamespace, collectFileImports } from @checker/check_decls
+    { checkReturnStmt, checkTupleExpr, checkListExpr, checkMapExpr, checkTaskExpr, checkSelectExpr, checkMemberExpr, checkSafeNavExpr, checkSelfExpr, checkArrowFunc, checkPipeExpr, checkPipeQuestExpr, checkAsyncPipeExpr, checkMatchExpr, checkInterpolatedString, checkElvisExpr, checkCallExpr, checkSpecialization, checkIdentifier, checkBinaryExpr, checkUnaryExpr, checkAssignExpr, checkForStmt, checkBlock, checkRecordLiteral, resolveTypeExpr, checkWhileStmt, checkLoopStmt, checkBreakStmt, checkContinueStmt } from @checker/check_exprs
     { checkSpecializedExpr } from @checker/specialized_expr
+    { mapHasStrFuncDeclList } from @checker/map_util
 )
 
 fn progBody(c: Checker, prog: Node) -> List[Node] = match prog {
@@ -35,70 +16,71 @@ fn progBody(c: Checker, prog: Node) -> List[Node] = match prog {
     _ => []
 }
 
-pub fn doCheckNode(c: Checker, node: Node) -> Type = match node {
-    Node.VarDecl(_, _, data) => checkVarDecl(c, data)
-    Node.FuncDecl(_, _, data) => checkFuncDecl(c, data, nodeId(node))
-    Node.RecordDecl(_, _, data) => checkRecordDecl(c, data)
-    Node.EnumDecl(_, _, data) => checkEnumDecl(c, data)
-    Node.InterfaceDecl(_, _, data) => checkInterfaceDecl(c, data)
-    Node.ClassDecl(_, _, data) => checkClassDecl(c, data, nodeId(node))
-    Node.ExternDecl(_, _, data) => checkExternDecl(c, data)
-    Node.ExtendDecl(_, _, data) => checkExtendDecl(c, data, nodeId(node))
-    Node.ReturnStmt(_, _, data) => checkReturnStmt(c, data, node)
-    Node.IntLiteral(_, _, _) => IntType
-    Node.FloatLiteral(_, _, _) => FloatType
-    Node.BoolLiteral(_, _, _) => BoolType
-    Node.StringLiteral(_, _, _) => StringType
-    Node.CharLiteral(_, _, _) => CharType
-    Node.Identifier(_, _, data) => checkIdentifier(c, data, node)
-    Node.NamedArg(_, _, data) => c.checkNode(data.value)
-    Node.OkExpr(_, _, data) => {
+pub fn checkerDispatchNode(c: Checker, node: Node) -> Type = match node {
+    VarDecl(_, _, data) => checkVarDecl(c, data)
+    FuncDecl(_, _, data) => checkFuncDecl(c, data, nodeId(node))
+    RecordDecl(_, _, data) => checkRecordDecl(c, data)
+    EnumDecl(_, _, data) => checkEnumDecl(c, data)
+    InterfaceDecl(_, _, data) => checkInterfaceDecl(c, data)
+    ClassDecl(_, _, data) => checkClassDecl(c, data, nodeId(node))
+    ExternDecl(_, _, data) => checkExternDecl(c, data)
+    ExtendDecl(_, _, data) => checkExtendDecl(c, data, nodeId(node))
+    ReturnStmt(_, _, data) => checkReturnStmt(c, data, node)
+    IntLiteral(_, _, _) => IntType
+    FloatLiteral(_, _, _) => FloatType
+    BoolLiteral(_, _, _) => BoolType
+    StringLiteral(_, _, _) => StringType
+    CharLiteral(_, _, _) => CharType
+    Identifier(_, _, data) => checkIdentifier(c, data, node)
+    NamedArg(_, _, data) => c.checkNode(data.value)
+    OkExpr(_, _, data) => {
         val valType = c.checkNode(data.value)
-        val base = resolveTypeExpr(c, TypeExpr.Named(0, nodePos(node), "Result"))
-        SpecializedType { base: base, params: [valType] }
+        val base = resolveTypeExpr(c, Named(0, nodePos(node), "Result"))
+        Type.Specialized(base, [valType])
     }
-    Node.ErrExpr(_, _, data) => {
+    ErrExpr(_, _, data) => {
         c.checkNode(data.value)
-        val base = resolveTypeExpr(c, TypeExpr.Named(0, nodePos(node), "Result"))
-        SpecializedType { base: base, params: [contextInnerType(c, "Result")] }
+        val base = resolveTypeExpr(c, Named(0, nodePos(node), "Result"))
+        Type.Specialized(base, [contextInnerType(c, "Result")])
     }
-    Node.SomeExpr(_, _, data) => {
+    SomeExpr(_, _, data) => {
         val valType = c.checkNode(data.value)
-        val base = resolveTypeExpr(c, TypeExpr.Named(0, nodePos(node), "Option"))
-        SpecializedType { base: base, params: [valType] }
+        val base = resolveTypeExpr(c, Named(0, nodePos(node), "Option"))
+        Type.Specialized(base, [valType])
     }
-    Node.NoneLit(_, _) => {
-        val base = resolveTypeExpr(c, TypeExpr.Named(0, nodePos(node), "Option"))
-        SpecializedType { base: base, params: [contextInnerType(c, "Option")] }
+    NoneLit(_, _) => {
+        val base = resolveTypeExpr(c, Named(0, nodePos(node), "Option"))
+        Type.Specialized(base, [contextInnerType(c, "Option")])
     }
-    Node.RecordLiteral(_, _, data) => checkRecordLiteral(c, data, node)
-    Node.BinaryExpr(_, _, data) => checkBinaryExpr(c, data, node)
-    Node.UnaryExpr(_, _, data) => checkUnaryExpr(c, data, node)
-    Node.AssignExpr(_, _, data) => checkAssignExpr(c, data, node)
-    Node.CallExpr(_, _, data) => checkCallExpr(c, data, node)
-    Node.IndexExpr(_, _, data) => checkSpecialization(c, data, node)
-    Node.SpecializedExpr(_, _, data) => checkSpecializedExpr(c, data, node)
-    Node.MatchExpr(_, _, data) => checkMatchExpr(c, data, node)
-    Node.InterpolatedString(_, _, data) => checkInterpolatedString(c, data)
-    Node.ArrowFunc(_, _, data) => checkArrowFunc(c, data, nodeId(node))
-    Node.PipeExpr(_, _, data) => checkPipeExpr(c, data, node)
-    Node.PipeQuestExpr(_, _, data) => checkPipeQuestExpr(c, data, node)
-    Node.AsyncPipeExpr(_, _, data) => checkAsyncPipeExpr(c, data, node)
-    Node.ElvisExpr(_, _, data) => checkElvisExpr(c, data)
-    Node.TupleExpr(_, _, data) => checkTupleExpr(c, data)
-    Node.ListExpr(_, _, data) => checkListExpr(c, data)
-    Node.MapExpr(_, _, data) => checkMapExpr(c, data)
-    Node.MemberExpr(_, _, data) => checkMemberExpr(c, data, node)
-    Node.SafeNavExpr(_, _, data) => checkSafeNavExpr(c, data, node)
-    Node.SelfExpr(_, _) => checkSelfExpr(c, node)
-    Node.TaskExpr(_, _, data) => checkTaskExpr(c, data)
-    Node.SelectExpr(_, _, data) => checkSelectExpr(c, data)
-    Node.ForStmt(_, _, data) | Node.ForTaskStmt(_, _, data) => checkForStmt(c, data)
-    Node.WhileStmt(_, _, data) => checkWhileStmt(c, data)
-    Node.LoopStmt(_, _, data) => checkLoopStmt(c, data)
-    Node.BreakStmt(_, _, data) => checkBreakStmt(c, data, node)
-    Node.ContinueStmt(_, _) => checkContinueStmt(c, node)
-    Node.IfStmt(_, _, data) => {
+    RecordLiteral(_, _, data) => checkRecordLiteral(c, data, node)
+    BinaryExpr(_, _, data) => checkBinaryExpr(c, data, node)
+    UnaryExpr(_, _, data) => checkUnaryExpr(c, data, node)
+    AssignExpr(_, _, data) => checkAssignExpr(c, data, node)
+    CallExpr(_, _, data) => checkCallExpr(c, data, node)
+    IndexExpr(_, _, data) => checkSpecialization(c, data, node)
+    SpecializedExpr(_, _, data) => checkSpecializedExpr(c, data, node)
+    MatchExpr(_, _, data) => checkMatchExpr(c, data, node)
+    InterpolatedString(_, _, data) => checkInterpolatedString(c, data)
+    ArrowFunc(_, _, data) => checkArrowFunc(c, data, nodeId(node))
+    PipeExpr(_, _, data) => checkPipeExpr(c, data, node)
+    PipeQuestExpr(_, _, data) => checkPipeQuestExpr(c, data, node)
+    AsyncPipeExpr(_, _, data) => checkAsyncPipeExpr(c, data, node)
+    ElvisExpr(_, _, data) => checkElvisExpr(c, data)
+    TupleExpr(_, _, data) => checkTupleExpr(c, data)
+    ListExpr(_, _, data) => checkListExpr(c, data)
+    MapExpr(_, _, data) => checkMapExpr(c, data)
+    MemberExpr(_, _, data) => checkMemberExpr(c, data, node)
+    SafeNavExpr(_, _, data) => checkSafeNavExpr(c, data, node)
+    SelfExpr(_, _) => checkSelfExpr(c, node)
+    TaskExpr(_, _, data) => checkTaskExpr(c, data)
+    SelectExpr(_, _, data) => checkSelectExpr(c, data)
+    ForStmt(_, _, data) => checkForStmt(c, data)
+    ForTaskStmt(_, _, data) => checkForStmt(c, data)
+    WhileStmt(_, _, data) => checkWhileStmt(c, data)
+    LoopStmt(_, _, data) => checkLoopStmt(c, data)
+    BreakStmt(_, _, data) => checkBreakStmt(c, data, node)
+    ContinueStmt(_, _) => checkContinueStmt(c, node)
+    IfStmt(_, _, data) => {
         c.checkNode(data.condition)
         checkBlock(c, data.consequent)
         match data.alternate {
@@ -107,23 +89,15 @@ pub fn doCheckNode(c: Checker, node: Node) -> Type = match node {
         }
         UnitType
     }
-    Node.ExprStmt(_, _, data) => {
+    ExprStmt(_, _, data) => {
         val t = c.checkNode(data.expr)
         if isTaskType(c, t) {
             checkerWarnf(c, nodePos(data.expr), "W0300", "Task não consumida — use .await() ou .detach()")
         }
         t
     }
-    Node.BlockStmt(_, _, data) => checkBlock(c, Node.BlockStmt(0, nodePos(node), data))
+    BlockStmt(_, _, data) => checkBlock(c, BlockStmt(0, nodePos(node), data))
     _ => Unknown
-}
-
-extend Checker {
-    pub fn checkNode(self, node: Node) -> Type {
-        val t = doCheckNode(self, node)
-        setNodeType(self, node, t)
-        return t
-    }
 }
 
 pub fn check(c: Checker, prog: Node) -> CheckResult {
@@ -133,7 +107,7 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
     var valueNodes: List[Node] = []
     for node in progBody(c, prog) {
         match node {
-            Node.FuncDecl(_, _, data) => {
+            FuncDecl(_, _, data) => {
                 if data.isTest {
                     c.testFuncs.append(data)
                     if data.params.size() > 0 {
@@ -143,12 +117,19 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
                         checkerErrorf(c, nodePos(node), "test fn $(data.name): funções de teste não podem declarar tipo de retorno", [])
                     }
                 }
-                c.funcVariants[data.name] = (c.funcVariants.get(data.name) ?: []).append(data)
+                var variants: List[FuncDeclData] = List[FuncDeclData]{}
+                if mapHasStrFuncDeclList(c.funcVariants, data.name) {
+                    variants = c.funcVariants.get(data.name)
+                }
+                variants.append(data)
+                c.funcVariants.set(data.name, variants)
             }
-            Node.RecordDecl(_, _, _) | Node.EnumDecl(_, _, _) | Node.InterfaceDecl(_, _, _) |
-            Node.ClassDecl(_, _, _) | Node.ExternDecl(_, _, _) | Node.ExtendDecl(_, _, _) => {
-                typeNodes.append(node)
-            }
+            RecordDecl(_, _, _) => typeNodes.append(node)
+            EnumDecl(_, _, _) => typeNodes.append(node)
+            InterfaceDecl(_, _, _) => typeNodes.append(node)
+            ClassDecl(_, _, _) => typeNodes.append(node)
+            ExternDecl(_, _, _) => typeNodes.append(node)
+            ExtendDecl(_, _, _) => typeNodes.append(node)
             _ => valueNodes.append(node)
         }
     }
@@ -163,8 +144,8 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
 
     for node in progBody(c, prog) {
         match node {
-            Node.ImportDecl(_, _, data) if importDeclIsModuleImport(data.names) => registerModuleNamespace(c, progBody(c, prog), data)
-            _ => UnitType
+            ImportDecl(_, _, data) if importDeclIsModuleImport(data) => registerModuleNamespace(c, progBody(c, prog), data)
+            _ => {}
         }
     }
 

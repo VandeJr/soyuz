@@ -1,0 +1,14 @@
+import (
+    { Node } from @ast/ast
+    { Checker, Type } from @checker/types
+    { setNodeType } from @checker/checker
+    { checkerDispatchNode } from @checker/dispatch
+)
+
+extend Checker {
+    pub fn checkNode(self, node: Node) -> Type {
+        val t = checkerDispatchNode(self, node)
+        setNodeType(self, node, t)
+        return t
+    }
+}

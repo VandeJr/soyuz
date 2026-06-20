@@ -3,135 +3,130 @@ import (
     { Node, FuncDeclData } from @ast/ast
 )
 
-pub interface Type {
-    pub fn toString(self) -> String
+pub record FuncType {
+    params: List[Type],
+    returnType: Type,
+    generics: List[String],
+    defaults: List[Option[Node]],
+    isOptional: List[Bool]
 }
 
-pub class BasicType : Type {
-    val name: String
-
-    pub fn toString(self) -> String = self.name
+pub record EnumType {
+    name: String,
+    variants: Map[String, List[Type]],
+    variantFieldNames: Map[String, List[String]],
+    generics: List[String]
 }
 
-pub class FuncType : Type {
-    val params: List[Type]
-    val returnType: Type
-    val generics: List[String]
-    val defaults: List[Option[Node]]
-    val isOptional: List[Bool]
+pub record InterfaceType {
+    name: String,
+    methods: Map[String, FuncType]
+}
 
-    pub fn toString(self) -> String {
+pub record ClassType {
+    name: String,
+    fields: Map[String, Type],
+    fieldPub: Map[String, Bool],
+    fieldInit: Map[String, Node],
+    methods: Map[String, List[FuncType]],
+    methodPub: Map[String, Bool],
+    implements: List[InterfaceType],
+    generics: List[String]
+}
+
+pub enum Type {
+    Basic(name: String)
+    Func(ft: FuncType)
+    Record(name: String, fields: Map[String, Type], generics: List[String])
+    Enum(data: EnumType)
+    Interface(data: InterfaceType)
+    Class(data: ClassType)
+    Tuple(elements: List[Type])
+    TypeParam(name: String)
+    Specialized(base: Type, params: List[Type])
+}
+
+pub fn typeToString(t: Type) -> String = match t {
+    Basic(name) => name
+    Func(ft) => {
         var gen = ""
-        if self.generics.size() > 0 {
-            gen = "[$(self.generics.join(", "))]"
+        if ft.generics.size() > 0 {
+            gen = "[$(ft.generics.join(", "))]"
         }
         var paramStrs: List[String] = []
-        for i in range(0, self.params.size()) {
-            var p = self.params[i]
-            if i < self.isOptional.size() && self.isOptional[i] {
-                paramStrs.append("$(p.toString())?")
+        for i in range(0, ft.params.size()) {
+            var p = ft.params.get(i)
+            var isOpt = false
+            if i < ft.isOptional.size() {
+                isOpt = ft.isOptional.get(i)
+            }
+            if isOpt {
+                paramStrs.append("$(typeToString(p))?")
             } else {
-                paramStrs.append(p.toString())
+                paramStrs.append(typeToString(p))
             }
         }
-        return "$(gen)($(paramStrs.join(", "))) -> $(self.returnType.toString())"
+        "$(gen)($(paramStrs.join(", "))) -> $(typeToString(ft.returnType))"
     }
-}
-
-pub class RecordType : Type {
-    val name: String
-    val fields: Map[String, Type]
-    val generics: List[String]
-
-    pub fn toString(self) -> String = self.name
-}
-
-pub class EnumType : Type {
-    val name: String
-    val variants: Map[String, List[Type]]
-    val variantFieldNames: Map[String, List[String]]
-    val generics: List[String]
-
-    pub fn toString(self) -> String = self.name
-}
-
-pub class InterfaceType : Type {
-    val name: String
-    val methods: Map[String, FuncType]
-
-    pub fn toString(self) -> String = self.name
-}
-
-pub class ClassType : Type {
-    val name: String
-    val fields: Map[String, Type]
-    val fieldPub: Map[String, Bool]
-    val fieldInit: Map[String, Node]
-    val methods: Map[String, List[FuncType]]
-    val methodPub: Map[String, Bool]
-    val implements: List[InterfaceType]
-    val generics: List[String]
-
-    pub fn toString(self) -> String = self.name
-
-    pub fn findMethod(self, name: String, arity: Int) -> Option[FuncType] {
-        val variants = self.methods.get(name) ?: []
-        if variants.size() == 0 {
-            return None
-        }
-        if arity < 0 || variants.size() == 1 {
-            return Some(variants[0])
-        }
-        for ft in variants {
-            if ft.params.size() == arity {
-                return Some(ft)
-            }
-        }
-        return Some(variants[0])
-    }
-}
-
-pub class TupleType : Type {
-    val elements: List[Type]
-
-    pub fn toString(self) -> String {
-        if self.elements.size() == 0 {
+    Record(name, _, _) => name
+    Enum(data) => data.name
+    Interface(data) => data.name
+    Class(data) => data.name
+    Tuple(elements) => {
+        if elements.size() == 0 {
             return "Unit"
         }
         var parts: List[String] = []
-        for e in self.elements {
-            parts.append(e.toString())
+        for e in elements {
+            parts.append(typeToString(e))
         }
         return "($(parts.join(", ")))"
     }
-}
-
-pub class TypeParameter : Type {
-    val name: String
-
-    pub fn toString(self) -> String = self.name
-}
-
-pub class SpecializedType : Type {
-    val base: Type
-    val params: List[Type]
-
-    pub fn toString(self) -> String {
+    TypeParam(name) => name
+    Specialized(base, params) => {
         var paramStrs: List[String] = []
-        for p in self.params {
-            paramStrs.append(p.toString())
+        for p in params {
+            paramStrs.append(typeToString(p))
         }
-        return "$(self.base.toString())[$(paramStrs.join(", "))]"
+        "$(typeToString(base))[$(paramStrs.join(", "))]"
     }
 }
 
-pub val IntType: Type = BasicType { name: "Int" }
-pub val FloatType: Type = BasicType { name: "Float" }
-pub val BoolType: Type = BasicType { name: "Bool" }
-pub val StringType: Type = BasicType { name: "String" }
-pub val CharType: Type = BasicType { name: "Char" }
-pub val UnitType: Type = BasicType { name: "Unit" }
-pub val Unknown: Type = BasicType { name: "Unknown" }
+pub fn classFindMethod(ct: ClassType, name: String, arity: Int) -> Option[FuncType] {
+    var hasMethod = false
+    for k in ct.methods.keys() {
+        if k == name { hasMethod = true }
+    }
+    if !hasMethod {
+        return None
+    }
+    val vs = ct.methods.get(name)
+    if vs.size() == 0 {
+        return None
+    }
+    if arity < 0 || vs.size() == 1 {
+        return Some(vs.get(0))
+    }
+    var found: Option[FuncType] = None
+    for i in range(0, vs.size()) {
+        val ft = vs.get(i)
+        if ft.params.size() == arity {
+            found = Some(ft)
+        }
+    }
+    return match found {
+        Some(ft) => Some(ft)
+        None => Some(vs.get(0))
+    }
+}
+
+pub val IntType: Type = Type.Basic("Int")
+pub val FloatType: Type = Type.Basic("Float")
+pub val BoolType: Type = Type.Basic("Bool")
+pub val StringType: Type = Type.Basic("String")
+pub val CharType: Type = Type.Basic("Char")
+pub val UnitType: Type = Type.Basic("Unit")
+pub val Unknown: Type = Type.Basic("Unknown")
 
 pub record TypeError {
     span: Span,
@@ -159,16 +154,18 @@ pub class Scope {
     var symbols: Map[String, Symbol] = Map[String, Symbol]{}
 
     pub fn define(self, name: String, t: Type, readonly: Bool) {
-        self.symbols[name] = Symbol { typ: t, isReadonly: readonly }
+        self.symbols.set(name, Symbol { typ: t, isReadonly: readonly })
     }
 
     pub fn resolve(self, name: String) -> Option[Symbol] {
-        if self.symbols.contains(name) {
-            return Some(self.symbols[name])
+        for k in self.symbols.keys() {
+            if k == name {
+                return Some(self.symbols.get(name))
+            }
         }
-        match self.parent {
-            Some(p) => return p.resolve(name)
-            None => return None
+        return match self.parent {
+            Some(p) => p.resolve(name)
+            None => None
         }
     }
 }

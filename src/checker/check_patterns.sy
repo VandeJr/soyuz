@@ -1,86 +1,91 @@
 import (
-    { Pattern, Node, RecordPatternField } from @ast/ast
+    { Span } from @lexer/tokens
+    { Pattern, RecordPatternField, LiteralPatternValue, Literal } from @ast/ast
     { nodePos } from @ast/ast_helpers
-    { Checker, Type, EnumType, FuncType, SpecializedType, TupleType, RecordType, IntType, Unknown } from @checker/types
-    { checkerErrorf } from @checker/checker
+    { Type, EnumType, FuncType, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, TypeError, typeToString } from @checker/types
+    { Checker } from @checker/checker
     { isAssignable } from @checker/assign
     { substitute } from @checker/check_generics
 )
 
-pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) = match pat {
-    Pattern.Wildcard(_, _) => UnitType
-    Pattern.Binding(_, _, name) => c.scope.define(name, subjectType, true)
-    Pattern.Literal(_, span, value) => {
-        val litType = c.checkNode(value)
-        if !isAssignable(c, subjectType, litType) {
-            checkerErrorf(c, span, "literal pattern incompatible with subject type: $(subjectType.toString()) and $(litType.toString())", [])
-        }
+fn patternError(c: Checker, span: Span, message: String) {
+    val end = Span { line: span.line, column: span.column + 4, startOffset: span.startOffset, endOffset: span.endOffset }
+    c.errors.append(TypeError { span: span, end: end, file: c.currentFile, code: "E0200", message: message })
+}
+
+fn patternLiteralType(v: LiteralPatternValue) -> Type = match v {
+    Int(_) => IntType
+    Float(_) => FloatType
+    String(_) => StringType
+    Char(_) => CharType
+    Bool(_) => BoolType
+}
+
+fn enumFromReturn(ret: Type, variantName: String) -> Option[EnumType] = match ret {
+    Enum(et) => Some(et)
+    Specialized(base, _) => match base {
+        Enum(et) => Some(et)
+        _ => None
     }
-    Pattern.Constructor(_, span, name, args) => checkConstructorPattern(c, span, name, args, subjectType)
-    Pattern.Record(_, span, name, fields) => checkRecordPattern(c, span, name, fields, subjectType)
-    Pattern.Range(_, span, from, to, _) => {
-        val fromType = c.checkNode(from)
-        val toType = c.checkNode(to)
-        if fromType != IntType || toType != IntType {
-            checkerErrorf(c, span, "range pattern only supported for Int, got $(fromType.toString()) and $(toType.toString())", [])
-        }
-    }
-    Pattern.Tuple(_, span, elements) => match subjectType {
-        TupleType(ttElems) => {
-            if elements.size() != ttElems.size() {
-                checkerErrorf(c, span, "tuple pattern tem $(elements.size()) elementos, mas valor tem $(ttElems.size())", [])
-            } else {
-                for i in range(0, elements.size()) {
-                    checkPattern(c, elements[i], ttElems[i])
-                }
-            }
-        }
-        _ => checkerErrorf(c, span, "tuple pattern requer um tuple, obteve $(subjectType.toString())", [])
-    }
+    _ => None
+}
+
+fn enumFromSymbol(t: Type, variantName: String) -> Option[EnumType] = match t {
+    Func(ft) => enumFromReturn(ft.returnType, variantName)
+    Enum(et) => Some(et)
+    _ => None
+}
+
+fn checkRangePattern(c: Checker, span: Span, from: LiteralPatternValue, to: Pattern) {
+    checkPattern(c, Literal(0, span, from), IntType)
+    checkPattern(c, to, IntType)
 }
 
 fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Pattern], subjectType: Type) {
     var typeSub: Map[String, Type] = Map[String, Type]{}
     var unwrapped = subjectType
     match subjectType {
-        SpecializedType(base, _, params) => {
+        Specialized(base, params) => {
             unwrapped = base
             match base {
-                EnumType(_, _, _, generics) if generics.size() == params.size() => {
-                    for i in range(0, generics.size()) {
-                        typeSub[generics[i]] = params[i]
+                Enum(et) if et.generics.size() == params.size() => {
+                    for i in range(0, et.generics.size()) {
+                        typeSub.set(et.generics.get(i), params.get(i))
                     }
                 }
-                _ => UnitType
+                _ => {}
             }
         }
-        _ => UnitType
+        _ => {}
     }
     var et: Option[EnumType] = match unwrapped {
-        EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
+        Enum(enumData) => Some(enumData)
         _ => None
     }
     if et == None {
-        match c.scope.resolve(name) {
-            Some(sym) => et = enumFromSymbol(sym.typ, name)
-            None => UnitType
+        et = match c.scope.resolve(name) {
+            Some(sym) => enumFromSymbol(sym.typ, name)
+            None => None
         }
     }
     match et {
-        None => checkerErrorf(c, span, "constructor pattern $(name) requires an Enum, got $(subjectType.toString())", [])
+        None => patternError(c, span, "constructor pattern $(name) requires an Enum, got $(typeToString(subjectType))")
         Some(enumType) => {
-            val fieldTypes = enumType.variants.get(name)
-            if fieldTypes == None {
-                checkerErrorf(c, span, "variant $(name) not found in enum $(enumType.name)", [])
+            var hasVariant = false
+            for k in enumType.variants.keys() {
+                if k == name { hasVariant = true }
+            }
+            if !hasVariant {
+                patternError(c, span, "variant $(name) not found in enum $(enumType.name)")
             } else {
-                val fts = fieldTypes.get()
+                val fts = enumType.variants.get(name)
                 if args.size() != fts.size() {
-                    checkerErrorf(c, span, "incorrect number of arguments for variant $(name): expected $(fts.size()), got $(args.size())", [])
+                    patternError(c, span, "incorrect number of arguments for variant $(name): expected $(fts.size()), got $(args.size())")
                 } else {
                     for i in range(0, args.size()) {
-                        var ft = fts[i]
+                        var ft = fts.get(i)
                         if typeSub.size() > 0 { ft = substitute(c, ft, typeSub) }
-                        checkPattern(c, args[i], ft)
+                        checkPattern(c, args.get(i), ft)
                     }
                 }
             }
@@ -88,37 +93,62 @@ fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Patt
     }
 }
 
-fn enumFromSymbol(t: Type, variantName: String) -> Option[EnumType] = match t {
-    FuncType(_, ret, _, _, _) => enumFromReturn(ret, variantName)
-    EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
-    _ => None
-}
-
-fn enumFromReturn(ret: Type, variantName: String) -> Option[EnumType] = match ret {
-    EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
-    SpecializedType(base, _, _) => match base {
-        EnumType(n, v, vfn, g) => Some(EnumType { name: n, variants: v, variantFieldNames: vfn, generics: g })
-        _ => None
-    }
-    _ => None
-}
-
-fn checkRecordPattern(c: Checker, span: Span, name: String, fields: List[RecordPatternField], subjectType: Type) = match subjectType {
-    RecordType(rtName, rtFields, _) => {
-        if name != rtName {
-            checkerErrorf(c, span, "incompatible record name: expected $(rtName), got $(name)", [])
-        }
-        for f in fields {
-            val fieldType = rtFields.get(f.name)
-            if fieldType == None {
-                checkerErrorf(c, span, "record $(rtName) does not have field $(f.name)", [])
-            } else {
-                match f.pattern {
-                    Some(p) => checkPattern(c, p, fieldType.get())
-                    None => c.scope.define(f.name, fieldType.get(), true)
+fn checkRecordPattern(c: Checker, span: Span, name: String, fields: List[RecordPatternField], subjectType: Type) {
+    match subjectType {
+        Record(rtName, rtFields, _) => {
+            if name != rtName {
+                patternError(c, span, "incompatible record name: expected $(rtName), got $(name)")
+            }
+            for f in fields {
+                var hasField = false
+                for k in rtFields.keys() {
+                    if k == f.name { hasField = true }
+                }
+                if !hasField {
+                    patternError(c, span, "record $(rtName) does not have field $(f.name)")
+                } else {
+                    val fieldType = rtFields.get(f.name)
+                    if match f.pattern {
+                        Some(p) => { checkPattern(c, p, fieldType); true }
+                        None => false
+                    } {
+                        {}
+                    } else {
+                        c.scope.define(f.name, fieldType, true)
+                    }
                 }
             }
         }
+        _ => patternError(c, span, "record pattern requires a Record, got $(typeToString(subjectType))")
     }
-    _ => checkerErrorf(c, span, "record pattern requires a Record, got $(subjectType.toString())", [])
+}
+
+pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) {
+    match pat {
+        Wildcard(_, _) => {}
+        Binding(_, _, name) => { c.scope.define(name, subjectType, true) }
+        Literal(_, span, value) => {
+            val litType = patternLiteralType(value)
+            if !isAssignable(c, subjectType, litType) {
+                patternError(c, span, "literal pattern incompatible with subject type: $(typeToString(subjectType)) and $(typeToString(litType))")
+            }
+        }
+        Constructor(_, span, name, args) => checkConstructorPattern(c, span, name, args, subjectType)
+        Record(_, span, name, fields) => checkRecordPattern(c, span, name, fields, subjectType)
+        Range(_, span, from, to, _) => checkRangePattern(c, span, from, to)
+        Tuple(_, span, elements) => {
+            match subjectType {
+                Tuple(ttElems) => {
+                    if elements.size() != ttElems.size() {
+                        patternError(c, span, "tuple pattern tem $(elements.size()) elementos, mas valor tem $(ttElems.size())")
+                    } else {
+                        for i in range(0, elements.size()) {
+                            checkPattern(c, elements.get(i), ttElems.get(i))
+                        }
+                    }
+                }
+                _ => patternError(c, span, "tuple pattern requer um tuple, obteve $(typeToString(subjectType))")
+            }
+        }
+    }
 }

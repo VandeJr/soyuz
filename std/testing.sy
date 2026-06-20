@@ -1,0 +1,18 @@
+// @soyuz/testing — assert helpers for test fn
+extern fn soyuz_test_assert_bool(cond: Bool, msg: String)
+
+pub fn assert(cond: Bool) {
+    soyuz_test_assert_bool(cond, "assert falhou")
+}
+
+pub fn assertMsg(cond: Bool, msg: String) {
+    soyuz_test_assert_bool(cond, msg)
+}
+
+pub fn assertEq(a: Int, b: Int) {
+    soyuz_test_assert_bool(a == b, "assertEq: valores diferentes")
+}
+
+pub fn assertNe(a: Int, b: Int) {
+    soyuz_test_assert_bool(a != b, "esperava valores diferentes")
+}

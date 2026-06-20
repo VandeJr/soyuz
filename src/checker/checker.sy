@@ -2,267 +2,48 @@ import (
     { Span } from @lexer/tokens
     { Program, Node, FuncDeclData, ImportDeclData, VarKind, importDeclIsModuleImport } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
-    { Type, BasicType, FuncType, RecordType, EnumType, InterfaceType, ClassType, TupleType, TypeParameter, SpecializedType, Scope, Symbol, CheckContext, CheckResult, PendingClassMethod, PendingExtendMethod, TypeError, TypeWarning, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, newScope } from @checker/types
+    { Type, FuncType, EnumType, InterfaceType, ClassType, Scope, Symbol, CheckContext, CheckResult, PendingClassMethod, PendingExtendMethod, TypeError, TypeWarning, IntType, Unknown, newScope, typeToString } from @checker/types
+    { buildPreludeScope } from @checker/type_builders
+    { builtinTypeExtensions, builtinExtendSelfTypes } from @checker/builtins
 )
 
 pub class Checker {
-    var errors: List[TypeError] = []
-    var warnings: List[TypeWarning] = []
-    var scope: Scope = newScope(None)
-    var nodeTypes: List[Option[Type]] = []
-    var specializations: Map[Int, FuncType] = Map[Int, FuncType]{}
-    var funcVariants: Map[String, List[FuncDeclData]] = Map[String, List[FuncDeclData]]{}
-    var testFuncs: List[FuncDeclData] = []
-    var captures: Map[Int, List[String]] = Map[Int, List[String]]{}
-    var currentClass: Option[ClassType] = None
-    var synthCallArgs: Map[Int, List[Node]] = Map[Int, List[Node]]{}
-    var inferredBodies: Map[Int, Bool] = Map[Int, Bool]{}
-    var arrowFuncHints: Map[Int, List[Type]] = Map[Int, List[Type]]{}
-    var curriedCalls: Map[Int, Node] = Map[Int, Node]{}
-    var pendingClassMethods: List[PendingClassMethod] = []
-    var pendingExtendMethods: List[PendingExtendMethod] = []
-    var nodeFile: Option[Map[Int, String]] = None
-    var symbolOrigin: Map[String, String] = Map[String, String]{}
-    var symbolPub: Map[String, Bool] = Map[String, Bool]{}
-    var fileNamedImports: Map[String, Map[String, Bool]] = Map[String, Map[String, Bool]]{}
-    var fileModuleNamespaces: Map[String, Map[String, Bool]] = Map[String, Map[String, Bool]]{}
-    var preludeFiles: Map[String, Bool] = Map[String, Bool]{}
-    var currentFile: String = ""
-    var inTopLevel: Bool = false
-    var context: CheckContext = CheckContext { returnType: None, expectedType: None }
-    var typeExtensions: Map[String, Map[String, List[FuncType]]] = Map[String, Map[String, List[FuncType]]]{}
-    var extendSelfTypes: Map[String, Type] = Map[String, Type]{}
-    var currentExtend: String = ""
-    var loopDepth: Int = 0
-    var loopBreakTypes: List[Type] = []
+    pub var errors: List[TypeError] = []
+    pub var warnings: List[TypeWarning] = []
+    pub var scope: Scope = Scope { parent: None, symbols: Map[String, Symbol]{} }
+    pub var nodeTypes: List[Option[Type]] = []
+    pub var specializations: Map[Int, FuncType] = Map[Int, FuncType]{}
+    pub var funcVariants: Map[String, List[FuncDeclData]] = Map[String, List[FuncDeclData]]{}
+    pub var testFuncs: List[FuncDeclData] = []
+    pub var captures: Map[Int, List[String]] = Map[Int, List[String]]{}
+    pub var currentClass: Option[ClassType] = None
+    pub var synthCallArgs: Map[Int, List[Node]] = Map[Int, List[Node]]{}
+    pub var inferredBodies: Map[Int, Bool] = Map[Int, Bool]{}
+    pub var arrowFuncHints: Map[Int, List[Type]] = Map[Int, List[Type]]{}
+    pub var curriedCalls: Map[Int, Node] = Map[Int, Node]{}
+    pub var pendingClassMethods: List[PendingClassMethod] = []
+    pub var pendingExtendMethods: List[PendingExtendMethod] = []
+    pub var nodeFile: Option[Map[Int, String]] = None
+    pub var symbolOrigin: Map[String, String] = Map[String, String]{}
+    pub var symbolPub: Map[String, Bool] = Map[String, Bool]{}
+    pub var fileNamedImports: Map[String, Map[String, Bool]] = Map[String, Map[String, Bool]]{}
+    pub var fileModuleNamespaces: Map[String, Map[String, Bool]] = Map[String, Map[String, Bool]]{}
+    pub var preludeFiles: Map[String, Bool] = Map[String, Bool]{}
+    pub var currentFile: String = ""
+    pub var inTopLevel: Bool = false
+    pub var context: CheckContext = CheckContext { returnType: None, expectedType: None }
+    pub var typeExtensions: Map[String, Map[String, List[FuncType]]] = Map[String, Map[String, List[FuncType]]]{}
+    pub var extendSelfTypes: Map[String, Type] = Map[String, Type]{}
+    pub var currentExtend: String = ""
+    pub var loopDepth: Int = 0
+    pub var loopBreakTypes: List[Type] = []
 }
 
 pub fn newChecker() -> Checker {
-    val scope = newScope(None)
-
-    val errorIface = InterfaceType {
-        name: "Error",
-        methods: [
-            "message": FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] },
-            "code": FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }
-        ]
-    }
-
-    val optionEnum = EnumType {
-        name: "Option",
-        generics: ["T"],
-        variants: [
-            "Some": [TypeParameter { name: "T" }],
-            "None": []
-        ],
-        variantFieldNames: Map[String, List[String]]{}
-    }
-    scope.define("Option", optionEnum, true)
-    scope.define("Some", optionEnum, true)
-    scope.define("None", optionEnum, true)
-
-    val resultEnum = EnumType {
-        name: "Result",
-        generics: ["T"],
-        variants: [
-            "Ok": [TypeParameter { name: "T" }],
-            "Err": [errorIface]
-        ],
-        variantFieldNames: Map[String, List[String]]{}
-    }
-    scope.define("Result", resultEnum, true)
-    scope.define("Ok", resultEnum, true)
-    scope.define("Err", resultEnum, true)
-    scope.define("Error", errorIface, true)
-
-    val listType = ClassType {
-        name: "List",
-        generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [],
-        methods: [
-            "size": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }],
-            "get": [FuncType { params: [IntType], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "append": [FuncType { params: [TypeParameter { name: "T" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "add": [FuncType { params: [TypeParameter { name: "T" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "map": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "filter": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "reduce": [FuncType { params: [Unknown, Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "join": [FuncType { params: [StringType], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "isEmpty": [FuncType { params: [], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
-            "set": [FuncType { params: [IntType, TypeParameter { name: "T" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "remove": [FuncType { params: [IntType], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "pop": [FuncType { params: [], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "prepend": [FuncType { params: [TypeParameter { name: "T" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "clear": [FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "copy": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "concat": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "iter": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: Map[String, Bool]{}
-    }
-    scope.define("List", listType, true)
-
-    val mapType = ClassType {
-        name: "Map",
-        generics: ["K", "V"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [],
-        methods: [
-            "size": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }],
-            "get": [FuncType { params: [TypeParameter { name: "K" }], returnType: TypeParameter { name: "V" }, generics: [], defaults: [], isOptional: [] }],
-            "set": [FuncType { params: [TypeParameter { name: "K" }, TypeParameter { name: "V" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "keys": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "values": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "iter": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: Map[String, Bool]{}
-    }
-    scope.define("Map", mapType, true)
-
-    val iteratorType = ClassType {
-        name: "Iterator",
-        generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [],
-        methods: [
-            "next": [FuncType {
-                params: [],
-                returnType: SpecializedType { base: optionEnum, params: [TypeParameter { name: "T" }] },
-                generics: [], defaults: [], isOptional: []
-            }],
-            "isEmpty": [FuncType { params: [], returnType: BoolType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: Map[String, Bool]{}
-    }
-    scope.define("Iterator", iteratorType, true)
-
-    val taskType = ClassType {
-        name: "Task",
-        generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [],
-        methods: [
-            "await": [FuncType { params: [], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "detach": [FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "cancel": [FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "all": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "allSettled": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "fan": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "pipe": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "gather": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "tap": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "always": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["await": true, "detach": true, "cancel": true, "all": true, "allSettled": true, "fan": true, "pipe": true, "gather": true, "tap": true, "always": true]
-    }
-    scope.define("Task", taskType, true)
-
-    val taskHandleType = ClassType {
-        name: "TaskHandle",
-        generics: [],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [],
-        methods: [
-            "current": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "cancelled": [FuncType { params: [], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
-            "progress": [FuncType { params: [FloatType], returnType: UnitType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["current": true, "cancelled": true, "progress": true]
-    }
-    scope.define("TaskHandle", taskHandleType, true)
-
-    val mutexGuardType = ClassType {
-        name: "MutexGuard", generics: ["T"],
-        fields: ["value": TypeParameter { name: "T" }], fieldPub: ["value": true], fieldInit: Map[String, Node]{},
-        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}
-    }
-    scope.define("MutexGuard", mutexGuardType, true)
-
-    val readGuardType = ClassType {
-        name: "ReadGuard", generics: ["T"],
-        fields: ["value": TypeParameter { name: "T" }], fieldPub: ["value": true], fieldInit: Map[String, Node]{},
-        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}
-    }
-    scope.define("ReadGuard", readGuardType, true)
-
-    val writeGuardType = ClassType {
-        name: "WriteGuard", generics: ["T"],
-        fields: ["value": TypeParameter { name: "T" }], fieldPub: ["value": true], fieldInit: Map[String, Node]{},
-        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}
-    }
-    scope.define("WriteGuard", writeGuardType, true)
-
-    val mutexType = ClassType {
-        name: "Mutex", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [],
-        methods: [
-            "new": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "lock": [FuncType { params: [], returnType: SpecializedType { base: mutexGuardType, params: [TypeParameter { name: "T" }] }, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["new": true, "lock": true]
-    }
-    scope.define("Mutex", mutexType, true)
-
-    val rwlockType = ClassType {
-        name: "RwLock", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [],
-        methods: [
-            "new": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "read": [FuncType { params: [], returnType: SpecializedType { base: readGuardType, params: [TypeParameter { name: "T" }] }, generics: [], defaults: [], isOptional: [] }],
-            "write": [FuncType { params: [], returnType: SpecializedType { base: writeGuardType, params: [TypeParameter { name: "T" }] }, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["new": true, "read": true, "write": true]
-    }
-    scope.define("RwLock", rwlockType, true)
-
-    val atomicType = ClassType {
-        name: "Atomic", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [],
-        methods: [
-            "new": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "load": [FuncType { params: [], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "store": [FuncType { params: [TypeParameter { name: "T" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "add": [FuncType { params: [TypeParameter { name: "T" }], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "compareAndSwap": [FuncType { params: [TypeParameter { name: "T" }, TypeParameter { name: "T" }], returnType: BoolType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["new": true, "load": true, "store": true, "add": true, "compareAndSwap": true]
-    }
-    scope.define("Atomic", atomicType, true)
-
-    val arcType = ClassType {
-        name: "Arc", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [],
-        methods: [
-            "new": [FuncType { params: [Unknown], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "clone": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "get": [FuncType { params: [], returnType: TypeParameter { name: "T" }, generics: [], defaults: [], isOptional: [] }],
-            "refcount": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["new": true, "clone": true, "get": true, "refcount": true]
-    }
-    scope.define("Arc", arcType, true)
-
-    val channelType = ClassType {
-        name: "Channel", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [],
-        methods: [
-            "new": [FuncType { params: [IntType], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "send": [FuncType { params: [TypeParameter { name: "T" }], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "recv": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "tryRecv": [FuncType { params: [], returnType: Unknown, generics: [], defaults: [], isOptional: [] }],
-            "close": [FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }],
-            "isClosed": [FuncType { params: [], returnType: BoolType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        methodPub: ["new": true, "send": true, "recv": true, "tryRecv": true, "close": true, "isClosed": true]
-    }
-    scope.define("Channel", channelType, true)
-
-    val printFunc = FuncType { params: [Unknown], returnType: UnitType, generics: [], defaults: [], isOptional: [] }
-    scope.define("print", printFunc, true)
-
-    val typeExtensions = builtinTypeExtensions()
-    val extendSelfTypes = builtinExtendSelfTypes()
-
     return Checker {
-        scope: scope,
-        typeExtensions: typeExtensions,
-        extendSelfTypes: extendSelfTypes
+        scope: buildPreludeScope(),
+        typeExtensions: builtinTypeExtensions(),
+        extendSelfTypes: builtinExtendSelfTypes()
     }
 }
 
@@ -275,14 +56,14 @@ fn ensureNodeTypeCapacity(c: Checker, nodeId: Int) {
 pub fn setNodeType(c: Checker, node: Node, t: Type) {
     val id = nodeId(node)
     ensureNodeTypeCapacity(c, id)
-    c.nodeTypes[id] = Some(t)
+    c.nodeTypes.set(id, Some(t))
 }
 
 pub fn getNodeType(c: Checker, nodeId: Int) -> Option[Type] {
     if nodeId >= c.nodeTypes.size() {
         return None
     }
-    return c.nodeTypes[nodeId]
+    return c.nodeTypes.get(nodeId)
 }
 
 pub fn checkerErrorf(c: Checker, span: Span, format: String, args: List[String]) {
@@ -296,27 +77,29 @@ pub fn checkerWarnf(c: Checker, span: Span, code: String, format: String) {
 }
 
 pub fn isTaskType(c: Checker, t: Type) -> Bool = match t {
-    SpecializedType(base, _, _) => match base {
-        ClassType(name, _, _, _, _, _, _, _) => name == "Task"
+    Specialized(base, _) => match base {
+        Class(data) => data.name == "Task"
         _ => false
     }
     _ => false
 }
 
 pub fn contextInnerType(c: Checker, enumName: String) -> Type = match c.context.returnType {
-    Some(SpecializedType(base, _, params)) => match base {
-        EnumType(name, _, _, _) if name == enumName && params.size() > 0 => {
-            if params[0] == Unknown { Unknown } else { params[0] }
-        }
+    Some(Specialized(base, params)) => match base {
+        Enum(data) if data.name == enumName && params.size() > 0 => params.get(0)
         _ => Unknown
     }
     _ => Unknown
 }
 
 pub fn isHeapType(c: Checker, t: Type) -> Bool = match t {
-    RecordType(_, _, _) | ClassType(_, _, _, _, _, _, _, _) | InterfaceType(_, _) | TupleType(_) | EnumType(_, _, _, _) | FuncType(_, _, _, _, _) => true
-    SpecializedType(base, _, _) => isHeapType(c, base)
-    BasicType(name) => name == "String"
+    Record(_, _, _) => true
+    Class(_) => true
+    Interface(_) => true
+    Tuple(_) => true
+    Enum(_) => true
+    Func(_) => true
+    Specialized(base, _) => isHeapType(c, base)
+    Basic(name) => name == "String"
     _ => false
 }
-

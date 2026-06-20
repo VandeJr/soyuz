@@ -1,5 +1,8 @@
 soyuz-go/
-.cursor/
+
+.cursor/migration.lock
+.cursor/migration-complete
+
 target/
 main
 output

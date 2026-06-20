@@ -1,8 +1,8 @@
 [project]
 name    = "soyuz"
 version = "0.1.0"
-type    = "binary"
-entry   = "main.sy"
+type    = "library"
+entry   = "tests/checker/m4_fs_test.sy"
 test    = "test_runner.sy"
 
 [packages]
@@ -12,3 +12,4 @@ parser = "src/parser"
 diag   = "src/diag"
 checker = "src/checker"
 tests  = "tests"
+soyuz  = "std"

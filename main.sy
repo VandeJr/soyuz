@@ -3,9 +3,9 @@ import (
     { printToken, TokenType } from @lexer/tokens
 )
 
-// CLI: tokeniza um arquivo .sy (default: src/lexer/lexer.sy)
-// Uso futuro: parse + check quando o bootstrap compilar @parser e @checker
-// Ver docs/INTEGRATION.md
+// CLI: tokenize a .sy file (default: src/lexer/lexer.sy).
+// Parse + check: run `soyuz build` with type=library and entry=validate.sy
+// (see validate.sy and docs/INTEGRATION.md).
 fn main() {
     val path = "src/lexer/lexer.sy"
     val source = readFile(path) ?: ""
@@ -14,6 +14,7 @@ fn main() {
         return
     }
     val tokens = tokenize(source)
+    print("tokens: $(tokens.size())")
     var i = 0
     loop {
         if i >= tokens.size() {

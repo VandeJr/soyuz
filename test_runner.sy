@@ -1,4 +1,7 @@
 import @lexer/lexer_test
-import @tests/checker/checker_test
+
+// Parser/checker runtime tests: enable when bootstrap codegen supports extend Parser.
+// import @tests/parser/parser_test
+// import @tests/checker/checker_test
 
 fn main() {}

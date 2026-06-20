@@ -2,23 +2,36 @@
 
 Este documento descreve como conectar o frontend em Soyuz Lang (`/home/vand/Projects/soyuz`) ao compilador de produção (`soyuz-go`) quando o bootstrap estiver estável.
 
-## Estado atual
+## Estado atual (jun/2026)
 
 | Camada | Soyuz (.sy) | Bootstrap (`soyuz` no PATH) |
 |--------|-------------|------------------------------|
-| Lexer | Completo + testes | Compila e roda |
-| AST / Parser / Checker | ~6500 LOC portados | **Não compila ainda** — type-check trava em `@ast/ast` (enum `Node` recursivo) |
+| Lexer | Completo + 5 testes | Compila e roda |
+| AST | Enums `Node`, `TypeExpr`, `Pattern` | Type-check OK |
+| Parser | ~M0+ portado (`extend Parser`) | Type-check OK; **codegen** falha em extend |
+| Checker | ~6500 LOC, 5 passes | Type-check OK; **codegen** falha (enum match, Type constants) |
 
-O binário `soyuz` compila `main.sy` (lexer-only) em ~1s. Importar `@ast/ast` dispara type-check que não termina em ~20s (limitação conhecida do bootstrap). O pacote `@parser/*` foi separado de `@ast/*` para evitar recompilar parser/checker ao testar só tipos AST.
+### Comandos
 
-**Notas técnicas (jun/2026):**
-- `pub var` em módulo + atribuição no codegen falha (`undefined variable in assignment`); IDs de nó ficam no `Parser.nextNodeId`.
-- Testes lexer: `testRanges` deve rodar **antes** de `testSemicolonInsertion` (workaround de bug no runtime/bootstrap ao encadear muitos `tokenize` após ASI).
+```bash
+# Lexer runtime tests (passam)
+soyuz test test_runner.sy
+
+# Type-check lexer + parser + checker (sem codegen)
+# Temporariamente: type=library, entry=validate.sy em soyuz.toml, depois soyuz build
+soyuz build   # com entry=validate.sy e type=library → "verificada com sucesso"
+```
+
+Arquivos de teste portados (executam quando codegen estabilizar):
+
+- `tests/parser/parser_test.sy` — baseline M0 parser
+- `tests/checker/checker_test.sy` — baseline M0 checker
+- `tests/checker/m1_* … m26_*` — stubs por milestone
 
 ## Modelo alvo
 
 ```
-.so sy source
+.sy source
     → [frontend .sy] Lexer → Parser → Checker → JSON/IPC
     → [soyuz-go]     Codegen (LLVM) → binário
 ```
@@ -27,48 +40,25 @@ O binário `soyuz` compila `main.sy` (lexer-only) em ~1s. Importar `@ast/ast` di
 
 Em `soyuz-go/cmd/main.go`, antes do codegen:
 
-1. Se `--frontend=sy` estiver ativo, executar o binário self-hosted:
-   ```bash
-   soyuz run /path/to/soyuz/tools/check.sy -- --json source.sy
-   ```
-2. O frontend emite JSON com:
-   - `errors[]`, `warnings[]`
-   - `nodeTypes` (mapa `nodeId → typeString`)
-   - opcional: dump AST serializado
-3. `soyuz-go` consome o JSON e:
-   - aborta se houver erros de parse/check
-   - ou traduz AST JSON → `parser.Program` Go (fase 2) para codegen existente
-
-### Esboço CLI
-
-```bash
-# Fase 1: só diagnósticos
-soyuz build --frontend=sy app.sy
-
-# Fase 2: codegen via tradutor
-soyuz build --frontend=sy --ast-bridge=go app.sy
-```
+1. Se `--frontend=sy` estiver ativo, executar o binário self-hosted (ou type-check + JSON dump).
+2. O frontend emite JSON com `errors[]`, `warnings[]`, `nodeTypes`.
+3. `soyuz-go` consome o JSON para codegen ou diagnósticos.
 
 ## Opção B: frontends independentes
 
-Manter parser/checker Go e Soyuz em paralelo até paridade M26. Validar com testes Go portados (`tests/checker/*.sy`) executados pelo bootstrap quando a compilação do frontend estabilizar.
+Manter parser/checker Go e Soyuz em paralelo até paridade M26.
 
-## Desbloqueio do bootstrap
+## Correções soyuz-go em progresso
 
-Prioridades para o compilador Go:
+Patches aplicados em `soyuz-go/internal/codegen/`:
 
-1. Type-check/codegen eficiente em enums recursivos grandes (`Node`, `Pattern`, `TypeExpr`)
-2. Ou refactor do AST self-hosted: IDs + tabelas laterais em vez de payloads recursivos profundos no type checker
+- `emitRecordAlloc`: bitcast em stores incompatíveis
+- `generateRecordLiteral`: `Map[K,V]{}` / `List[T]{}` vazios
+- `emitTypeBasicConstant`: `Unknown`, `IntType`, …
+- Enum payload structs nomeados + `enumVariantForPattern` por tipo do subject
+- `generateIndexExpr`: indexação de `List[T]`
 
-## Testes
-
-```bash
-# Lexer (funciona hoje)
-soyuz test test_runner.sy
-
-# Checker (quando bootstrap compilar o frontend)
-soyuz test tests/checker/checker_test.sy
-```
+Pendente: codegen completo de `extend Parser` / match em enums grandes.
 
 ## Referências
 

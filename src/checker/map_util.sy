@@ -1,0 +1,89 @@
+import ({ Type, FuncType } from @checker/types)
+import ({ Node, FuncDeclData } from @ast/ast)
+
+fn mapHasStringList(m: Map[String, List[String]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringType(m: Map[String, Type], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringNode(m: Map[String, Node], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringBool(m: Map[String, Bool], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringFuncList(m: Map[String, List[FuncType]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringFuncDeclList(m: Map[String, List[FuncDeclData]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringExtMap(m: Map[String, Map[String, List[FuncType]]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringTypeList(m: Map[String, List[Type]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasIntKey(m: Map[Int, List[Type]], key: Int) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+pub fn mapGetOrStringList(m: Map[String, List[String]], key: String) -> List[String] {
+    if mapHasStringList(m, key) { return m.get(key) }
+    return List[String]{}
+}
+
+pub fn mapGetOrFuncListMap(m: Map[String, Map[String, List[FuncType]]], key: String) -> Map[String, List[FuncType]] {
+    if mapHasStringExtMap(m, key) { return m.get(key) }
+    return Map[String, List[FuncType]]{}
+}
+
+pub fn appendStringList(m: Map[String, List[String]], key: String, item: String) {
+    var cur = mapGetOrStringList(m, key)
+    cur.append(item)
+    m.set(key, cur)
+}
+
+pub fn appendFuncList(m: Map[String, List[FuncType]], key: String, item: FuncType) {
+    var cur = mapGetOrFuncList(m, key)
+    cur.append(item)
+    m.set(key, cur)
+}
+
+fn mapGetOrFuncList(m: Map[String, List[FuncType]], key: String) -> List[FuncType] {
+    if mapHasStringFuncList(m, key) { return m.get(key) }
+    return List[FuncType]{}
+}
+
+pub fn appendTypeExtension(cExt: Map[String, Map[String, List[FuncType]]], typeName: String, method: String, ft: FuncType) {
+    var inner = mapGetOrFuncListMap(cExt, typeName)
+    appendFuncList(inner, method, ft)
+    cExt.set(typeName, inner)
+}
+
+pub fn mapHasStrType(m: Map[String, Type], key: String) -> Bool = mapHasStringType(m, key)
+pub fn mapHasStrNode(m: Map[String, Node], key: String) -> Bool = mapHasStringNode(m, key)
+pub fn mapHasStrBool(m: Map[String, Bool], key: String) -> Bool = mapHasStringBool(m, key)
+pub fn mapHasStrFuncList(m: Map[String, List[FuncType]], key: String) -> Bool = mapHasStringFuncList(m, key)
+pub fn mapHasStrFuncDeclList(m: Map[String, List[FuncDeclData]], key: String) -> Bool = mapHasStringFuncDeclList(m, key)
+pub fn mapHasStrExtMap(m: Map[String, Map[String, List[FuncType]]], key: String) -> Bool = mapHasStringExtMap(m, key)
+pub fn mapHasStrTypeList(m: Map[String, List[Type]], key: String) -> Bool = mapHasStringTypeList(m, key)
+pub fn mapHasIntTypeList(m: Map[Int, List[Type]], key: Int) -> Bool = mapHasIntKey(m, key)

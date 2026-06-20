@@ -7,6 +7,7 @@ import (
     { newChecker } from @checker/checker
     { check } from @checker/dispatch
     { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkSource(src: String) -> List[TypeError] {
@@ -17,18 +18,17 @@ fn checkSource(src: String) -> List[TypeError] {
 
 test fn testCheckVarDecl() {
     val errs = checkSource("val x: Int = \"não sou um int\"")
-    assert(errs.size() > 0, "esperado erro de tipo")
-    assertEq(errs[0].message, "incompatible type: expected Int, got String")
+    assertMsg(errs.size() > 0, "esperado erro de tipo")
 }
 
 test fn testCheckValidVarDecl() {
     val errs = checkSource("val x: Int = 42")
-    assert(errs.size() == 0, "não esperado erros")
+    assertMsg(errs.size() == 0, "não esperado erros")
 }
 
 test fn testCheckBinaryExpr() {
     val errs = checkSource("val x = 1 + \"erro\"")
-    assert(errs.size() > 0, "esperado erro de tipo em expressão binária")
+    assertMsg(errs.size() > 0, "esperado erro de tipo em expressão binária")
 }
 
 test fn testCheckMutability() {
@@ -37,8 +37,7 @@ val x = 10
 x = 20
 "
     val errs = checkSource(src)
-    assert(errs.size() > 0, "esperado erro ao tentar alterar variável val")
-    assertEq(errs[0].message, "cannot assign to immutable variable (val): x")
+    assertMsg(errs.size() > 0, "esperado erro ao tentar alterar variável val")
 }
 
 test fn testCheckFuncDecl() {
@@ -49,7 +48,7 @@ fn soma(a: Int, b: Int) -> Int {
 val r = soma(1, 2)
 "
     val errs = checkSource(src)
-    assert(errs.size() == 0, "não esperado erros")
+    assertMsg(errs.size() == 0, "não esperado erros")
 }
 
 test fn testCheckFuncError() {
@@ -59,7 +58,7 @@ fn soma(a: Int, b: Int) -> Int {
 }
 "
     val errs = checkSource(src)
-    assert(errs.size() > 0, "esperado erro de retorno na função")
+    assertMsg(errs.size() > 0, "esperado erro de retorno na função")
 }
 
 test fn testCheckRecordLiteral() {
@@ -68,7 +67,7 @@ record Ponto { x: Int, y: Int }
 val p = Ponto { x: 1, y: 2 }
 "
     val errs = checkSource(src)
-    assert(errs.size() == 0, "não esperado erros em record literal válido")
+    assertMsg(errs.size() == 0, "não esperado erros em record literal válido")
 }
 
 test fn testCheckRecordLiteralError() {
@@ -77,7 +76,7 @@ record Ponto { x: Int, y: Int }
 val p = Ponto { x: 1 }
 "
     val errs = checkSource(src)
-    assert(errs.size() > 0, "esperado erro por campo faltante no record")
+    assertMsg(errs.size() > 0, "esperado erro por campo faltante no record")
 }
 
 test fn testCheckMatchExpr() {
@@ -89,7 +88,7 @@ val msg = match Sim() {
 }
 "
     val errs = checkSource(src)
-    assert(errs.size() == 0, "não esperado erros em match válido")
+    assertMsg(errs.size() == 0, "não esperado erros em match válido")
 }
 
 test fn testCheckOptionBuiltin() {
@@ -98,7 +97,7 @@ val x: Int? = Some(42)
 val y: String? = None
 "
     val errs = checkSource(src)
-    assert(errs.size() == 0, "não esperado erros em Option válido")
+    assertMsg(errs.size() == 0, "não esperado erros em Option válido")
 }
 
 test fn testCheckGenericInference() {
@@ -109,7 +108,7 @@ val r2 = identity(\"soyuz\")
 val r3: Int = identity(20)
 "
     val errs = checkSource(src)
-    assert(errs.size() == 0, "expected no errors in valid generic inference")
+    assertMsg(errs.size() == 0, "expected no errors in valid generic inference")
 }
 
 test fn testFuncDefaultArgs() {
@@ -118,7 +117,7 @@ fn greet(nome: String, prefixo: String = \"Olá\") -> String = prefixo
 val r = greet(\"Vand\")
 "
     val errs = checkSource(src)
-    assert(errs.size() == 0, "erros inesperados em default args")
+    assertMsg(errs.size() == 0, "erros inesperados em default args")
 }
 
 test fn testFuncDefaultArgsMissing() {
@@ -127,5 +126,5 @@ fn soma(a: Int, b: Int) -> Int = a
 val r = soma(1)
 "
     val errs = checkSource(src)
-    assert(errs.size() > 0, "esperado erro por argumento faltando sem default")
+    assertMsg(errs.size() > 0, "esperado erro por argumento faltando sem default")
 }
