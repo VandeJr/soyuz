@@ -877,7 +877,47 @@ fn checkTaskStaticCall(c: Checker, data: CallExprData, node: Node, me: MemberExp
     "all" => checkTaskAllCall(c, data, node, me.property)
     "allSettled" => checkTaskAllCall(c, data, node, me.property)
     "fan" => checkTaskFanCall(c, data, node)
+    "pipe" => checkTaskPipeCall(c, data, node)
     _ => checkGenericMethodCall(c, data, node, me, Type.Class(ct))
+}
+
+fn checkTaskPipeCall(c: Checker, data: CallExprData, node: Node) -> Type {
+    if data.args.size() < 2 {
+        checkerErrorf(c, nodePos(node), "Task.pipe requer ao menos um valor de entrada e uma função de stage", [])
+        return Unknown
+    }
+    val firstType = c.checkNode(data.args.get(0))
+    var elemType: Type = firstType
+    if match firstType {
+        Specialized(Class(chCt), params) if chCt.name == "Channel" && params.size() > 0 => true
+        _ => false
+    } {
+        elemType = match firstType {
+            Specialized(Class(chCt), params) if chCt.name == "Channel" && params.size() > 0 => params.get(0)
+            _ => firstType
+        }
+    }
+    var currentType = elemType
+    for i in range(1, data.args.size()) {
+        val arg = data.args.get(i)
+        val ft = c.checkNode(arg)
+        match ft {
+            Func(fnt) => {
+                if fnt.params.size() > 0 && typeToString(currentType) != "Unknown" && !isAssignable(c, fnt.params.get(0), currentType) {
+                    checkerErrorf(c, nodePos(arg), "Task.pipe: tipo de entrada $(typeToString(currentType)) incompatível com parâmetro $(typeToString(fnt.params.get(0))) da função no stage $(i)", [])
+                }
+                currentType = fnt.returnType
+            }
+            _ => {
+                checkerErrorf(c, nodePos(arg), "Task.pipe: argumento $(i) deve ser uma função, obtido $(typeToString(ft))", [])
+                return Unknown
+            }
+        }
+    }
+    val chanBase = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Channel"))
+    val retType = Type.Specialized(chanBase, [currentType])
+    c.specializations.set(nodeId(node), FuncType { params: [], returnType: retType, generics: [], defaults: [], isOptional: [] })
+    return retType
 }
 
 fn checkTaskFanCall(c: Checker, data: CallExprData, node: Node) -> Type {

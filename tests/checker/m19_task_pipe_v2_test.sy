@@ -1,9 +1,13 @@
-// M19 — task_pipe_v2 tests (stub — port from soyuz-go/internal/checker/)
+// M19 — Task.pipe tests (port of soyuz-go/internal/checker/m19_task_pipe_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM19(src: String) -> List[TypeError] {
@@ -12,8 +16,74 @@ fn checkM19(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM19Baseline() {
-    // TODO: port milestone 19 tests from soyuz-go
-    val errs = checkM19("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M19 baseline stub")
+test fn testM19TaskPipeBasicValueInput() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn negate(n: Int) -> Int = n * -1
+
+fn main() {
+    val n = 5
+    val ch = Task.pipe(n, double, negate)
+    ch.close()
+}
+"
+    val errs = checkM19(src)
+    assertMsg(errs.size() == 0, "Task.pipe não deve gerar erros")
+}
+
+test fn testM19TaskPipeChannelInput() {
+    val src = "
+fn process(n: Int) -> Int = n + 1
+fn stringify(n: Int) -> String = \"x\"
+
+fn main() {
+    val inCh = Channel.new(4)
+    val outCh = Task.pipe(inCh, process, stringify)
+    outCh.close()
+}
+"
+    val errs = checkM19(src)
+    assertMsg(errs.size() == 0, "Task.pipe com Channel como input não deve gerar erros")
+}
+
+test fn testM19TaskPipeSingleStage() {
+    val src = "
+fn square(n: Int) -> Int = n * n
+
+fn main() {
+    val n = 4
+    val ch = Task.pipe(n, square)
+    ch.close()
+}
+"
+    val errs = checkM19(src)
+    assertMsg(errs.size() == 0, "Task.pipe com 1 stage não deve gerar erros")
+}
+
+test fn testM19TaskPipeTooFewArgs() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+
+fn main() {
+    val ch = Task.pipe(double)
+}
+"
+    val errs = checkM19(src)
+    assertMsg(errs.size() > 0, "Task.pipe com menos de 2 args deve gerar erro")
+}
+
+test fn testM19TaskPipeThreeStages() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn stringify(n: Int) -> String = \"x\"
+fn exclaim(s: String) -> String = s
+
+fn main() {
+    val n = 3
+    val ch = Task.pipe(n, double, stringify, exclaim)
+    ch.close()
+}
+"
+    val errs = checkM19(src)
+    assertMsg(errs.size() == 0, "Task.pipe com 3 stages não deve gerar erros")
 }
