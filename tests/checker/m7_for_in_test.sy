@@ -1,9 +1,13 @@
-// M7 — for_in tests (stub — port from soyuz-go/internal/checker/)
+// M7 — for-in tests (port of soyuz-go/internal/checker/m7_for_in_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM7(src: String) -> List[TypeError] {
@@ -12,8 +16,59 @@ fn checkM7(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM7Baseline() {
-    // TODO: port milestone 7 tests from soyuz-go
-    val errs = checkM7("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M7 baseline stub")
+test fn testM7ForInListIntBinding() {
+    val src = "
+fn main() -> Int {
+    val nums = [1, 2, 3]
+    var sum = 0
+    for n in nums {
+        sum = sum + n
+    }
+    return sum
+}
+"
+    val errs = checkM7(src)
+    assertMsg(errs.size() == 0, "for-in sobre List[Int] não deve gerar erros")
+}
+
+test fn testM7ForInRange() {
+    val src = "
+fn main() -> Int {
+    var acc = 0
+    for i in 0..10 {
+        acc = acc + i
+    }
+    return acc
+}
+"
+    val errs = checkM7(src)
+    assertMsg(errs.size() == 0, "for-in sobre range não deve gerar erros")
+}
+
+test fn testM7ForInListStringBinding() {
+    val src = "
+fn main() -> Int {
+    val words = [\"hello\", \"world\"]
+    for w in words {
+        print(w)
+    }
+    return 0
+}
+"
+    val errs = checkM7(src)
+    assertMsg(errs.size() == 0, "for-in sobre List[String] não deve gerar erros")
+}
+
+test fn testM7ForInNonIterableError() {
+    val src = "
+fn main() -> Int {
+    val x = 42
+    for n in x {
+        print(n)
+    }
+    return 0
+}
+"
+    val errs = checkM7(src)
+    assertMsg(errs.size() > 0, "esperava erro ao iterar sobre Int")
 }
