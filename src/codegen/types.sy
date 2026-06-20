@@ -1,0 +1,56 @@
+import (
+    { FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData } from @ast/ast
+    { LlvmType, LlvmFunc, LlvmValue, LlvmBasicBlock, LlvmGlobal } from @codegen/llvm_types
+    { Type } from @checker/types
+)
+
+pub record LoopCtx {
+    cond: LlvmBasicBlock,
+    after: LlvmBasicBlock,
+    resultAlloca: Option[LlvmValue],
+    resultLlvm: LlvmType
+}
+
+pub record StructInfo {
+    typ: LlvmType,
+    fieldIndices: Map[String, Int]
+}
+
+pub record VariantInfo {
+    tag: Int,
+    fields: List[LlvmType],
+    fieldNames: Map[String, Int],
+    payloadType: Option[LlvmType]
+}
+
+pub record EnumInfo {
+    typ: LlvmType,
+    variants: Map[String, VariantInfo]
+}
+
+pub record ClassInfo {
+    typ: LlvmType,
+    fieldIndices: Map[String, Int],
+    methods: Map[String, List[LlvmFunc]],
+    vtables: Map[String, LlvmGlobal]
+}
+
+pub record PendingExtendMethodBody {
+    typeName: String,
+    selfLlvm: LlvmType,
+    fd: FuncDeclData,
+    llvmFn: LlvmFunc
+}
+
+pub record PendingClassMethodBody {
+    className: String,
+    si: StructInfo,
+    fd: FuncDeclData,
+    llvmFn: LlvmFunc,
+    variants: List[FuncDeclData]
+}
+
+pub record SyncGuardEntry {
+    name: String,
+    unlockFn: String
+}

@@ -1,5 +1,6 @@
-// Type-check entry: validates parser + checker packages compile (no codegen).
+// Type-check entry: validates parser + checker + codegen packages compile.
 import @parser/load
 import @checker/load
+import @codegen/load
 
 fn main() {}

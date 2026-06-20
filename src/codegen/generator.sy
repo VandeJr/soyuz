@@ -1,0 +1,63 @@
+import (
+    { Node, FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData } from @ast/ast
+    { CheckResult, Type, FuncType } from @checker/types
+    { LlvmModule, LlvmBasicBlock, LlvmValue, LlvmType, LlvmFunc } from @codegen/llvm_types
+    { LoopCtx, StructInfo, EnumInfo, ClassInfo, PendingExtendMethodBody, PendingClassMethodBody, SyncGuardEntry } from @codegen/types
+)
+
+pub class Generator {
+    pub var module: Option[LlvmModule] = None
+    pub var current: Option[LlvmBasicBlock] = None
+    pub var vars: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    pub var isTestBuild: Bool = false
+    pub var testFilter: String = ""
+    pub var loops: List[LoopCtx] = []
+    pub var structs: Map[String, StructInfo] = Map[String, StructInfo]{}
+    pub var enums: Map[String, EnumInfo] = Map[String, EnumInfo]{}
+    pub var classes: Map[String, ClassInfo] = Map[String, ClassInfo]{}
+    pub var extensionMethods: Map[String, Map[String, List[LlvmFunc]]] = Map[String, Map[String, List[LlvmFunc]]]{}
+    pub var interfaceDecls: Map[String, InterfaceDeclData] = Map[String, InterfaceDeclData]{}
+    pub var check: CheckResult = CheckResult {
+        errors: [],
+        warnings: [],
+        nodeTypes: [],
+        specializations: Map[Int, FuncType]{},
+        funcVariants: Map[String, List[FuncDeclData]]{},
+        testFuncs: [],
+        captures: Map[Int, List[String]]{},
+        synthCallArgs: Map[Int, List[Node]]{},
+        curriedCalls: Map[Int, Node]{},
+        typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+    }
+    pub var specialized: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
+    pub var genericDecls: Map[String, FuncDeclData] = Map[String, FuncDeclData]{}
+    pub var genericRecordDecls: Map[String, RecordDeclData] = Map[String, RecordDeclData]{}
+    pub var genericEnumDecls: Map[String, EnumDeclData] = Map[String, EnumDeclData]{}
+    pub var pendingClassBodies: List[PendingClassMethodBody] = []
+    pub var pendingExtendBodies: List[PendingExtendMethodBody] = []
+    pub var destructors: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
+    pub var traces: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
+    pub var heapVars: Map[String, Bool] = Map[String, Bool]{}
+    pub var scopeStack: List[List[String]] = []
+    pub var taskVarStack: List[List[String]] = []
+    pub var syncGuardStack: List[List[SyncGuardEntry]] = []
+    pub var arcVarStack: List[List[String]] = []
+    pub var blockNames: Map[String, Int] = Map[String, Int]{}
+    pub var taskWrapperCounter: Int = 0
+    pub var closureType: Option[LlvmType] = None
+    pub var closureDtor: Option[LlvmFunc] = None
+    pub var envDtorCounter: Int = 0
+    pub var soyuzStringType: Option[LlvmType] = None
+    pub var soyuzStringPtrType: Option[LlvmType] = None
+    pub var currentReturnType: Type = Type.Basic("Unit")
+    pub var topLevelClosureCache: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+}
+
+pub fn newGenerator(checkResult: CheckResult) -> Generator {
+    return Generator { check: checkResult }
+}
+
+pub fn setTestMode(g: Generator, filter: String) {
+    g.isTestBuild = true
+    g.testFilter = filter
+}

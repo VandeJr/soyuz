@@ -2,7 +2,7 @@
 name    = "soyuz"
 version = "0.1.0"
 type    = "library"
-entry   = "tests/checker/m4_fs_test.sy"
+entry   = "validate.sy"
 test    = "test_runner.sy"
 
 [packages]
@@ -11,5 +11,6 @@ ast    = "src/ast"
 parser = "src/parser"
 diag   = "src/diag"
 checker = "src/checker"
+codegen = "src/codegen"
 tests  = "tests"
 soyuz  = "std"

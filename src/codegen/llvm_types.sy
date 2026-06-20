@@ -1,0 +1,25 @@
+// Opaque handles for LLVM IR constructs. Real bindings arrive in S1+.
+
+pub record LlvmModule {
+    handle: Int
+}
+
+pub record LlvmBasicBlock {
+    handle: Int
+}
+
+pub record LlvmValue {
+    handle: Int
+}
+
+pub record LlvmType {
+    handle: Int
+}
+
+pub record LlvmFunc {
+    handle: Int
+}
+
+pub record LlvmGlobal {
+    handle: Int
+}

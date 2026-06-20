@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Estado da migração soyuz-go → soyuz (frontend). Usado por /migrate-compiler.
+# Estado do self-host soyuz (frontend + codegen). Usado por /migrate-compiler.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,11 +13,13 @@ hr "Repositório"
 echo "branch: $(git branch --show-current)"
 echo "dirty:  $(git status --porcelain | wc -l) arquivo(s) alterado(s)"
 
-if [[ -f .cursor/migration-complete ]]; then
-  echo "status: MIGRAÇÃO MARCADA COMO COMPLETA (.cursor/migration-complete)"
+if [[ -f .cursor/self-host-complete ]]; then
+  echo "status: SELF-HOST COMPLETO (.cursor/self-host-complete)"
+elif [[ -f .cursor/migration-complete ]]; then
+  echo "status: FRONTEND MIGRAÇÃO COMPLETA (.cursor/migration-complete)"
 fi
-if [[ -f .cursor/migration.lock ]]; then
-  echo "lock:   .cursor/migration.lock ($(cat .cursor/migration.lock))"
+if [[ -f .cursor/self-host.lock ]]; then
+  echo "lock:   .cursor/self-host.lock ($(cat .cursor/self-host.lock))"
 fi
 
 hr "Type-check (parser + checker, sem codegen)"
@@ -46,6 +48,14 @@ else
   echo "  soyuz-go não encontrado em $GO_REF (defina SOYUZ_GO_ROOT)"
 fi
 
+hr "Self-host milestones (S0–S12)"
+if [[ -f docs/SELF_HOST_PLAN.md ]]; then
+  grep -E '^\| \*\*S[0-9]+\*\*' docs/SELF_HOST_PLAN.md | sed 's/^/  /' || echo "  (tabela não encontrada)"
+else
+  echo "  docs/SELF_HOST_PLAN.md ausente"
+fi
+
 hr "Referência"
+echo "  docs/SELF_HOST_PLAN.md"
 echo "  docs/INTEGRATION.md"
 echo "  .cursor/plans/migração_ast_checker_e8bf0647.plan.md"
