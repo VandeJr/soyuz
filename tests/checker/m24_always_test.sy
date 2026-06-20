@@ -1,9 +1,13 @@
-// M24 — always tests (stub — port from soyuz-go/internal/checker/)
+// M24 — Task.always tests (port of soyuz-go/internal/checker/m24_always_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM24(src: String) -> List[TypeError] {
@@ -12,8 +16,73 @@ fn checkM24(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM24Baseline() {
-    // TODO: port milestone 24 tests from soyuz-go
-    val errs = checkM24("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M24 baseline stub")
+test fn testM24TaskAlwaysReturnsTaskT() {
+    val src = "
+fn work(x: Int) -> Int { x * 2 }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.always(fn() => print(\"done\"))
+    t2.await()
+}
+"
+    val errs = checkM24(src)
+    assertMsg(errs.size() == 0, ".always não deve gerar erros")
+}
+
+test fn testM24TaskAlwaysPreservesTaskType() {
+    val src = "
+fn work(x: Int) -> Int { x }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.always(fn() => print(\"cleanup\"))
+    t2.await()
+}
+"
+    val errs = checkM24(src)
+    assertMsg(errs.size() == 0, ".always deve preservar Task[T] inalterado")
+}
+
+test fn testM24TaskAlwaysRequiresOneArg() {
+    val src = "
+fn work(x: Int) -> Int { x }
+
+fn run(n: Int) {
+    val t = task work(n)
+    val _ = t.always()
+}
+"
+    val errs = checkM24(src)
+    assertMsg(errs.size() > 0, ".always sem argumento deve gerar erro")
+}
+
+test fn testM24TaskAlwaysChainingWithTap() {
+    val src = "
+fn work(x: Int) -> Int { x + 1 }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.tap(fn(r) => print(r)).always(fn() => print(\"fim\"))
+    t2.await()
+}
+"
+    val errs = checkM24(src)
+    assertMsg(errs.size() == 0, ".tap seguido de .always não deve gerar erros")
+}
+
+test fn testM24TaskAlwaysCallbackNoArgs() {
+    val src = "
+fn work(x: Int) -> Int { x }
+
+fn cleanup() { print(\"cleanup\") }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.always(fn() => cleanup())
+    t2.await()
+}
+"
+    val errs = checkM24(src)
+    assertMsg(errs.size() == 0, ".always com fn sem args não deve gerar erros")
 }
