@@ -859,9 +859,44 @@ fn checkSafeNavCall(c: Checker, data: CallExprData, node: Node, sn: SafeNavExprD
     }
 }
 
+fn channelOptionType(c: Checker, innerType: Type) -> Type {
+    val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
+    return Type.Specialized(base, [innerType])
+}
+
 fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, objType: Type) -> Type {
-    // List HOF special cases
     match objType {
+        Class(ct) if ct.name == "Channel" && me.property == "new" && data.args.size() == 1 => {
+            c.checkNode(data.args.get(0))
+            val retType = Type.Specialized(Type.Class(ct), [Unknown])
+            c.specializations.set(nodeId(node), FuncType { params: [IntType], returnType: retType, generics: [], defaults: [], isOptional: [] })
+            return retType
+        }
+        Specialized(Class(chCt), params) if chCt.name == "Channel" && params.size() > 0 => {
+            val innerType = params.get(0)
+            return match me.property {
+                "recv" => {
+                    val retType = channelOptionType(c, innerType)
+                    c.specializations.set(nodeId(node), FuncType { params: [], returnType: retType, generics: [], defaults: [], isOptional: [] })
+                    retType
+                }
+                "tryRecv" => {
+                    val retType = channelOptionType(c, innerType)
+                    c.specializations.set(nodeId(node), FuncType { params: [], returnType: retType, generics: [], defaults: [], isOptional: [] })
+                    retType
+                }
+                "send" if data.args.size() == 1 => {
+                    val at = c.checkNode(data.args.get(0))
+                    if !isAssignable(c, innerType, at) {
+                        checkerErrorf(c, nodePos(data.args.get(0)), "incompatible argument 1: expected $(typeToString(innerType)), got $(typeToString(at))", [])
+                    }
+                    UnitType
+                }
+                "close" => UnitType
+                "isClosed" => BoolType
+                _ => checkGenericMethodCall(c, data, node, me, objType)
+            }
+        }
         Specialized(Class(listClass), params) if listClass.name == "List" && params.size() > 0 => {
             val elemType = params.get(0)
             return match me.property {
