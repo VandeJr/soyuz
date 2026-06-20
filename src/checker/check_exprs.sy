@@ -873,6 +873,33 @@ fn taskHandleOptionType(c: Checker) -> Type {
     return Type.Specialized(base, [th])
 }
 
+fn checkTaskAlwaysCall(c: Checker, data: CallExprData, node: Node, taskType: Type) -> Type {
+    if data.args.size() != 1 {
+        checkerErrorf(c, nodePos(node), ".always espera exatamente um argumento (fn: Unit -> Unit)", [])
+        return Unknown
+    }
+    c.checkNode(data.args.get(0))
+    c.specializations.set(nodeId(node), FuncType { params: [Type.Func(FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] })], returnType: taskType, generics: [], defaults: [], isOptional: [] })
+    return taskType
+}
+
+fn checkTaskTapCall(c: Checker, data: CallExprData, node: Node, taskType: Type, innerType: Type) -> Type {
+    if data.args.size() != 1 {
+        checkerErrorf(c, nodePos(node), ".tap espera exatamente um argumento (fn: T -> Unit)", [])
+        return Unknown
+    }
+    val arg = data.args.get(0)
+    match arg {
+        ArrowFunc(id, _, _) => {
+            c.arrowFuncHints.set(nodeId(arg), [innerType])
+        }
+        _ => {}
+    }
+    c.checkNode(arg)
+    c.specializations.set(nodeId(node), FuncType { params: [Unknown], returnType: taskType, generics: [], defaults: [], isOptional: [] })
+    return taskType
+}
+
 fn checkTaskStaticCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, ct: ClassType) -> Type = match me.property {
     "all" => checkTaskAllCall(c, data, node, me.property)
     "allSettled" => checkTaskAllCall(c, data, node, me.property)
@@ -1004,6 +1031,8 @@ fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprDat
                 }
                 "detach" => UnitType
                 "cancel" => UnitType
+                "tap" => checkTaskTapCall(c, data, node, objType, innerType)
+                "always" => checkTaskAlwaysCall(c, data, node, objType)
                 _ => checkGenericMethodCall(c, data, node, me, objType)
             }
         }
