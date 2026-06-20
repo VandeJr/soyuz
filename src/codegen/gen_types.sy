@@ -1,0 +1,142 @@
+import (
+    { TypeExpr } from @ast/ast
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { StructInfo, EnumInfo } from @codegen/types
+    { LlvmType, llvmVoid, llvmI1, llvmI32, llvmI64, llvmF64, llvmI8Ptr, llvmPointerType, llvmStructType } from @codegen/llvm_types
+)
+
+fn mapHasStructInfo(m: Map[String, StructInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasEnumInfo(m: Map[String, EnumInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+pub fn ensureSoyuzStringLlvmTypes(g: Generator) {
+    if g.soyuzStringType != None { return }
+    val strTy = llvmStructType("SoyuzString", [llvmI64()])
+    g.soyuzStringType = Some(strTy)
+    g.soyuzStringPtrType = Some(llvmPointerType(strTy))
+}
+
+fn mapStringLlvmType(g: Generator) -> LlvmType {
+    ensureSoyuzStringLlvmTypes(g)
+    return match g.soyuzStringPtrType {
+        Some(ptr) => ptr
+        None => llvmI8Ptr()
+    }
+}
+
+fn mapBasicNameToLlvm(g: Generator, name: String) -> LlvmType = match name {
+    "Int" => llvmI64()
+    "Float" => llvmF64()
+    "Bool" => llvmI1()
+    "String" => mapStringLlvmType(g)
+    "Char" => llvmI32()
+    "Unit" => llvmVoid()
+    _ => llvmI64()
+}
+
+fn mapNamedAggregate(g: Generator, name: String) -> LlvmType {
+    if mapHasStructInfo(g.structs, name) {
+        return llvmPointerType(g.structs.get(name).typ)
+    }
+    if mapHasEnumInfo(g.enums, name) {
+        return llvmPointerType(g.enums.get(name).typ)
+    }
+    return llvmI64()
+}
+
+fn mapTupleElements(g: Generator, elements: List[Type]) -> LlvmType {
+    if elements.size() == 0 {
+        return llvmI64()
+    }
+    var fields: List[LlvmType] = []
+    for e in elements {
+        fields.append(mapTypeToLLVM(g, e))
+    }
+    return llvmPointerType(llvmStructType("", fields))
+}
+
+fn isSyncHandleClass(name: String) -> Bool {
+    if name == "TaskHandle" { return true }
+    if name == "Mutex" { return true }
+    if name == "MutexGuard" { return true }
+    if name == "RwLock" { return true }
+    if name == "ReadGuard" { return true }
+    if name == "WriteGuard" { return true }
+    if name == "Atomic" { return true }
+    if name == "Channel" { return true }
+    if name == "SyncChannel" { return true }
+    return false
+}
+
+fn mapClassByName(g: Generator, name: String) -> LlvmType {
+    if name == "List" { return mapNamedAggregate(g, "SoyuzList") }
+    if name == "Map" { return mapNamedAggregate(g, "SoyuzMap") }
+    if isSyncHandleClass(name) { return llvmI8Ptr() }
+    return mapNamedAggregate(g, name)
+}
+
+fn mapSpecializedType(g: Generator, base: Type, params: List[Type]) -> LlvmType = match base {
+    Enum(data) => match data.name {
+        "Option" => mapNamedAggregate(g, "Option")
+        "Result" => mapNamedAggregate(g, "Result")
+        _ => mapNamedAggregate(g, data.name)
+    }
+    Class(data) => mapClassByName(g, data.name)
+    Record(name, _, _) => mapNamedAggregate(g, name)
+    _ => llvmI64()
+}
+
+pub fn mapTypeToLLVM(g: Generator, t: Type) -> LlvmType = match t {
+    Basic(name) => mapBasicNameToLlvm(g, name)
+    Func(_) => llvmI8Ptr()
+    Interface(_) => llvmI8Ptr()
+    Record(name, _, _) => mapNamedAggregate(g, name)
+    Enum(data) => mapNamedAggregate(g, data.name)
+    Tuple(elements) => mapTupleElements(g, elements)
+    Specialized(base, params) => mapSpecializedType(g, base, params)
+    Class(data) => mapClassByName(g, data.name)
+    TypeParam(_) => llvmI64()
+}
+
+pub fn mapSoyuzTypeToLLVM(g: Generator, te: Option[TypeExpr]) -> LlvmType = match te {
+    None => llvmI64()
+    Some(expr) => mapSoyuzTypeExpr(g, expr)
+}
+
+fn mapSoyuzTypeExpr(g: Generator, te: TypeExpr) -> LlvmType = match te {
+    Named(_, _, name) => mapBasicNameToLlvm(g, name)
+    Func(_, _, _, _) => llvmI8Ptr()
+    Optional(_, _, _) => mapNamedAggregate(g, "Option")
+    Generic(_, _, name, params) => mapSoyuzGenericType(g, name, params)
+    Tuple(_, _, elements) => mapSoyuzTupleType(g, elements)
+}
+
+fn mapSoyuzGenericType(g: Generator, name: String, params: List[TypeExpr]) -> LlvmType = match name {
+    "List" => mapNamedAggregate(g, "SoyuzList")
+    "Map" => mapNamedAggregate(g, "SoyuzMap")
+    "Option" => mapNamedAggregate(g, "Option")
+    "Result" => mapNamedAggregate(g, "Result")
+    _ => llvmI64()
+}
+
+fn mapSoyuzTupleType(g: Generator, elements: List[TypeExpr]) -> LlvmType {
+    if elements.size() == 0 {
+        return llvmI64()
+    }
+    var fields: List[LlvmType] = []
+    for e in elements {
+        fields.append(mapSoyuzTypeExpr(g, e))
+    }
+    return llvmPointerType(llvmStructType("", fields))
+}
+
+pub fn mapTypeToLLVMByName(g: Generator, name: String) -> LlvmType {
+    return mapBasicNameToLlvm(g, name)
+}

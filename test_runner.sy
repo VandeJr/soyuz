@@ -1,5 +1,7 @@
 import @lexer/lexer_test
 
+// gen_types_test: type-checked via @codegen/load; runtime via bootstrap when S1 tests land.
+
 // Parser/checker runtime tests: enable when bootstrap codegen supports extend Parser.
 // import @tests/parser/parser_test
 // import @tests/checker/checker_test

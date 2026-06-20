@@ -1,0 +1,45 @@
+import (
+    { Node, FuncDeclData, TypeExpr } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, FuncType, IntType, FloatType, BoolType, StringType, CharType, UnitType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
+    { llvmI64, llvmF64, llvmI1, llvmI32, llvmVoid, llvmI8Ptr, llvmTypesEqual, llvmPointerType, llvmStructType } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn emptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testMapBasicCheckerTypes() {
+    val g = newGenerator(emptyCheckResult())
+    assertMsg(llvmTypesEqual(mapTypeToLLVM(g, IntType), llvmI64()), "Int -> i64")
+    assertMsg(llvmTypesEqual(mapTypeToLLVM(g, FloatType), llvmF64()), "Float -> f64")
+    assertMsg(llvmTypesEqual(mapTypeToLLVM(g, BoolType), llvmI1()), "Bool -> i1")
+    assertMsg(llvmTypesEqual(mapTypeToLLVM(g, CharType), llvmI32()), "Char -> i32")
+    assertMsg(llvmTypesEqual(mapTypeToLLVM(g, UnitType), llvmVoid()), "Unit -> void")
+}
+
+test fn testMapStringType() {
+    val g = newGenerator(emptyCheckResult())
+    ensureSoyuzStringLlvmTypes(g)
+    val strPtr = mapTypeToLLVM(g, StringType)
+    val expected = llvmPointerType(llvmStructType("SoyuzString", [llvmI64()]))
+    assertMsg(llvmTypesEqual(strPtr, expected), "String -> SoyuzString*")
+}
+
+test fn testMapSoyuzTypeExprBasics() {
+    val g = newGenerator(emptyCheckResult())
+    assertMsg(llvmTypesEqual(mapSoyuzTypeToLLVM(g, Some(TypeExpr.Named(0, Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }, "Int"))), llvmI64()), "TypeExpr Int")
+    assertMsg(llvmTypesEqual(mapSoyuzTypeToLLVM(g, Some(TypeExpr.Func(0, Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }, [], None))), llvmI8Ptr()), "TypeExpr Func")
+}

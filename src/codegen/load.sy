@@ -1,1 +1,3 @@
 import @codegen/generator
+import @codegen/gen_types
+import @codegen/gen_types_test
