@@ -50,7 +50,7 @@ Status: `pending` | `in_progress` | `done`
 | ID | Milestone | Referência Go | Entregável Soyuz | Critério de pronto | Status |
 |----|-----------|---------------|------------------|-------------------|--------|
 | **S0** | Scaffolding codegen | `internal/codegen/generator.go` (tipos, `Generator` struct) | `src/codegen/` — pacote, `Generator` shell, tipos auxiliares (`structInfo`, `enumInfo`, …) | Type-check OK; `soyuz build` (library) inclui pacote | `done` |
-| **S1** | Tipos LLVM | `gen_types.go` | `src/codegen/gen_types.sy` — mapeamento checker→LLVM, constantes, records vazios | Testes portados de `ir_check_test.go` (subset) passam via bootstrap | `in_progress` |
+| **S1** | Tipos LLVM | `gen_types.go` | `src/codegen/gen_types.sy` — mapeamento checker→LLVM, constantes, records vazios | Testes portados de `ir_check_test.go` (subset) passam via bootstrap | `done` |
 | **S2** | Expressões e literais | `gen_exprs.go` | `src/codegen/gen_exprs.sy` — aritmética, calls, index, string/char | Testes M0–M2 codegen baseline passam | `pending` |
 | **S3** | Funções e controle | `gen_funcs.go`, `gen_control.go` | `gen_funcs.sy`, `gen_control.sy` — fn decl, if/while/for, return, break/continue | Testes control flow + `loop_value_test.go` passam | `pending` |
 | **S4** | Structs, enums, patterns | `gen_structs.go`, `gen_patterns.go` | `gen_structs.sy`, `gen_patterns.sy` — ADTs, match, when guards | Testes `m6_enum_test.go`, `when_guard_test.go`, `when_dispatch_test.go` passam | `pending` |

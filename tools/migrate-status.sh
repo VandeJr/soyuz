@@ -37,6 +37,13 @@ fi
 hr "Lexer tests"
 soyuz test test_runner.sy 2>&1 || true
 
+hr "Codegen IR check (bootstrap, S1)"
+if [[ -x tools/codegen-ir-check.sh ]]; then
+  bash tools/codegen-ir-check.sh 2>&1 || echo "→ codegen IR check FALHOU"
+else
+  echo "  tools/codegen-ir-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

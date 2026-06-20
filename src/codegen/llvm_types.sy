@@ -69,6 +69,14 @@ pub fn llvmTypeName(t: LlvmType) -> String = match t.kind {
     Struct(name, _) => name
 }
 
+pub fn isHeapLlvmType(t: LlvmType) -> Bool = match t.kind {
+    Pointer(elem) => match elem.kind {
+        Struct(_, _) => true
+        _ => false
+    }
+    _ => false
+}
+
 // Opaque handles for IR values (wired in later milestones).
 
 pub record LlvmModule {

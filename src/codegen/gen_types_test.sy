@@ -4,7 +4,7 @@ import (
     { CheckResult, FuncType, IntType, FloatType, BoolType, StringType, CharType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
     { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes, buildMangledGenericName, getOrCreateSpecializedRecord, getOrCreateSpecializedEnum, mapSoyuzTypeExprWithSub } from @codegen/gen_types
-    { LlvmType, llvmI64, llvmF64, llvmI1, llvmI32, llvmVoid, llvmI8Ptr, llvmTypesEqual, llvmPointerType, llvmStructType, llvmArrayType, llvmI8 } from @codegen/llvm_types
+    { LlvmType, llvmI64, llvmF64, llvmI1, llvmI32, llvmVoid, llvmI8Ptr, llvmTypesEqual, llvmPointerType, llvmStructType, llvmArrayType, llvmI8, isHeapLlvmType } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -71,6 +71,14 @@ test fn testSpecializedRecord() {
         if k == "Box__i64" { hasCached = true }
     }
     assertMsg(hasCached, "specialized record cached")
+}
+
+test fn testIsHeapLlvmType() {
+    val heap = llvmPointerType(llvmStructType("Point", [llvmI64(), llvmI64()]))
+    val plain = llvmPointerType(llvmI64())
+    assertMsg(isHeapLlvmType(heap), "ptr to struct is heap")
+    assertMsg(!isHeapLlvmType(plain), "ptr to int is not heap")
+    assertMsg(!isHeapLlvmType(llvmI64()), "i64 is not heap")
 }
 
 test fn testMapSoyuzTypeExprWithSub() {
