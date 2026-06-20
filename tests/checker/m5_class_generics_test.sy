@@ -10,20 +10,15 @@ import (
     { assertMsg } from @soyuz/testing
 )
 
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+
 fn checkM5(src: String) -> List[TypeError] {
     val tokens = tokenize(src)
     val prog = Parser.new(tokens).parse()
     return check(newChecker(), prog).errors
 }
 
-fn containsStr(s: String, sub: String) -> Bool {
-    if sub.size() == 0 { return true }
-    if s.size() < sub.size() { return false }
-    for i in range(0, s.size() - sub.size() + 1) {
-        if s.substring(i, i + sub.size()) == sub { return true }
-    }
-    return false
-}
+fn containsStr(s: String, sub: String) -> Bool = soyuz_str_contains(s, sub)
 
 test fn testM5FieldDefaults() {
     val src = "
