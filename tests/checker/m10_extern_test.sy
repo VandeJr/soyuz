@@ -1,9 +1,13 @@
-// M10 — extern tests (stub — port from soyuz-go/internal/checker/)
+// M10 — extern tests (port of soyuz-go/internal/checker/m10_extern_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM10(src: String) -> List[TypeError] {
@@ -12,8 +16,48 @@ fn checkM10(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM10Baseline() {
-    // TODO: port milestone 10 tests from soyuz-go
-    val errs = checkM10("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M10 baseline stub")
+test fn testM10ExternDeclRegistersInScope() {
+    val src = "
+extern fn soyuz_print_int(n: Int)
+fn main() {
+    soyuz_print_int(42)
+}
+"
+    val errs = checkM10(src)
+    assertMsg(errs.size() == 0, "extern fn deve registrar no escopo")
+}
+
+test fn testM10ExternDeclWithReturnType() {
+    val src = "
+extern fn soyuz_str_len(s: String) -> Int
+fn main() {
+    val n: Int = soyuz_str_len(\"hello\")
+}
+"
+    val errs = checkM10(src)
+    assertMsg(errs.size() == 0, "extern fn com retorno não deve gerar erros")
+}
+
+test fn testM10ExternDeclPubExposed() {
+    val src = "
+pub extern fn soyuz_exit(code: Int)
+fn main() {
+    soyuz_exit(0)
+}
+"
+    val errs = checkM10(src)
+    assertMsg(errs.size() == 0, "pub extern fn não deve gerar erros")
+}
+
+test fn testM10ExternDeclMultipleParams() {
+    val src = "
+extern fn soyuz_print_float(x: Float)
+extern fn soyuz_print_bool(b: Bool)
+fn main() {
+    soyuz_print_float(3.14)
+    soyuz_print_bool(true)
+}
+"
+    val errs = checkM10(src)
+    assertMsg(errs.size() == 0, "múltiplos extern fn não devem gerar erros")
 }
