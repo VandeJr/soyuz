@@ -864,6 +864,40 @@ fn channelOptionType(c: Checker, innerType: Type) -> Type {
     return Type.Specialized(base, [innerType])
 }
 
+fn taskHandleOptionType(c: Checker) -> Type {
+    val th = match c.scope.resolve("TaskHandle") {
+        Some(sym) => sym.typ
+        None => Unknown
+    }
+    val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
+    return Type.Specialized(base, [th])
+}
+
+fn checkTaskStaticCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, ct: ClassType) -> Type = match me.property {
+    "all" => checkTaskAllCall(c, data, node, me.property)
+    "allSettled" => checkTaskAllCall(c, data, node, me.property)
+    _ => checkGenericMethodCall(c, data, node, me, Type.Class(ct))
+}
+
+fn checkTaskAllCall(c: Checker, data: CallExprData, node: Node, method: String) -> Type {
+    var innerTypes: List[Type] = []
+    for arg in data.args {
+        val at = c.checkNode(arg)
+        match at {
+            Specialized(Class(tCt), params) if tCt.name == "Task" && params.size() > 0 => {
+                innerTypes.append(params.get(0))
+            }
+            _ => {
+                checkerErrorf(c, nodePos(arg), "Task.$(method) espera Task[T], obtido $(typeToString(at))", [])
+                innerTypes.append(Unknown)
+            }
+        }
+    }
+    val retType = Type.Tuple(innerTypes)
+    c.specializations.set(nodeId(node), FuncType { params: [], returnType: retType, generics: [], defaults: [], isOptional: [] })
+    return retType
+}
+
 fn syncGuardType(c: Checker, guardName: String, innerType: Type) -> Type = match c.scope.resolve(guardName) {
     Some(sym) => match sym.typ {
         Class(gct) => Type.Specialized(Type.Class(gct), [innerType])
@@ -881,6 +915,24 @@ fn syncClassNew(c: Checker, ct: ClassType, node: Node, data: CallExprData) -> Ty
 
 fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, objType: Type) -> Type {
     match objType {
+        Class(ct) if ct.name == "Task" => checkTaskStaticCall(c, data, node, me, ct)
+        Class(ct) if ct.name == "TaskHandle" && me.property == "current" => {
+            val retType = taskHandleOptionType(c)
+            c.specializations.set(nodeId(node), FuncType { params: [], returnType: retType, generics: [], defaults: [], isOptional: [] })
+            retType
+        }
+        Specialized(Class(tCt), params) if tCt.name == "Task" && params.size() > 0 => {
+            val innerType = params.get(0)
+            return match me.property {
+                "await" => {
+                    c.specializations.set(nodeId(node), FuncType { params: [], returnType: innerType, generics: [], defaults: [], isOptional: [] })
+                    innerType
+                }
+                "detach" => UnitType
+                "cancel" => UnitType
+                _ => checkGenericMethodCall(c, data, node, me, objType)
+            }
+        }
         Class(ct) if (ct.name == "Mutex" || ct.name == "RwLock" || ct.name == "Atomic") && me.property == "new" && data.args.size() == 1 => {
             syncClassNew(c, ct, node, data)
         }

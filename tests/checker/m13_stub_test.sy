@@ -1,19 +1,169 @@
-// M13 — m13 tests (stub — port from soyuz-go/internal/checker/)
+// M13 — Task basics tests (port of soyuz-go/internal/checker/m_task_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { CheckResult, TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
-fn checkM13(src: String) -> List[TypeError] {
+fn checkM13(src: String) -> CheckResult {
     val tokens = tokenize(src)
     val prog = Parser.new(tokens).parse()
-    return check(newChecker(), prog).errors
+    return check(newChecker(), prog)
 }
 
-test fn testM13Baseline() {
-    // TODO: port milestone 13 tests from soyuz-go
-    val errs = checkM13("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M13 baseline stub")
+test fn testM13TaskExprType() {
+    val src = "
+fn doWork(n: Int) -> Int = n * 2
+val t = task doWork(5)
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "task expr não deve gerar erros")
+}
+
+test fn testM13TaskExprUnit() {
+    val src = "
+fn doSomething() {}
+val t = task doSomething()
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "task com fn Unit não deve gerar erros")
+}
+
+test fn testM13TaskAllReturnsTuple() {
+    val src = "
+fn getA() -> Int = 1
+fn getB() -> String = \"x\"
+fn main() {
+    val t1 = task getA()
+    val t2 = task getB()
+    val (a, b) = Task.all(t1, t2)
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "Task.all não deve gerar erros")
+}
+
+test fn testM13TaskAllSettledReturnsTuple() {
+    val src = "
+fn work1() -> Int = 42
+fn work2() -> Int = 99
+fn main() {
+    val t1 = task work1()
+    val t2 = task work2()
+    val (a, b) = Task.allSettled(t1, t2)
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "Task.allSettled não deve gerar erros")
+}
+
+test fn testM13SelectWithTaskAwaitArm() {
+    val src = "
+fn fast() -> Int = 1
+fn slow() -> Int = 2
+fn main() -> Int {
+    val t1 = task fast()
+    val t2 = task slow()
+    select {
+        r = t1.await() => r
+        r = t2.await() => r
+    }
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "select com t.await() não deve gerar erros")
+}
+
+test fn testM13TaskAnyIsUndefined() {
+    val src = "
+fn fast() -> Int = 1
+fn main() {
+    val t1 = task fast()
+    val _ = Task.any(t1)
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() > 0, "Task.any deve ser undefined após M-28")
+}
+
+test fn testM13TaskExprResultType() {
+    val src = "
+fn fetchUser(id: Int) -> String = \"user\"
+val t = task fetchUser(1)
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "task com fn -> String não deve gerar erros")
+}
+
+test fn testM13TaskHandleCurrentReturnsOption() {
+    val src = "
+fn doWork() {
+    val h = TaskHandle.current()
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "TaskHandle.current() não deve gerar erros")
+}
+
+test fn testM13TaskHandleCancelledReturnsBool() {
+    val src = "
+fn checkIfCancelled(handle: TaskHandle) -> Bool = handle.cancelled()
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "handle.cancelled() não deve gerar erros")
+}
+
+test fn testM13TaskHandleProgressAccepted() {
+    val src = "
+fn doWork() {
+    val h = TaskHandle.current()
+    match h {
+        Some(handle) => handle.progress(0.5)
+        None => {}
+    }
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "handle.progress() não deve gerar erros")
+}
+
+test fn testM13TaskCancelIsUnit() {
+    val src = "
+fn doWork() -> Int = 42
+fn main() {
+    val t = task doWork()
+    t.cancel()
+    t.await()
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "t.cancel() não deve gerar erros")
+}
+
+test fn testM13TaskCancelOnDetachedTask() {
+    val src = "
+fn doWork() -> Int = 1
+fn main() {
+    val t = task doWork()
+    t.cancel()
+    t.detach()
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "t.cancel() seguido de t.detach() não deve gerar erros")
+}
+
+test fn testM13TaskHandleCurrentOutsideTask() {
+    val src = "
+fn notATask() {
+    val h = TaskHandle.current()
+}
+"
+    val result = checkM13(src)
+    assertMsg(result.errors.size() == 0, "TaskHandle.current() fora de task não deve gerar erros de checker")
 }
