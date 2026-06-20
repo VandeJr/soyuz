@@ -1,5 +1,5 @@
 import (
-    { Node, BinaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
@@ -118,6 +118,12 @@ fn evalIntMod(left: Int, right: Int) -> Option[Int] {
     return Some(left % right)
 }
 
+pub fn evalConstUnaryOp(op: String, v: ConstValue) -> Option[ConstValue] = match (op, v) {
+    ("-", IntVal(n)) => Some(IntVal(-n))
+    ("!", BoolVal(b)) => Some(BoolVal(!b))
+    _ => None
+}
+
 pub fn evalConstBinaryOp(op: String, left: ConstValue, right: ConstValue) -> Option[ConstValue] = match (left, right) {
     (IntVal(a), IntVal(b)) => match evalIntBinaryOp(op, a, b) {
         None => None
@@ -131,8 +137,14 @@ fn evalConstBinary(data: BinaryExprData) -> Option[ConstValue] = match (evalCons
     _ => None
 }
 
+fn evalConstUnary(data: UnaryExprData) -> Option[ConstValue] = match evalConstExpr(data.operand) {
+    Some(v) => evalConstUnaryOp(data.operator, v)
+    None => None
+}
+
 pub fn evalConstExpr(node: Node) -> Option[ConstValue] = match node {
     BinaryExpr(_, _, data) => evalConstBinary(data)
+    UnaryExpr(_, _, data) => evalConstUnary(data)
     _ => constFromLiteralNode(node)
 }
 
@@ -168,6 +180,21 @@ fn generateBinaryExprResult(g: Generator, node: Node, data: BinaryExprData) -> O
     return match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
         (Some(l), Some(r)) => combineBinaryExprResult(g, node, data.operator, l, r)
         _ => None
+    }
+}
+
+fn foldUnaryConst(op: String, mc: MaybeConst) -> Option[ConstValue] = match mc {
+    HasValue(v) => evalConstUnaryOp(op, v)
+    NoConst => None
+}
+
+fn generateUnaryExprResult(g: Generator, node: Node, data: UnaryExprData) -> Option[ExprResult] {
+    return match generateExprNode(g, data.operand) {
+        None => None
+        Some(operand) => match foldUnaryConst(data.operator, operand.maybeConst) {
+            None => exprResultFromNode(g, node, NoConst)
+            Some(cv) => exprResultFromNode(g, node, HasValue(cv))
+        }
     }
 }
 
@@ -215,10 +242,23 @@ pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match 
     CharLiteral(_, _, _) => generateLiteralExprResult(g, node)
     StringLiteral(_, _, _) => generateLiteralExprResult(g, node)
     BinaryExpr(_, _, data) => generateBinaryExprResult(g, node, data)
+    UnaryExpr(_, _, data) => generateUnaryExprResult(g, node, data)
     Identifier(_, _, data) => generateIdentifierExprResult(g, node, data)
     CallExpr(_, _, data) => generateCallExprResult(g, node, data)
     IndexExpr(_, _, data) => generateIndexExprResult(g, node, data)
     _ => None
+}
+
+pub fn isUnaryNode(node: Node) -> Bool = match node {
+    UnaryExpr(_, _, _) => true
+    _ => false
+}
+
+pub fn isUnaryOp(op: String) -> Bool {
+    if op == "-" { return true }
+    if op == "!" { return true }
+    if op == "~" { return true }
+    return false
 }
 
 pub fn isIndexNode(node: Node) -> Bool = match node {

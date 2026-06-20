@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, BinaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode } from @codegen/gen_exprs
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -20,6 +20,17 @@ test fn testEvalIntBinaryOp() {
     assertMsg(evalIntBinaryOp("+", 10, 5) == Some(15), "10+5")
     assertMsg(evalIntBinaryOp("*", 10, 5) == Some(50), "10*5")
     assertMsg(evalIntBinaryOp("/", 10, 0) == None, "div by zero")
+}
+
+test fn testEvalConstUnaryOp() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }
+    val inner = Node.IntLiteral(1, span, IntLiteralData { value: "7" })
+    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: inner })
+    match evalConstExpr(node) {
+        Some(IntVal(v)) => assertMsg(v == -7, "-7")
+        _ => assertMsg(false, "expected IntVal -7")
+    }
+    assertMsg(isUnaryOp("-"), "minus is unary")
 }
 
 test fn testEvalConstExprMath() {
@@ -198,6 +209,27 @@ test fn testGenerateExprNodeIndexExpr() {
             match r.maybeConst {
                 NoConst => {}
                 _ => assertMsg(false, "expected NoConst for index")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeUnaryMinus() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }
+    val inner = Node.IntLiteral(1, span, IntLiteralData { value: "7" })
+    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: inner })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isUnaryNode(node), "unary expr")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "unary minus -> i64")
+            match r.maybeConst {
+                HasValue(IntVal(v)) => assertMsg(v == -7, "const -7")
+                _ => assertMsg(false, "expected HasValue IntVal -7")
             }
         }
     }
