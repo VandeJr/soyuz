@@ -1,12 +1,14 @@
 import (
-    { Node, FuncDeclData, TypeExpr } from @ast/ast
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, IntType, FloatType, BoolType, StringType, CharType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
-    { llvmI64, llvmF64, llvmI1, llvmI32, llvmVoid, llvmI8Ptr, llvmTypesEqual, llvmPointerType, llvmStructType } from @codegen/llvm_types
+    { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes, buildMangledGenericName, getOrCreateSpecializedRecord, getOrCreateSpecializedEnum, mapSoyuzTypeExprWithSub } from @codegen/gen_types
+    { LlvmType, llvmI64, llvmF64, llvmI1, llvmI32, llvmVoid, llvmI8Ptr, llvmTypesEqual, llvmPointerType, llvmStructType, llvmArrayType, llvmI8 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
+
+fn zeroSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 0 }
 
 fn emptyCheckResult() -> CheckResult = CheckResult {
     errors: [],
@@ -40,6 +42,41 @@ test fn testMapStringType() {
 
 test fn testMapSoyuzTypeExprBasics() {
     val g = newGenerator(emptyCheckResult())
-    assertMsg(llvmTypesEqual(mapSoyuzTypeToLLVM(g, Some(TypeExpr.Named(0, Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }, "Int"))), llvmI64()), "TypeExpr Int")
-    assertMsg(llvmTypesEqual(mapSoyuzTypeToLLVM(g, Some(TypeExpr.Func(0, Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }, [], None))), llvmI8Ptr()), "TypeExpr Func")
+    assertMsg(llvmTypesEqual(mapSoyuzTypeToLLVM(g, Some(TypeExpr.Named(0, zeroSpan(), "Int"))), llvmI64()), "TypeExpr Int")
+    assertMsg(llvmTypesEqual(mapSoyuzTypeToLLVM(g, Some(TypeExpr.Func(0, zeroSpan(), [], None))), llvmI8Ptr()), "TypeExpr Func")
+}
+
+test fn testMangledGenericName() {
+    var sub: Map[String, LlvmType] = Map[String, LlvmType]{}
+    sub.set("T", llvmI64())
+    val name = buildMangledGenericName("Box", [GenericParam { name: "T", constraints: [] }], sub)
+    assertMsg(name == "Box__i64", "mangled generic record name")
+}
+
+test fn testSpecializedRecord() {
+    val g = newGenerator(emptyCheckResult())
+    val decl = RecordDeclData {
+        isPub: true,
+        name: "Box",
+        generics: [GenericParam { name: "T", constraints: [] }],
+        fields: [RecordField { span: zeroSpan(), name: "value", typeExpr: TypeExpr.Named(0, zeroSpan(), "T") }]
+    }
+    var sub: Map[String, LlvmType] = Map[String, LlvmType]{}
+    sub.set("T", llvmI64())
+    val si = getOrCreateSpecializedRecord(g, decl, sub)
+    val expected = llvmStructType("Box__i64", [llvmI64()])
+    assertMsg(llvmTypesEqual(si.typ, expected), "specialized record struct type")
+    var hasCached = false
+    for k in g.structs.keys() {
+        if k == "Box__i64" { hasCached = true }
+    }
+    assertMsg(hasCached, "specialized record cached")
+}
+
+test fn testMapSoyuzTypeExprWithSub() {
+    val g = newGenerator(emptyCheckResult())
+    var sub: Map[String, LlvmType] = Map[String, LlvmType]{}
+    sub.set("T", llvmF64())
+    val te = TypeExpr.Named(0, zeroSpan(), "T")
+    assertMsg(llvmTypesEqual(mapSoyuzTypeExprWithSub(g, te, sub), llvmF64()), "type param substitution")
 }

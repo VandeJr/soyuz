@@ -3,11 +3,13 @@
 pub enum LlvmTypeKind {
     Void
     I1
+    I8
     I32
     I64
     F64
     I8Ptr
     Pointer(elem: LlvmType)
+    Array(elem: LlvmType, count: Int)
     Struct(name: String, fields: List[LlvmType])
 }
 
@@ -17,6 +19,7 @@ pub record LlvmType {
 
 pub fn llvmVoid() -> LlvmType = LlvmType { kind: LlvmTypeKind.Void }
 pub fn llvmI1() -> LlvmType = LlvmType { kind: LlvmTypeKind.I1 }
+pub fn llvmI8() -> LlvmType = LlvmType { kind: LlvmTypeKind.I8 }
 pub fn llvmI32() -> LlvmType = LlvmType { kind: LlvmTypeKind.I32 }
 pub fn llvmI64() -> LlvmType = LlvmType { kind: LlvmTypeKind.I64 }
 pub fn llvmF64() -> LlvmType = LlvmType { kind: LlvmTypeKind.F64 }
@@ -26,14 +29,18 @@ pub fn llvmPointerType(elem: LlvmType) -> LlvmType = LlvmType { kind: LlvmTypeKi
 
 pub fn llvmStructType(name: String, fields: List[LlvmType]) -> LlvmType = LlvmType { kind: LlvmTypeKind.Struct(name, fields) }
 
+pub fn llvmArrayType(elem: LlvmType, count: Int) -> LlvmType = LlvmType { kind: LlvmTypeKind.Array(elem, count) }
+
 pub fn llvmTypesEqual(a: LlvmType, b: LlvmType) -> Bool = match (a.kind, b.kind) {
     (Void, Void) => true
     (I1, I1) => true
+    (I8, I8) => true
     (I32, I32) => true
     (I64, I64) => true
     (F64, F64) => true
     (I8Ptr, I8Ptr) => true
     (Pointer(ea), Pointer(eb)) => llvmTypesEqual(ea, eb)
+    (Array(ea, ca), Array(eb, cb)) => ca == cb && llvmTypesEqual(ea, eb)
     (Struct(na, fa), Struct(nb, fb)) => na == nb && llvmTypeFieldListsEqual(fa, fb)
     _ => false
 }
@@ -52,11 +59,13 @@ fn llvmTypeFieldListsEqual(a: List[LlvmType], b: List[LlvmType]) -> Bool {
 pub fn llvmTypeName(t: LlvmType) -> String = match t.kind {
     Void => "void"
     I1 => "i1"
+    I8 => "i8"
     I32 => "i32"
     I64 => "i64"
     F64 => "f64"
     I8Ptr => "i8*"
     Pointer(elem) => "ptr_$(llvmTypeName(elem))"
+    Array(elem, count) => "arr$(count)_$(llvmTypeName(elem))"
     Struct(name, _) => name
 }
 
