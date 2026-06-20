@@ -1,9 +1,13 @@
-// M14 — arc tests (stub — port from soyuz-go/internal/checker/)
+// M14 — Arc[T] tests (port of soyuz-go/internal/checker/m14_arc_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM14(src: String) -> List[TypeError] {
@@ -12,8 +16,60 @@ fn checkM14(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM14Baseline() {
-    // TODO: port milestone 14 tests from soyuz-go
-    val errs = checkM14("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M14 baseline stub")
+test fn testM14ArcNewReturnsSpecializedType() {
+    val src = "val a = Arc.new(42)"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "Arc.new não deve gerar erros")
+}
+
+test fn testM14ArcNewWithString() {
+    val src = "val s = Arc.new(\"hello\")"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "Arc.new(String) não deve gerar erros")
+}
+
+test fn testM14ArcCloneReturnsSameType() {
+    val src = "
+val a = Arc.new(10)
+val b = a.clone()
+"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "arc.clone() não deve gerar erros")
+}
+
+test fn testM14ArcGetReturnsInnerType() {
+    val src = "
+val a = Arc.new(99)
+val v = a.get()
+"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "arc.get() não deve gerar erros")
+}
+
+test fn testM14ArcRefcountReturnsInt() {
+    val src = "
+val a = Arc.new(1)
+val rc = a.refcount()
+"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "arc.refcount() não deve gerar erros")
+}
+
+test fn testM14ArcFullLifecycle() {
+    val src = "
+val a = Arc.new(42)
+val b = a.clone()
+val v = b.get()
+val rc = a.refcount()
+"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "lifecycle Arc completo não deve gerar erros")
+}
+
+test fn testM14ArcInFunctionParam() {
+    val src = "
+fn readArc(a: Arc[Int]) -> Int = a.get()
+"
+    val errs = checkM14(src)
+    assertMsg(errs.size() == 0, "Arc[Int] como parâmetro não deve gerar erros")
 }

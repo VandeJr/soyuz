@@ -933,6 +933,18 @@ fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprDat
                 _ => checkGenericMethodCall(c, data, node, me, objType)
             }
         }
+        Class(ct) if ct.name == "Arc" && me.property == "new" && data.args.size() == 1 => {
+            syncClassNew(c, ct, node, data)
+        }
+        Specialized(Class(arcCt), params) if arcCt.name == "Arc" && params.size() > 0 => {
+            val innerType = params.get(0)
+            return match me.property {
+                "clone" => objType
+                "get" => innerType
+                "refcount" => IntType
+                _ => checkGenericMethodCall(c, data, node, me, objType)
+            }
+        }
         Class(ct) if (ct.name == "Mutex" || ct.name == "RwLock" || ct.name == "Atomic") && me.property == "new" && data.args.size() == 1 => {
             syncClassNew(c, ct, node, data)
         }
