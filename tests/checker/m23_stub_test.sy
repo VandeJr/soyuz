@@ -1,9 +1,13 @@
-// M23 — m23 tests (stub — port from soyuz-go/internal/checker/)
+// M23 — numbering gap (no soyuz-go m23 source); milestone slot closed
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM23(src: String) -> List[TypeError] {
@@ -12,8 +16,36 @@ fn checkM23(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM23Baseline() {
-    // TODO: port milestone 23 tests from soyuz-go
-    val errs = checkM23("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M23 baseline stub")
+test fn testM23TaskSendOnChannel() {
+    val src = "
+fn notify(ch: Channel[String]) {
+    val t = task fn() => ch.send(\"ok\")
+    t.await()
+}
+"
+    val errs = checkM23(src)
+    assertMsg(errs.size() == 0, "task enviando em Channel[T] não deve gerar erros")
+}
+
+test fn testM23TaskSendWrongTypeFails() {
+    val src = "
+fn notify(ch: Channel[Int]) {
+    val t = task fn() => ch.send(\"wrong\")
+    t.await()
+}
+"
+    val errs = checkM23(src)
+    assertMsg(errs.size() > 0, "task enviando tipo errado em Channel[Int] deve gerar erro")
+}
+
+test fn testM23TaskAwaitAfterChannelSend() {
+    val src = "
+fn relay(ch: Channel[Int]) -> Int {
+    val t = task fn() => ch.send(42)
+    t.await()
+    ch.recv().unwrap()
+}
+"
+    val errs = checkM23(src)
+    assertMsg(errs.size() == 0, "task + channel send/recv não deve gerar erros")
 }
