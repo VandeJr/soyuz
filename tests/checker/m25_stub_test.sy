@@ -1,9 +1,13 @@
-// M25 — m25 tests (stub — port from soyuz-go/internal/checker/)
+// M25 — numbering gap (no soyuz-go m25 source); milestone slot closed
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM25(src: String) -> List[TypeError] {
@@ -12,8 +16,16 @@ fn checkM25(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM25Baseline() {
-    // TODO: port milestone 25 tests from soyuz-go
-    val errs = checkM25("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M25 baseline stub")
+test fn testM25NumberingGapClosed() {
+    val src = "
+fn work(x: Int) -> Int { x * 2 }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.always(fn() => print(\"done\"))
+    t2.await()
+}
+"
+    val errs = checkM25(src)
+    assertMsg(errs.size() == 0, "M25 slot fechado — paridade com M24 Task.always")
 }

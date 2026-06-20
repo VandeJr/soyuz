@@ -1,9 +1,13 @@
-// M26 — gather tests (stub — port from soyuz-go/internal/checker/)
+// M26 — Task.gather tests (port of soyuz-go/internal/checker/m26_gather_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM26(src: String) -> List[TypeError] {
@@ -12,8 +16,60 @@ fn checkM26(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM26Baseline() {
-    // TODO: port milestone 26 tests from soyuz-go
-    val errs = checkM26("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M26 baseline stub")
+test fn testM26TaskGatherReturnsList() {
+    val src = "
+fn dobrar(n: Int) -> Int = n * 2
+
+fn run(nums: List[Int]) {
+    val results = Task.gather(nums, dobrar)
+}
+"
+    val errs = checkM26(src)
+    assertMsg(errs.size() == 0, "Task.gather não deve gerar erros")
+}
+
+test fn testM26TaskGatherTypeInference() {
+    val src = "
+fn toString(n: Int) -> String = \"x\"
+
+fn run(nums: List[Int]) {
+    val results: List[String] = Task.gather(nums, toString)
+}
+"
+    val errs = checkM26(src)
+    assertMsg(errs.size() == 0, "Task.gather deve inferir List[U]")
+}
+
+test fn testM26TaskGatherRejectsNonList() {
+    val src = "
+fn dobrar(n: Int) -> Int = n * 2
+
+fn run(n: Int) {
+    val _ = Task.gather(n, dobrar)
+}
+"
+    val errs = checkM26(src)
+    assertMsg(errs.size() > 0, "Task.gather com não-List deve gerar erro")
+}
+
+test fn testM26TaskGatherRejectsNonFunction() {
+    val src = "
+fn run(nums: List[Int], x: Int) {
+    val _ = Task.gather(nums, x)
+}
+"
+    val errs = checkM26(src)
+    assertMsg(errs.size() > 0, "Task.gather com não-função deve gerar erro")
+}
+
+test fn testM26TaskGatherRejectsWrongArgCount() {
+    val src = "
+fn dobrar(n: Int) -> Int = n * 2
+
+fn run(nums: List[Int]) {
+    val _ = Task.gather(nums)
+}
+"
+    val errs = checkM26(src)
+    assertMsg(errs.size() > 0, "Task.gather sem argumentos suficientes deve gerar erro")
 }

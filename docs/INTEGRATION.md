@@ -9,7 +9,7 @@ Este documento descreve como conectar o frontend em Soyuz Lang (`/home/vand/Proj
 | Lexer | Completo + 5 testes | Compila e roda |
 | AST | Enums `Node`, `TypeExpr`, `Pattern` | Type-check OK |
 | Parser | ~M0+ portado (`extend Parser`) | Type-check OK; **codegen** falha em extend |
-| Checker | ~6500 LOC, 5 passes | Type-check OK; **codegen** falha (enum match, Type constants) |
+| Checker | ~6500 LOC, 5 passes, **M0–M26** testes portados | Type-check OK; **codegen** falha (enum match, Type constants) |
 
 ### Comandos
 
