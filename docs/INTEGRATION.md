@@ -4,12 +4,18 @@ Este documento descreve como conectar o frontend em Soyuz Lang (`/home/vand/Proj
 
 ## Estado atual (jun/2026)
 
+**Migração frontend (lexer/parser/checker) concluída** — milestones M0–M26 portados; type-check OK.
+
 | Camada | Soyuz (.sy) | Bootstrap (`soyuz` no PATH) |
 |--------|-------------|------------------------------|
 | Lexer | Completo + 5 testes | Compila e roda |
 | AST | Enums `Node`, `TypeExpr`, `Pattern` | Type-check OK |
 | Parser | ~M0+ portado (`extend Parser`) | Type-check OK; **codegen** falha em extend |
 | Checker | ~6500 LOC, 5 passes, **M0–M26** testes portados | Type-check OK; **codegen** falha (enum match, Type constants) |
+
+**Próximo passo:** estabilizar codegen Soyuz para executar `tests/checker/*` e integrar com soyuz-go (`--frontend=sy`).
+
+**Gaps menores (fora dos milestones):** alguns testes Go adicionais ainda não portados (`safe_nav_test.go`, `hof_curry_test.go`, `named_args_test.go`, etc.).
 
 ### Comandos
 
@@ -26,7 +32,7 @@ Arquivos de teste portados (executam quando codegen estabilizar):
 
 - `tests/parser/parser_test.sy` — baseline M0 parser
 - `tests/checker/checker_test.sy` — baseline M0 checker
-- `tests/checker/m1_* … m26_*` — stubs por milestone
+- `tests/checker/m1_* … m26_*` — testes por milestone (todos portados)
 
 ## Modelo alvo
 
@@ -46,7 +52,7 @@ Em `soyuz-go/cmd/main.go`, antes do codegen:
 
 ## Opção B: frontends independentes
 
-Manter parser/checker Go e Soyuz em paralelo até paridade M26.
+Manter parser/checker Go e Soyuz em paralelo até integração via `--frontend=sy`.
 
 ## Correções soyuz-go em progresso
 
