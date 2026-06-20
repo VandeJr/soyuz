@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestGeneratorBasic|TestGeneratorMath|TestCharLiteralEmitsI32' -count=1
+go test ./internal/codegen/ -run 'TestGeneratorBasic|TestGeneratorMath|TestGeneratorVariables|TestCharLiteralEmitsI32|TestCharEscapeNewlineEmitsI32' -count=1
 echo "→ codegen expr check (bootstrap) OK"

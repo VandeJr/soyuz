@@ -1,5 +1,10 @@
 import (
     { Node, BinaryExprData } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmType } from @codegen/llvm_types
+    { mapTypeToLLVM } from @codegen/gen_types
 )
 
 pub enum ConstValue {
@@ -8,6 +13,16 @@ pub enum ConstValue {
     BoolVal(v: Bool)
     CharVal(v: Char)
     StringVal(v: String)
+}
+
+pub enum MaybeConst {
+    NoConst
+    HasValue(v: ConstValue)
+}
+
+pub record ExprResult {
+    llvmType: LlvmType,
+    maybeConst: MaybeConst
 }
 
 pub fn typeConstantNames() -> Map[String, String] {
@@ -119,6 +134,60 @@ fn evalConstBinary(data: BinaryExprData) -> Option[ConstValue] = match (evalCons
 pub fn evalConstExpr(node: Node) -> Option[ConstValue] = match node {
     BinaryExpr(_, _, data) => evalConstBinary(data)
     _ => constFromLiteralNode(node)
+}
+
+fn checkerTypeForNode(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
+}
+
+fn exprResultFromNode(g: Generator, node: Node, mc: MaybeConst) -> Option[ExprResult] {
+    val id = nodeId(node)
+    return match checkerTypeForNode(g, id) {
+        None => None
+        Some(t) => Some(ExprResult { llvmType: mapTypeToLLVM(g, t), maybeConst: mc })
+    }
+}
+
+fn foldConstValues(op: String, left: MaybeConst, right: MaybeConst) -> Option[ConstValue] = match (left, right) {
+    (HasValue(lc), HasValue(rc)) => evalConstBinaryOp(op, lc, rc)
+    _ => None
+}
+
+fn generateLiteralExprResult(g: Generator, node: Node) -> Option[ExprResult] = match constFromLiteralNode(node) {
+    None => exprResultFromNode(g, node, NoConst)
+    Some(cv) => exprResultFromNode(g, node, HasValue(cv))
+}
+
+fn combineBinaryExprResult(g: Generator, node: Node, op: String, l: ExprResult, r: ExprResult) -> Option[ExprResult] = match foldConstValues(op, l.maybeConst, r.maybeConst) {
+    None => exprResultFromNode(g, node, NoConst)
+    Some(cv) => exprResultFromNode(g, node, HasValue(cv))
+}
+
+fn generateBinaryExprResult(g: Generator, node: Node, data: BinaryExprData) -> Option[ExprResult] {
+    return match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
+        (Some(l), Some(r)) => combineBinaryExprResult(g, node, data.operator, l, r)
+        _ => None
+    }
+}
+
+pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match node {
+    IntLiteral(_, _, _) => generateLiteralExprResult(g, node)
+    FloatLiteral(_, _, _) => generateLiteralExprResult(g, node)
+    BoolLiteral(_, _, _) => generateLiteralExprResult(g, node)
+    CharLiteral(_, _, _) => generateLiteralExprResult(g, node)
+    StringLiteral(_, _, _) => generateLiteralExprResult(g, node)
+    BinaryExpr(_, _, data) => generateBinaryExprResult(g, node, data)
+    _ => None
+}
+
+pub fn isLiteralNode(node: Node) -> Bool = match node {
+    IntLiteral(_, _, _) => true
+    FloatLiteral(_, _, _) => true
+    BoolLiteral(_, _, _) => true
+    CharLiteral(_, _, _) => true
+    StringLiteral(_, _, _) => true
+    _ => false
 }
 
 pub fn isArithmeticBinaryOp(op: String) -> Bool {

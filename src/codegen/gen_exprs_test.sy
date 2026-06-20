@@ -1,7 +1,10 @@
 import (
-    { Node, IntLiteralData, BinaryExprData } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, BinaryExprData } from @ast/ast
     { Span } from @lexer/tokens
-    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, typeConstantNames } from @codegen/gen_exprs
+    { CheckResult, FuncType, Type, IntType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, typeConstantNames, generateExprNode, isLiteralNode } from @codegen/gen_exprs
+    { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -32,4 +35,48 @@ test fn testTypeConstantNames() {
     val names = typeConstantNames()
     assertMsg(names.get("IntType") == "Int", "IntType maps to Int")
     assertMsg(isArithmeticBinaryOp("+"), "plus is arithmetic")
+}
+
+fn exprTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn checkerWithNodeType(id: Int, t: Type) -> CheckResult {
+    var cr = exprTestCheckResult()
+    var i = 0
+    loop {
+        if i > id { break }
+        if i == id {
+            cr.nodeTypes.append(Some(t))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
+
+test fn testGenerateExprNodeIntLiteral() {
+    val node = Node.IntLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 2 }, IntLiteralData { value: "42" })
+    val g = newGenerator(checkerWithNodeType(1, IntType))
+    assertMsg(isLiteralNode(node), "int literal")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "int literal -> i64")
+            match r.maybeConst {
+                HasValue(IntVal(v)) => assertMsg(v == 42, "const value 42")
+                _ => assertMsg(false, "expected HasValue IntVal")
+            }
+        }
+    }
 }
