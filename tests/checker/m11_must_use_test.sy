@@ -1,19 +1,104 @@
-// M11 — must_use tests (stub — port from soyuz-go/internal/checker/)
+// M11 — must-use (W0300) tests (port of soyuz-go/internal/checker/m11_must_use_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { CheckResult, TypeWarning } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
-fn checkM11(src: String) -> List[TypeError] {
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+
+fn checkM11(src: String) -> CheckResult {
     val tokens = tokenize(src)
     val prog = Parser.new(tokens).parse()
-    return check(newChecker(), prog).errors
+    return check(newChecker(), prog)
 }
 
-test fn testM11Baseline() {
-    // TODO: port milestone 11 tests from soyuz-go
-    val errs = checkM11("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M11 baseline stub")
+fn hasWarning(warns: List[TypeWarning], sub: String) -> Bool {
+    for w in warns {
+        if soyuz_str_contains(w.message, sub) { return true }
+    }
+    return false
+}
+
+test fn testM11UnconsumedTaskWarning() {
+    val src = "
+fn doWork(n: Int) -> Int = n * 2
+
+fn run() {
+    task doWork(5)
+}
+"
+    val result = checkM11(src)
+    assertMsg(result.errors.size() == 0, "não esperava erros")
+    assertMsg(hasWarning(result.warnings, "Task não consumida"), "esperava warning W0300")
+    assertMsg(result.warnings.size() == 1, "esperava exatamente 1 warning")
+}
+
+test fn testM11UnconsumedTaskTopLevel() {
+    val src = "
+fn doWork() -> Int = 42
+task doWork()
+"
+    val result = checkM11(src)
+    assertMsg(result.errors.size() == 0, "não esperava erros")
+    assertMsg(hasWarning(result.warnings, "Task não consumida"), "esperava warning W0300 no top-level")
+}
+
+test fn testM11ConsumedTaskNoWarning() {
+    val src = "
+fn doWork(n: Int) -> Int = n * 2
+
+fn run() {
+    val t = task doWork(5)
+    val result = t.await()
+}
+"
+    val result = checkM11(src)
+    assertMsg(result.errors.size() == 0, "não esperava erros")
+    assertMsg(result.warnings.size() == 0, "não esperava warnings")
+}
+
+test fn testM11DetachedTaskNoWarning() {
+    val src = "
+fn doWork(n: Int) -> Int = n * 2
+
+fn run() {
+    val t = task doWork(5)
+    t.detach()
+}
+"
+    val result = checkM11(src)
+    assertMsg(result.errors.size() == 0, "não esperava erros")
+    assertMsg(result.warnings.size() == 0, "não esperava warnings")
+}
+
+test fn testM11UnderscoreTaskNoWarning() {
+    val src = "
+fn doWork(n: Int) -> Int = n * 2
+
+fn run() {
+    val _ = task doWork(5)
+}
+"
+    val result = checkM11(src)
+    assertMsg(result.errors.size() == 0, "não esperava erros")
+    assertMsg(result.warnings.size() == 0, "val _ = task não deve gerar warning")
+}
+
+test fn testM11WarningCode() {
+    val src = "
+fn doWork() -> Int = 1
+
+fn run() {
+    task doWork()
+}
+"
+    val result = checkM11(src)
+    assertMsg(result.warnings.size() > 0, "esperava warning W0300")
+    assertMsg(result.warnings.get(0).code == "W0300", "código esperado W0300")
 }
