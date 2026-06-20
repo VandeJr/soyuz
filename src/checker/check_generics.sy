@@ -3,7 +3,7 @@ import (
     { Node, TypeExpr, Named, Pattern, FuncParam, SpecializedExprData, CallExprData } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
     { Checker, Type, FuncType, ClassType, EnumType, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, typeToString } from @checker/types
-    { getNodeType, checkerErrorf } from @checker/checker
+    { getNodeType, checkerErrorf, checkGlobalAccess } from @checker/checker
     { mapHasStrType } from @checker/map_util
 )
 
@@ -194,7 +194,7 @@ fn resolveNamedType(c: Checker, span: Span, name: String) -> Type = match name {
     "Unit" => UnitType
     "Error" => match c.scope.resolve("Error") { Some(sym) => sym.typ, None => Unknown }
     _ => match c.scope.resolve(name) {
-        Some(sym) => sym.typ
+        Some(sym) => { checkGlobalAccess(c, name, span); sym.typ }
         None => { checkerErrorf(c, span, "unknown type: $(name)", []); Unknown }
     }
 }

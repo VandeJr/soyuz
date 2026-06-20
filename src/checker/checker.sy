@@ -5,6 +5,7 @@ import (
     { Type, FuncType, EnumType, InterfaceType, ClassType, Scope, Symbol, CheckContext, CheckResult, PendingClassMethod, PendingExtendMethod, TypeError, TypeWarning, IntType, Unknown, newScope, typeToString } from @checker/types
     { buildPreludeScope } from @checker/type_builders
     { builtinTypeExtensions, builtinExtendSelfTypes } from @checker/builtins
+    { mapHasStrBool, mapHasStrStr, mapHasStrStrBoolMap } from @checker/map_util
 )
 
 pub class Checker {
@@ -14,6 +15,7 @@ pub class Checker {
     pub var nodeTypes: List[Option[Type]] = []
     pub var specializations: Map[Int, FuncType] = Map[Int, FuncType]{}
     pub var funcVariants: Map[String, List[FuncDeclData]] = Map[String, List[FuncDeclData]]{}
+    pub var funcVariantNodeIds: Map[String, List[Int]] = Map[String, List[Int]]{}
     pub var testFuncs: List[FuncDeclData] = []
     pub var captures: Map[Int, List[String]] = Map[Int, List[String]]{}
     pub var currentClass: Option[ClassType] = None
@@ -90,6 +92,86 @@ pub fn contextInnerType(c: Checker, enumName: String) -> Type = match c.context.
         _ => Unknown
     }
     _ => Unknown
+}
+
+fn pathBaseName(path: String) -> String {
+    val parts = path.split("/")
+    if parts.size() == 0 { return path }
+    return parts.get(parts.size() - 1)
+}
+
+pub fn setNodeFiles(c: Checker, nf: Map[Int, String]) {
+    c.nodeFile = Some(nf)
+}
+
+pub fn registerGlobalSymbol(c: Checker, name: String, nodeId: Int, isPub: Bool) {
+    match c.nodeFile {
+        None => return
+        Some(nf) => {
+            var origin = ""
+            var hasOrigin = false
+            for k in nf.keys() {
+                if k == nodeId {
+                    origin = nf.get(k)
+                    hasOrigin = true
+                }
+            }
+            if !hasOrigin { return }
+            var hasPrev = false
+            for sk in c.symbolOrigin.keys() {
+                if sk == name { hasPrev = true }
+            }
+            if hasPrev {
+                val prev = c.symbolOrigin.get(name)
+                if mapHasStrBool(c.preludeFiles, prev) && !mapHasStrBool(c.preludeFiles, origin) {
+                    return
+                }
+            }
+            c.symbolOrigin.set(name, origin)
+            c.symbolPub.set(name, isPub)
+        }
+    }
+}
+
+pub fn checkGlobalAccess(c: Checker, name: String, span: Span) {
+    if c.nodeFile == None { return }
+    var hasOrigin = false
+    for sk in c.symbolOrigin.keys() {
+        if sk == name { hasOrigin = true }
+    }
+    if !hasOrigin { return }
+    val origin = c.symbolOrigin.get(name)
+    if origin == "" || origin == c.currentFile { return }
+    if !mapHasStrBool(c.symbolPub, name) || !c.symbolPub.get(name) {
+        checkerErrorf(c, span, "símbolo '$(name)' não é público (defina com 'pub' em $(pathBaseName(origin)))", [])
+        return
+    }
+    if mapHasStrBool(c.preludeFiles, origin) && c.preludeFiles.get(origin) { return }
+    if mapHasStrStrBoolMap(c.fileNamedImports, c.currentFile) {
+        val imports = c.fileNamedImports.get(c.currentFile)
+        if mapHasStrBool(imports, name) && imports.get(name) { return }
+    }
+    checkerErrorf(c, span, "símbolo '$(name)' não foi importado em $(pathBaseName(c.currentFile))", [])
+}
+
+pub fn checkModuleNamespaceAccess(c: Checker, ns: String, span: Span) {
+    if c.nodeFile == None { return }
+    if mapHasStrStrBoolMap(c.fileModuleNamespaces, c.currentFile) {
+        val namespaces = c.fileModuleNamespaces.get(c.currentFile)
+        if mapHasStrBool(namespaces, ns) && namespaces.get(ns) { return }
+    }
+    checkerErrorf(c, span, "namespace '$(ns)' não foi importado em $(pathBaseName(c.currentFile))", [])
+}
+
+pub fn setCurrentFileFromNodeId(c: Checker, nodeId: Int) {
+    match c.nodeFile {
+        Some(nf) => {
+            for k in nf.keys() {
+                if k == nodeId { c.currentFile = nf.get(k) }
+            }
+        }
+        None => {}
+    }
 }
 
 pub fn isHeapType(c: Checker, t: Type) -> Bool = match t {

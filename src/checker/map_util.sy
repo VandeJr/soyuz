@@ -79,6 +79,18 @@ pub fn appendTypeExtension(cExt: Map[String, Map[String, List[FuncType]]], typeN
     cExt.set(typeName, inner)
 }
 
+fn mapHasStringString(m: Map[String, String], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasStringStrBoolMap(m: Map[String, Map[String, Bool]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+pub fn mapHasStrStr(m: Map[String, String], key: String) -> Bool = mapHasStringString(m, key)
+pub fn mapHasStrStrBoolMap(m: Map[String, Map[String, Bool]], key: String) -> Bool = mapHasStringStrBoolMap(m, key)
 pub fn mapHasStrType(m: Map[String, Type], key: String) -> Bool = mapHasStringType(m, key)
 pub fn mapHasStrNode(m: Map[String, Node], key: String) -> Bool = mapHasStringNode(m, key)
 pub fn mapHasStrBool(m: Map[String, Bool], key: String) -> Bool = mapHasStringBool(m, key)

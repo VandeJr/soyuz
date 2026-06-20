@@ -4,7 +4,7 @@ import (
     { nodePos, nodeId } from @ast/ast_helpers
     { Checker, Type, FuncType, EnumType, InterfaceType, ClassType, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, newScope, typeToString } from @checker/types
     { canAccessClassMember } from @checker/check_decls
-    { getNodeType, setNodeType, checkerErrorf, contextInnerType } from @checker/checker
+    { getNodeType, setNodeType, checkerErrorf, contextInnerType, checkGlobalAccess } from @checker/checker
     { resolveTypeExpr, substitute, unify, inferGenerics, instantiateFunc, typeArgsFromExprs } from @checker/check_generics
     { checkPattern } from @checker/check_patterns
     { variantFieldNamesForCall, resolveNamedCallArgs } from @checker/named_args
@@ -197,7 +197,7 @@ pub fn checkIdentifier(c: Checker, data: IdentifierData, node: Node) -> Type = m
     "Bool" => BoolType
     "Unit" => UnitType
     _ => match c.scope.resolve(data.name) {
-        Some(sym) => sym.typ
+        Some(sym) => { checkGlobalAccess(c, data.name, nodePos(node)); sym.typ }
         None => { checkerErrorf(c, nodePos(node), "undefined identifier: $(data.name)", []); Unknown }
     }
 }
@@ -733,10 +733,13 @@ fn isTaskAwaitCall(node: Node) -> Bool = match node {
 pub fn checkRecordLiteral(c: Checker, data: RecordLiteralData, node: Node) -> Type {
     match c.scope.resolve(data.name) {
         None => { checkerErrorf(c, nodePos(node), "undefined type: $(data.name)", []); return Unknown }
-        Some(sym) => match sym.typ {
+        Some(sym) => {
+            checkGlobalAccess(c, data.name, nodePos(node))
+            match sym.typ {
             Record(typeName, fields, generics) => checkRecordLiteralFields(c, data, node, fields, typeName, sym.typ, generics)
             Class(ct) => checkRecordLiteralFields(c, data, node, ct.fields, ct.name, sym.typ, ct.generics)
             _ => { checkerErrorf(c, nodePos(node), "$(data.name) is not a record or class", []); Unknown }
+            }
         }
     }
 }

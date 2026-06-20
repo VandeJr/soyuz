@@ -1,13 +1,13 @@
 import (
     { Span } from @lexer/tokens
-    { Node, TypeExpr, Named, Pattern, LiteralPatternValue, FuncDeclData, VarDeclData, RecordDeclData, ClassDeclData, InterfaceDeclData, EnumDeclData, ExtendDeclData, ExternDeclData, ImportDeclData, VarKind } from @ast/ast
+    { Node, TypeExpr, Named, Pattern, LiteralPatternValue, FuncDeclData, VarDeclData, RecordDeclData, ClassDeclData, InterfaceDeclData, EnumDeclData, ExtendDeclData, ExternDeclData, ImportDeclData, VarKind, importDeclIsModuleImport } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
     { Checker, Type, FuncType, EnumType, InterfaceType, ClassType, Scope, PendingClassMethod, PendingExtendMethod, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, newScope, typeToString } from @checker/types
-    { setNodeType, checkerErrorf } from @checker/checker
+    { setNodeType, checkerErrorf, registerGlobalSymbol, setCurrentFileFromNodeId } from @checker/checker
     { resolveTypeExpr, instantiateFunc, substitute } from @checker/check_generics
     { checkPattern } from @checker/check_patterns
     { isAssignable, isCompatibleFunc } from @checker/assign
-    { appendTypeExtension, mapHasStrFuncList, mapHasStrType } from @checker/map_util
+    { appendTypeExtension, mapHasStrFuncList, mapHasStrType, mapHasStrBool, mapHasStrStrBoolMap } from @checker/map_util
 )
 
 pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
@@ -56,7 +56,7 @@ pub fn checkClassMethodBody(c: Checker, pm: PendingClassMethod) {
     c.scope = parentScope
 }
 
-pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclData]) {
+pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclData], variantNodeIds: List[Int]) {
     if variants.size() == 0 { return }
     val first = variants.get(0)
     val parentScope = c.scope
@@ -121,6 +121,11 @@ pub fn registerFuncVariants(c: Checker, name: String, variants: List[FuncDeclDat
     c.scope = oldScope
     val ft = FuncType { params: paramTypes, returnType: retType, generics: genericNames, defaults: defaults, isOptional: isOptional }
     parentScope.define(name, Type.Func(ft), true)
+    for i in range(0, variants.size()) {
+        if i < variantNodeIds.size() {
+            registerGlobalSymbol(c, name, variantNodeIds.get(i), variants.get(i).isPub)
+        }
+    }
 }
 
 pub fn inferTypeFromPattern(c: Checker, pat: Pattern) -> Type = match pat {
@@ -179,7 +184,16 @@ pub fn checkFuncVariantsBody(c: Checker, name: String, variants: List[FuncDeclDa
                 if !hasCatchall {
                     checkerErrorf(c, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "função '$(name)' requer uma variante catchall sem 'when' e com parâmetros genéricos", [])
                 }
-                for v in variants { checkFuncDeclBody(c, v, ft) }
+                var variantIds: List[Int] = []
+                for nk in c.funcVariantNodeIds.keys() {
+                    if nk == name { variantIds = c.funcVariantNodeIds.get(name) }
+                }
+                for i in range(0, variants.size()) {
+                    if i < variantIds.size() {
+                        setCurrentFileFromNodeId(c, variantIds.get(i))
+                    }
+                    checkFuncDeclBody(c, variants.get(i), ft)
+                }
             }
             _ => {}
         }
@@ -243,7 +257,7 @@ fn checkFuncDeclBody(c: Checker, n: FuncDeclData, expectedFt: FuncType) {
 }
 
 pub fn checkFuncDecl(c: Checker, n: FuncDeclData, declNodeId: Int) -> Type {
-    registerFuncVariants(c, n.name, [n])
+    registerFuncVariants(c, n.name, [n], [declNodeId])
     match c.scope.resolve(n.name) {
         Some(sym) => match sym.typ {
             Func(ft) => { checkFuncDeclBody(c, n, ft); sym.typ }
@@ -253,7 +267,7 @@ pub fn checkFuncDecl(c: Checker, n: FuncDeclData, declNodeId: Int) -> Type {
     }
 }
 
-pub fn checkRecordDecl(c: Checker, n: RecordDeclData) -> Type {
+pub fn checkRecordDecl(c: Checker, n: RecordDeclData, declNodeId: Int) -> Type {
     val parentScope = c.scope
     c.scope = newScope(Some(parentScope))
     var genericNames: List[String] = []
@@ -265,11 +279,12 @@ pub fn checkRecordDecl(c: Checker, n: RecordDeclData) -> Type {
     for f in n.fields { fields.set(f.name, resolveTypeExpr(c, f.typeExpr)) }
     val rt = Type.Record(n.name, fields, genericNames)
     parentScope.define(n.name, rt, true)
+    registerGlobalSymbol(c, n.name, declNodeId, n.isPub)
     c.scope = parentScope
     return rt
 }
 
-pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
+pub fn checkEnumDecl(c: Checker, n: EnumDeclData, declNodeId: Int) -> Type {
     val parentScope = c.scope
     c.scope = newScope(Some(parentScope))
     var genericNames: List[String] = []
@@ -281,6 +296,7 @@ pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
     var variantFieldNames: Map[String, List[String]] = Map[String, List[String]]{}
     val et = EnumType { name: n.name, variants: variants, variantFieldNames: variantFieldNames, generics: genericNames }
     parentScope.define(n.name, Type.Enum(et), true)
+    registerGlobalSymbol(c, n.name, declNodeId, n.isPub)
     var constructorReturn: Type = Type.Enum(et)
     if genericNames.size() > 0 {
         var tparams: List[Type] = []
@@ -298,12 +314,13 @@ pub fn checkEnumDecl(c: Checker, n: EnumDeclData) -> Type {
         variantFieldNames.set(v.name, fieldNames)
         val vt = FuncType { params: fieldTypes, returnType: constructorReturn, generics: genericNames, defaults: [], isOptional: [] }
         parentScope.define(v.name, Type.Func(vt), true)
+        registerGlobalSymbol(c, v.name, declNodeId, n.isPub)
     }
     c.scope = parentScope
     return Type.Enum(et)
 }
 
-pub fn checkInterfaceDecl(c: Checker, n: InterfaceDeclData) -> Type {
+pub fn checkInterfaceDecl(c: Checker, n: InterfaceDeclData, declNodeId: Int) -> Type {
     var methods: Map[String, FuncType] = Map[String, FuncType]{}
     for m in n.methods {
         var params: List[Type] = []
@@ -318,6 +335,7 @@ pub fn checkInterfaceDecl(c: Checker, n: InterfaceDeclData) -> Type {
     }
     val it = InterfaceType { name: n.name, methods: methods }
     c.scope.define(n.name, Type.Interface(it), true)
+    registerGlobalSymbol(c, n.name, declNodeId, n.isPub)
     return Type.Interface(it)
 }
 
@@ -344,6 +362,7 @@ pub fn checkClassDecl(c: Checker, n: ClassDeclData, declNodeId: Int) -> Type {
     }
     val ct = ClassType { name: n.name, fields: fields, fieldPub: fieldPub, fieldInit: fieldInit, methods: methods, methodPub: methodPub, implements: implements, generics: genericNames }
     parentScope.define(n.name, Type.Class(ct), true)
+    registerGlobalSymbol(c, n.name, declNodeId, n.isPub)
     for member in n.body {
         match member {
             VarDecl(_, _, vd) => {
@@ -415,7 +434,7 @@ pub fn checkClassDecl(c: Checker, n: ClassDeclData, declNodeId: Int) -> Type {
     return Type.Class(ct)
 }
 
-pub fn checkVarDecl(c: Checker, decl: VarDeclData) -> Type {
+pub fn checkVarDecl(c: Checker, decl: VarDeclData, declNodeId: Int) -> Type {
     var initType: Type = Unknown
     if match decl.init {
         Some(init) => { initType = c.checkNode(init); true }
@@ -454,16 +473,22 @@ pub fn checkVarDecl(c: Checker, decl: VarDeclData) -> Type {
     }
     if decl.name != "_" {
         c.scope.define(decl.name, initType, decl.kind != VarKind.Var)
+        if c.inTopLevel {
+            registerGlobalSymbol(c, decl.name, declNodeId, decl.isPub)
+        }
     }
     return initType
 }
 
-pub fn checkExternDecl(c: Checker, n: ExternDeclData) -> Type {
+pub fn checkExternDecl(c: Checker, n: ExternDeclData, declNodeId: Int) -> Type {
     var paramTypes: List[Type] = []
     for p in n.params { paramTypes.append(resolveTypeExpr(c, match p.typeExpr { Some(te) => te, None => Named(0, p.span, "Unknown") })) }
     val retType = match n.returnType { Some(rt) => resolveTypeExpr(c, rt), None => UnitType }
     val ft = FuncType { params: paramTypes, returnType: retType, generics: [], defaults: [], isOptional: [] }
     c.scope.define(n.name, Type.Func(ft), true)
+    if c.inTopLevel || c.nodeFile != None {
+        registerGlobalSymbol(c, n.name, declNodeId, n.isPub)
+    }
     return Type.Func(ft)
 }
 
@@ -578,9 +603,40 @@ pub fn registerModuleNamespace(c: Checker, body: List[Node], imp: ImportDeclData
 }
 
 pub fn collectFileImports(c: Checker, body: List[Node]) {
+    if c.nodeFile == None { return }
     for node in body {
         match node {
-            ImportDecl(_, _, _) => {}
+            ImportDecl(_, _, imp) => {
+                var file = ""
+                match c.nodeFile {
+                    Some(nf) => {
+                        val nid = nodeId(node)
+                        for k in nf.keys() {
+                            if k == nid { file = nf.get(k) }
+                        }
+                    }
+                    None => {}
+                }
+                if file == "" { continue }
+                var named = Map[String, Bool]{}
+                if mapHasStrStrBoolMap(c.fileNamedImports, file) {
+                    named = c.fileNamedImports.get(file)
+                }
+                var namespaces = Map[String, Bool]{}
+                if mapHasStrStrBoolMap(c.fileModuleNamespaces, file) {
+                    namespaces = c.fileModuleNamespaces.get(file)
+                }
+                if importDeclIsModuleImport(imp) {
+                    namespaces.set(imp.namespace, true)
+                }
+                for iname in imp.names {
+                    var name = iname.name
+                    if iname.alias != "" { name = iname.alias }
+                    named.set(name, true)
+                }
+                c.fileNamedImports.set(file, named)
+                c.fileModuleNamespaces.set(file, namespaces)
+            }
             _ => {}
         }
     }

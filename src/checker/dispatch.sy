@@ -3,7 +3,7 @@ import (
     { Program, Node, FuncDeclData, ImportDeclData, VarKind, importDeclIsModuleImport, TypeExpr, Named, BlockStmt } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
     { Checker, Type, FuncType, EnumType, InterfaceType, ClassType, CheckResult, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, typeToString } from @checker/types
-    { checkerErrorf, checkerWarnf, isTaskType, contextInnerType, setNodeType } from @checker/checker
+    { checkerErrorf, checkerWarnf, isTaskType, contextInnerType, setNodeType, setCurrentFileFromNodeId } from @checker/checker
     { builtinTypeExtensions, builtinExtendSelfTypes } from @checker/builtins
     { checkVarDecl, checkFuncDecl, checkRecordDecl, checkEnumDecl, checkInterfaceDecl, checkClassDecl, checkExternDecl, checkExtendDecl, registerFuncVariants, checkFuncVariantsBody, checkClassMethodBody, checkExtendMethodBody, registerModuleNamespace, collectFileImports } from @checker/check_decls
     { checkReturnStmt, checkTupleExpr, checkListExpr, checkMapExpr, checkTaskExpr, checkSelectExpr, checkMemberExpr, checkSafeNavExpr, checkSelfExpr, checkArrowFunc, checkPipeExpr, checkPipeQuestExpr, checkAsyncPipeExpr, checkMatchExpr, checkInterpolatedString, checkElvisExpr, checkCallExpr, checkSpecialization, checkIdentifier, checkBinaryExpr, checkUnaryExpr, checkAssignExpr, checkForStmt, checkBlock, checkRecordLiteral, resolveTypeExpr, checkWhileStmt, checkLoopStmt, checkBreakStmt, checkContinueStmt } from @checker/check_exprs
@@ -17,13 +17,13 @@ fn progBody(c: Checker, prog: Node) -> List[Node] = match prog {
 }
 
 pub fn checkerDispatchNode(c: Checker, node: Node) -> Type = match node {
-    VarDecl(_, _, data) => checkVarDecl(c, data)
+    VarDecl(_, _, data) => checkVarDecl(c, data, nodeId(node))
     FuncDecl(_, _, data) => checkFuncDecl(c, data, nodeId(node))
-    RecordDecl(_, _, data) => checkRecordDecl(c, data)
-    EnumDecl(_, _, data) => checkEnumDecl(c, data)
-    InterfaceDecl(_, _, data) => checkInterfaceDecl(c, data)
+    RecordDecl(_, _, data) => checkRecordDecl(c, data, nodeId(node))
+    EnumDecl(_, _, data) => checkEnumDecl(c, data, nodeId(node))
+    InterfaceDecl(_, _, data) => checkInterfaceDecl(c, data, nodeId(node))
     ClassDecl(_, _, data) => checkClassDecl(c, data, nodeId(node))
-    ExternDecl(_, _, data) => checkExternDecl(c, data)
+    ExternDecl(_, _, data) => checkExternDecl(c, data, nodeId(node))
     ExtendDecl(_, _, data) => checkExtendDecl(c, data, nodeId(node))
     ReturnStmt(_, _, data) => checkReturnStmt(c, data, node)
     IntLiteral(_, _, _) => IntType
@@ -123,6 +123,12 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
                 }
                 variants.append(data)
                 c.funcVariants.set(data.name, variants)
+                var nodeIds: List[Int] = []
+                for nk in c.funcVariantNodeIds.keys() {
+                    if nk == data.name { nodeIds = c.funcVariantNodeIds.get(data.name) }
+                }
+                nodeIds.append(nodeId(node))
+                c.funcVariantNodeIds.set(data.name, nodeIds)
             }
             RecordDecl(_, _, _) => typeNodes.append(node)
             EnumDecl(_, _, _) => typeNodes.append(node)
@@ -135,22 +141,32 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
     }
 
     for node in typeNodes {
+        setCurrentFileFromNodeId(c, nodeId(node))
         c.checkNode(node)
     }
 
     for name in c.funcVariants.keys() {
-        registerFuncVariants(c, name, c.funcVariants[name])
+        var nodeIds: List[Int] = []
+        for nk in c.funcVariantNodeIds.keys() {
+            if nk == name { nodeIds = c.funcVariantNodeIds.get(name) }
+        }
+        if nodeIds.size() > 0 { setCurrentFileFromNodeId(c, nodeIds.get(0)) }
+        registerFuncVariants(c, name, c.funcVariants[name], nodeIds)
     }
 
     for node in progBody(c, prog) {
         match node {
-            ImportDecl(_, _, data) if importDeclIsModuleImport(data) => registerModuleNamespace(c, progBody(c, prog), data)
+            ImportDecl(_, _, data) if importDeclIsModuleImport(data) => {
+                setCurrentFileFromNodeId(c, nodeId(node))
+                registerModuleNamespace(c, progBody(c, prog), data)
+            }
             _ => {}
         }
     }
 
     val prevClass = c.currentClass
     for pm in c.pendingClassMethods {
+        setCurrentFileFromNodeId(c, pm.fdNodeId)
         c.currentClass = Some(pm.ct)
         checkClassMethodBody(c, pm)
     }
@@ -158,18 +174,25 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
 
     val prevExtend = c.currentExtend
     for pm in c.pendingExtendMethods {
+        setCurrentFileFromNodeId(c, pm.fdNodeId)
         c.currentExtend = pm.typeName
         checkExtendMethodBody(c, pm)
     }
     c.currentExtend = prevExtend
 
     for node in valueNodes {
+        setCurrentFileFromNodeId(c, nodeId(node))
         c.inTopLevel = true
         c.checkNode(node)
         c.inTopLevel = false
     }
 
     for name in c.funcVariants.keys() {
+        var nodeIds: List[Int] = []
+        for nk in c.funcVariantNodeIds.keys() {
+            if nk == name { nodeIds = c.funcVariantNodeIds.get(name) }
+        }
+        if nodeIds.size() > 0 { setCurrentFileFromNodeId(c, nodeIds.get(0)) }
         checkFuncVariantsBody(c, name, c.funcVariants[name])
     }
 
