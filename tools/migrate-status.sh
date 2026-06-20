@@ -44,6 +44,13 @@ else
   echo "  tools/codegen-ir-check.sh ausente"
 fi
 
+hr "Codegen expr check (bootstrap, S2)"
+if [[ -x tools/codegen-expr-check.sh ]]; then
+  bash tools/codegen-expr-check.sh 2>&1 || echo "→ codegen expr check FALHOU"
+else
+  echo "  tools/codegen-expr-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

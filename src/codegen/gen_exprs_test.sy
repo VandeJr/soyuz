@@ -1,0 +1,35 @@
+import (
+    { Node, IntLiteralData, BinaryExprData } from @ast/ast
+    { Span } from @lexer/tokens
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, typeConstantNames } from @codegen/gen_exprs
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testParseIntLiteralText() {
+    assertMsg(parseIntLiteralText("42") == Some(42), "parse 42")
+    assertMsg(parseIntLiteralText("-7") == Some(-7), "parse -7")
+    assertMsg(parseIntLiteralText("0") == Some(0), "parse 0")
+    assertMsg(parseIntLiteralText("") == None, "empty")
+}
+
+test fn testEvalIntBinaryOp() {
+    assertMsg(evalIntBinaryOp("+", 10, 5) == Some(15), "10+5")
+    assertMsg(evalIntBinaryOp("*", 10, 5) == Some(50), "10*5")
+    assertMsg(evalIntBinaryOp("/", 10, 0) == None, "div by zero")
+}
+
+test fn testEvalConstExprMath() {
+    val left = Node.IntLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 2 }, IntLiteralData { value: "10" })
+    val right = Node.IntLiteral(2, Span { line: 1, column: 4, startOffset: 3, endOffset: 4 }, IntLiteralData { value: "5" })
+    val node = Node.BinaryExpr(3, Span { line: 1, column: 1, startOffset: 0, endOffset: 4 }, BinaryExprData { operator: "+", left: left, right: right })
+    match evalConstExpr(node) {
+        Some(IntVal(v)) => assertMsg(v == 15, "(10+5) const fold")
+        _ => assertMsg(false, "expected IntVal")
+    }
+}
+
+test fn testTypeConstantNames() {
+    val names = typeConstantNames()
+    assertMsg(names.get("IntType") == "Int", "IntType maps to Int")
+    assertMsg(isArithmeticBinaryOp("+"), "plus is arithmetic")
+}

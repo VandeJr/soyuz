@@ -1,0 +1,150 @@
+import (
+    { Node, BinaryExprData } from @ast/ast
+)
+
+pub enum ConstValue {
+    IntVal(v: Int)
+    FloatVal(v: String)
+    BoolVal(v: Bool)
+    CharVal(v: Char)
+    StringVal(v: String)
+}
+
+pub fn typeConstantNames() -> Map[String, String] {
+    var m: Map[String, String] = Map[String, String]{}
+    m.set("Unknown", "Unknown")
+    m.set("IntType", "Int")
+    m.set("FloatType", "Float")
+    m.set("BoolType", "Bool")
+    m.set("StringType", "String")
+    m.set("CharType", "Char")
+    m.set("UnitType", "Unit")
+    return m
+}
+
+fn digitValue(s: String) -> Option[Int] {
+    if s == "0" { return Some(0) }
+    if s == "1" { return Some(1) }
+    if s == "2" { return Some(2) }
+    if s == "3" { return Some(3) }
+    if s == "4" { return Some(4) }
+    if s == "5" { return Some(5) }
+    if s == "6" { return Some(6) }
+    if s == "7" { return Some(7) }
+    if s == "8" { return Some(8) }
+    if s == "9" { return Some(9) }
+    return None
+}
+
+fn appendDigitFromSlice(result: Int, value: String, i: Int) -> Option[Int] {
+    if i >= value.len() { return None }
+    return match digitValue(value.substring(i, i + 1)) {
+        None => None
+        Some(d) => Some(result * 10 + d)
+    }
+}
+
+fn parseIntDigitsLoop(value: String, start: Int, i: Int, acc: Int) -> Option[Int] {
+    if i >= value.len() { return Some(acc) }
+    return match appendDigitFromSlice(acc, value, i) {
+        None => None
+        Some(next) => parseIntDigitsLoop(value, start, i + 1, next)
+    }
+}
+
+fn applySign(v: Int, neg: Bool) -> Option[Int] {
+    if neg { return Some(-v) }
+    return Some(v)
+}
+
+pub fn parseIntLiteralText(value: String) -> Option[Int] {
+    if value.len() == 0 { return None }
+    var start = 0
+    var neg = false
+    if value.substring(0, 1) == "-" {
+        neg = true
+        start = 1
+        if value.len() == 1 { return None }
+    }
+    return match parseIntDigitsLoop(value, start, start, 0) {
+        None => None
+        Some(v) => applySign(v, neg)
+    }
+}
+
+pub fn constFromLiteralNode(node: Node) -> Option[ConstValue] = match node {
+    IntLiteral(_, _, data) => match parseIntLiteralText(data.value) {
+        None => None
+        Some(v) => Some(IntVal(v))
+    }
+    FloatLiteral(_, _, data) => Some(FloatVal(data.value))
+    BoolLiteral(_, _, data) => Some(BoolVal(data.value))
+    CharLiteral(_, _, data) => Some(CharVal(data.value))
+    StringLiteral(_, _, data) => Some(StringVal(data.value))
+    _ => None
+}
+
+pub fn evalIntBinaryOp(op: String, left: Int, right: Int) -> Option[Int] = match op {
+    "+" => Some(left + right)
+    "-" => Some(left - right)
+    "*" => Some(left * right)
+    "/" => evalIntDiv(left, right)
+    "%" => evalIntMod(left, right)
+    _ => None
+}
+
+fn evalIntDiv(left: Int, right: Int) -> Option[Int] {
+    if right == 0 { return None }
+    return Some(left / right)
+}
+
+fn evalIntMod(left: Int, right: Int) -> Option[Int] {
+    if right == 0 { return None }
+    return Some(left % right)
+}
+
+pub fn evalConstBinaryOp(op: String, left: ConstValue, right: ConstValue) -> Option[ConstValue] = match (left, right) {
+    (IntVal(a), IntVal(b)) => match evalIntBinaryOp(op, a, b) {
+        None => None
+        Some(v) => Some(IntVal(v))
+    }
+    _ => None
+}
+
+fn evalConstBinary(data: BinaryExprData) -> Option[ConstValue] = match (evalConstExpr(data.left), evalConstExpr(data.right)) {
+    (Some(l), Some(r)) => evalConstBinaryOp(data.operator, l, r)
+    _ => None
+}
+
+pub fn evalConstExpr(node: Node) -> Option[ConstValue] = match node {
+    BinaryExpr(_, _, data) => evalConstBinary(data)
+    _ => constFromLiteralNode(node)
+}
+
+pub fn isArithmeticBinaryOp(op: String) -> Bool {
+    if op == "+" { return true }
+    if op == "-" { return true }
+    if op == "*" { return true }
+    if op == "/" { return true }
+    if op == "%" { return true }
+    return false
+}
+
+pub fn isComparisonBinaryOp(op: String) -> Bool {
+    if op == "==" { return true }
+    if op == "!=" { return true }
+    if op == "<" { return true }
+    if op == ">" { return true }
+    if op == "<=" { return true }
+    if op == ">=" { return true }
+    return false
+}
+
+pub fn isBitwiseBinaryOp(op: String) -> Bool {
+    if op == "&" { return true }
+    if op == "|" { return true }
+    if op == "^" { return true }
+    if op == "<<" { return true }
+    if op == ">>" { return true }
+    return false
+}
