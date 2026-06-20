@@ -1,10 +1,10 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, BinaryExprData } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, BinaryExprData, CharLiteralData, IdentifierData, CallExprData } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, CharType } from @checker/types
     { newGenerator } from @codegen/generator
-    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, typeConstantNames, generateExprNode, isLiteralNode } from @codegen/gen_exprs
-    { llvmI64, llvmTypesEqual } from @codegen/llvm_types
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode } from @codegen/gen_exprs
+    { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -65,6 +65,30 @@ fn checkerWithNodeType(id: Int, t: Type) -> CheckResult {
     return cr
 }
 
+fn mapHasIntType(m: Map[Int, Type], key: Int) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn checkerWithNodeTypes(types: Map[Int, Type]) -> CheckResult {
+    var maxId = 0
+    for id in types.keys() {
+        if id > maxId { maxId = id }
+    }
+    var cr = exprTestCheckResult()
+    var i = 0
+    loop {
+        if i > maxId { break }
+        if mapHasIntType(types, i) {
+            cr.nodeTypes.append(Some(types.get(i)))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
+
 test fn testGenerateExprNodeIntLiteral() {
     val node = Node.IntLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 2 }, IntLiteralData { value: "42" })
     val g = newGenerator(checkerWithNodeType(1, IntType))
@@ -76,6 +100,64 @@ test fn testGenerateExprNodeIntLiteral() {
             match r.maybeConst {
                 HasValue(IntVal(v)) => assertMsg(v == 42, "const value 42")
                 _ => assertMsg(false, "expected HasValue IntVal")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeCharLiteral() {
+    val node = Node.CharLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }, CharLiteralData { value: 'A' })
+    val g = newGenerator(checkerWithNodeType(1, CharType))
+    assertMsg(isLiteralNode(node), "char literal")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI32()), "char literal -> i32")
+            match r.maybeConst {
+                HasValue(CharVal(c)) => assertMsg(c == 'A', "const char A")
+                _ => assertMsg(false, "expected HasValue CharVal")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeIdentifier() {
+    val node = Node.Identifier(2, Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }, IdentifierData { name: "x" })
+    val g = newGenerator(checkerWithNodeType(2, IntType))
+    assertMsg(isIdentifierNode(node), "identifier")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "identifier x -> i64")
+            match r.maybeConst {
+                NoConst => {}
+                _ => assertMsg(false, "expected NoConst for identifier")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 10 }
+    val arg1 = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    val arg2 = Node.IntLiteral(4, span, IntLiteralData { value: "2" })
+    val callee = Node.Identifier(5, span, IdentifierData { name: "add" })
+    val ft = FuncType { params: [IntType, IntType], returnType: IntType, generics: [], defaults: [], isOptional: [] }
+    val call = Node.CallExpr(6, span, CallExprData { callee: callee, args: [arg1, arg2] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(3, IntType)
+    types.set(4, IntType)
+    types.set(5, Type.Func(ft))
+    types.set(6, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isCallNode(call), "call expr")
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "call -> i64")
+            match r.maybeConst {
+                NoConst => {}
+                _ => assertMsg(false, "expected NoConst for call")
             }
         }
     }

@@ -1,5 +1,5 @@
 import (
-    { Node, BinaryExprData } from @ast/ast
+    { Node, BinaryExprData, IdentifierData, CallExprData, NamedArgData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
@@ -171,6 +171,36 @@ fn generateBinaryExprResult(g: Generator, node: Node, data: BinaryExprData) -> O
     }
 }
 
+fn generateCallArg(g: Generator, arg: Node) -> Bool = match arg {
+    NamedArg(_, _, data) => match generateExprNode(g, data.value) {
+        None => false
+        Some(_) => true
+    }
+    _ => match generateExprNode(g, arg) {
+        None => false
+        Some(_) => true
+    }
+}
+
+fn generateAllCallArgs(g: Generator, args: List[Node]) -> Bool {
+    for arg in args {
+        if !generateCallArg(g, arg) { return false }
+    }
+    return true
+}
+
+fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Option[ExprResult] {
+    if !generateAllCallArgs(g, data.args) { return None }
+    return match generateExprNode(g, data.callee) {
+        None => None
+        Some(_) => exprResultFromNode(g, node, NoConst)
+    }
+}
+
+fn generateIdentifierExprResult(g: Generator, node: Node, _: IdentifierData) -> Option[ExprResult] {
+    return exprResultFromNode(g, node, NoConst)
+}
+
 pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match node {
     IntLiteral(_, _, _) => generateLiteralExprResult(g, node)
     FloatLiteral(_, _, _) => generateLiteralExprResult(g, node)
@@ -178,7 +208,19 @@ pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match 
     CharLiteral(_, _, _) => generateLiteralExprResult(g, node)
     StringLiteral(_, _, _) => generateLiteralExprResult(g, node)
     BinaryExpr(_, _, data) => generateBinaryExprResult(g, node, data)
+    Identifier(_, _, data) => generateIdentifierExprResult(g, node, data)
+    CallExpr(_, _, data) => generateCallExprResult(g, node, data)
     _ => None
+}
+
+pub fn isIdentifierNode(node: Node) -> Bool = match node {
+    Identifier(_, _, _) => true
+    _ => false
+}
+
+pub fn isCallNode(node: Node) -> Bool = match node {
+    CallExpr(_, _, _) => true
+    _ => false
 }
 
 pub fn isLiteralNode(node: Node) -> Bool = match node {
