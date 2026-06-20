@@ -1,9 +1,13 @@
-// M5 — class_generics tests (stub — port from soyuz-go/internal/checker/)
+// M5 — class field defaults, method overloading, visibility (port of m5_class_test.go + m5_generic_privacy_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM5(src: String) -> List[TypeError] {
@@ -12,8 +16,123 @@ fn checkM5(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM5Baseline() {
-    // TODO: port milestone 5 tests from soyuz-go
-    val errs = checkM5("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M5 baseline stub")
+fn containsStr(s: String, sub: String) -> Bool {
+    if sub.size() == 0 { return true }
+    if s.size() < sub.size() { return false }
+    for i in range(0, s.size() - sub.size() + 1) {
+        if s.substring(i, i + sub.size()) == sub { return true }
+    }
+    return false
+}
+
+test fn testM5FieldDefaults() {
+    val src = "
+class Contador {
+    var count: Int = 0
+    var label: String = \"cnt\"
+    pub fn incrementar(self) { }
+}
+val c1 = Contador {}
+val c2 = Contador { label: \"x\" }
+val c3 = Contador { count: 10 }
+val c4 = Contador { count: 5, label: \"y\" }
+"
+    val errs = checkM5(src)
+    assertMsg(errs.size() == 0, "campos com default não devem gerar erros")
+}
+
+test fn testM5FieldDefaultsRequired() {
+    val src = "
+class Ponto {
+    val x: Int
+    val y: Int = 0
+}
+val p = Ponto {}
+"
+    val errs = checkM5(src)
+    assertMsg(errs.size() > 0, "campo 'x' sem default deve gerar erro quando ausente")
+}
+
+test fn testM5MethodOverloading() {
+    val src = "
+class Contador {
+    var count: Int = 0
+    pub fn incrementar(self) { }
+    pub fn incrementar(self, n: Int) { }
+    pub fn reset(self) { }
+}
+val c = Contador {}
+c.incrementar()
+c.incrementar(5)
+c.reset()
+"
+    val errs = checkM5(src)
+    assertMsg(errs.size() == 0, "sobrecarga por aridade não deve gerar erros")
+}
+
+test fn testM5MethodOverloadingWrongArity() {
+    val src = "
+class Calc {
+    pub fn somar(self, a: Int) -> Int = a
+    pub fn somar(self, a: Int, b: Int) -> Int = a
+}
+val c = Calc {}
+c.somar(1, 2, 3)
+"
+    val errs = checkM5(src)
+    assertMsg(errs.size() > 0, "3 argumentos onde existem variantes de 1 e 2 deve gerar erro")
+}
+
+test fn testM5PubVisibility() {
+    val src = "
+class Caixa {
+    var valor: Int = 0
+    pub fn obter(self) -> Int = 0
+    fn resetar(self) { }
+}
+val c = Caixa {}
+c.obter()
+c.resetar()
+"
+    val errs = checkM5(src)
+    var hasPrivateError = false
+    for e in errs {
+        if containsStr(e.message, "privado") {
+            hasPrivateError = true
+        }
+    }
+    assertMsg(hasPrivateError, "acesso a método privado deve gerar erro de visibilidade")
+}
+
+test fn testM5PubVisibilityInside() {
+    val src = "
+class Motor {
+    var ligado: Bool = false
+    fn ligar(self) { }
+    pub fn iniciar(self) { self.ligar() }
+}
+val m = Motor {}
+m.iniciar()
+"
+    val errs = checkM5(src)
+    for e in errs {
+        assertMsg(!containsStr(e.message, "privado"), "método privado deve ser acessível dentro da própria classe")
+    }
+}
+
+test fn testM5PrivateMethodOnSpecializedSelf() {
+    val src = "
+class Box[T] {
+    fn secret(self) -> Int = 1
+    pub fn go(self) {
+        self.secret()
+    }
+}
+val b = Box[Int] {}
+b.go()
+"
+    val errs = checkM5(src)
+    for e in errs {
+        assertMsg(!containsStr(e.message, "privado"), "método privado deve ser acessível via self em classe genérica")
+    }
 }

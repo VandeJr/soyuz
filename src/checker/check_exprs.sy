@@ -3,13 +3,14 @@ import (
     { Node, TypeExpr, Named, Pattern, FuncParam, BlockStmtData, ReturnStmtData, BreakStmtData, ForStmtData, WhileStmtData, LoopStmtData, Identifier, IdentifierData, BinaryExprData, UnaryExprData, AssignExprData, CallExprData, CallExpr, NamedArgData, MemberExprData, SafeNavExprData, ElvisExprData, PipeExprData, PipeQuestExprData, AsyncPipeExprData, AsyncPipeQuestStep, AsyncPipeQuestStepData, IndexExprData, TupleExprData, ListExprData, MapExprData, MatchExprData, MatchArm, SelectExprData, SelectArm, ArrowFuncData, TaskExprData, InterpolatedStringData, RecordLiteralData, RecordLiteralField, RecordPatternField } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
     { Checker, Type, FuncType, EnumType, InterfaceType, ClassType, IntType, FloatType, BoolType, StringType, CharType, UnitType, Unknown, newScope, typeToString } from @checker/types
+    { canAccessClassMember } from @checker/check_decls
     { getNodeType, setNodeType, checkerErrorf, contextInnerType } from @checker/checker
     { resolveTypeExpr, substitute, unify, inferGenerics, instantiateFunc, typeArgsFromExprs } from @checker/check_generics
     { checkPattern } from @checker/check_patterns
     { variantFieldNamesForCall, resolveNamedCallArgs } from @checker/named_args
     { checkSpecializedExpr } from @checker/specialized_expr
     { isAssignable } from @checker/assign
-    { mapHasStrType, mapHasStrExtMap, mapHasStrFuncList, mapHasStrBool, mapHasIntTypeList, mapHasStrTypeList } from @checker/map_util
+    { mapHasStrType, mapHasStrExtMap, mapHasStrFuncList, mapHasStrBool, mapHasStrNode, mapHasIntTypeList, mapHasStrTypeList } from @checker/map_util
 )
 
 fn buildPipeCall(left: Node, right: Node) -> CallExprData = match right {
@@ -421,9 +422,15 @@ pub fn resolveMemberType(c: Checker, objType: Type, property: String, span: Span
 
 fn resolveClassMemberType(c: Checker, ct: ClassType, property: String, span: Span, sub: Map[String, Type]) -> Type {
     if mapHasStrType(ct.fields, property) {
+        if mapHasStrBool(ct.fieldPub, property) && !ct.fieldPub.get(property) && !canAccessClassMember(c, ct) {
+            checkerErrorf(c, span, "campo '$(property)' de '$(ct.name)' é privado", [])
+        }
         val ft = ct.fields.get(property)
         if sub.size() > 0 { substitute(c, ft, sub) } else { ft }
     } else if mapHasStrFuncList(ct.methods, property) {
+        if mapHasStrBool(ct.methodPub, property) && !ct.methodPub.get(property) && !canAccessClassMember(c, ct) {
+            checkerErrorf(c, span, "método '$(property)' de '$(ct.name)' é privado", [])
+        }
         val variants = ct.methods.get(property)
         if variants.size() > 0 {
             val mft = variants.get(0)
@@ -443,6 +450,60 @@ fn resolveClassMemberType(c: Checker, ct: ClassType, property: String, span: Spa
         checkerErrorf(c, span, "class $(ct.name) has no member $(property)", [])
         Unknown
     }
+}
+
+fn pickMethodByArity(variants: List[FuncType], arity: Int) -> Option[FuncType] {
+    for i in range(0, variants.size()) {
+        val ft = variants.get(i)
+        if ft.params.size() == arity {
+            return Some(ft)
+        }
+    }
+    if variants.size() > 0 {
+        return Some(variants.get(0))
+    }
+    return None
+}
+
+fn substituteFuncType(c: Checker, ft: FuncType, sub: Map[String, Type]) -> FuncType {
+    if sub.size() == 0 { return ft }
+    var newParams: List[Type] = []
+    for p in ft.params { newParams.append(substitute(c, p, sub)) }
+    return FuncType { params: newParams, returnType: substitute(c, ft.returnType, sub), generics: ft.generics, defaults: ft.defaults, isOptional: ft.isOptional }
+}
+
+fn resolveClassMethodCall(c: Checker, ct: ClassType, property: String, arity: Int, span: Span, sub: Map[String, Type]) -> Option[FuncType] {
+    if mapHasStrFuncList(ct.methods, property) {
+        if mapHasStrBool(ct.methodPub, property) && !ct.methodPub.get(property) && !canAccessClassMember(c, ct) {
+            checkerErrorf(c, span, "método '$(property)' de '$(ct.name)' é privado", [])
+        }
+        match pickMethodByArity(ct.methods.get(property), arity) {
+            Some(mft) => Some(substituteFuncType(c, mft, sub))
+            None => None
+        }
+    } else if mapHasStrExtMap(c.typeExtensions, ct.name) {
+        val ext = c.typeExtensions.get(ct.name)
+        if mapHasStrFuncList(ext, property) {
+            match pickMethodByArity(ext.get(property), arity) {
+                Some(mft) => Some(substituteFuncType(c, mft, sub))
+                None => None
+            }
+        } else { None }
+    } else { None }
+}
+
+fn resolveMethodTypeForCall(c: Checker, objType: Type, property: String, arity: Int, span: Span) -> Option[FuncType] = match objType {
+    Class(ct) => resolveClassMethodCall(c, ct, property, arity, span, Map[String, Type]{})
+    Specialized(Class(ct), params) => {
+        var sub: Map[String, Type] = Map[String, Type]{}
+        for i in range(0, ct.generics.size()) {
+            if i < params.size() {
+                sub.set(ct.generics.get(i), params.get(i))
+            }
+        }
+        resolveClassMethodCall(c, ct, property, arity, span, sub)
+    }
+    _ => None
 }
 
 pub fn checkMemberExpr(c: Checker, data: MemberExprData, node: Node) -> Type {
@@ -701,7 +762,19 @@ fn checkRecordLiteralFields(c: Checker, data: RecordLiteralData, node: Node, fie
     }
     for name in fields.keys() {
         if !mapHasStrBool(provided, name) || !provided.get(name) {
-            checkerErrorf(c, nodePos(node), "missing field in initialization of $(typeName): $(name)", [])
+            var hasDefault = false
+            match resultType {
+                Class(ct) => {
+                    if mapHasStrNode(ct.fieldInit, name) {
+                        c.checkNode(ct.fieldInit.get(name))
+                        hasDefault = true
+                    }
+                }
+                _ => {}
+            }
+            if !hasDefault {
+                checkerErrorf(c, nodePos(node), "missing field in initialization of $(typeName): $(name)", [])
+            }
         }
     }
     if generics.size() > 0 {
@@ -807,27 +880,43 @@ fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprDat
     }
 }
 
-fn checkGenericMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, objType: Type) -> Type {
-    val methodType = resolveMemberType(c, objType, me.property, nodePos(node))
-    return match methodType {
-        Func(ft) => {
-            c.specializations.set(nodeId(node), ft)
-            if data.args.size() > ft.params.size() {
-                checkerErrorf(c, nodePos(node), "argumentos em excesso: esperado $(ft.params.size()), encontrado $(data.args.size())", [])
-            }
-            if data.args.size() < ft.params.size() {
-                checkerErrorf(c, nodePos(node), "argumentos insuficientes: esperado $(ft.params.size()), encontrado $(data.args.size())", [])
-            }
-            for i in range(0, data.args.size()) {
-                val at = c.checkNode(data.args.get(i))
-                if i < ft.params.size() {
-                    if !isAssignable(c, ft.params.get(i), at) {
-                        checkerErrorf(c, nodePos(data.args.get(i)), "incompatible argument $(i + 1): expected $(typeToString(ft.params.get(i))), got $(typeToString(at))", [])
-                    }
-                }
-            }
-            ft.returnType
+fn lookupMethodFuncType(c: Checker, objType: Type, property: String, arity: Int, span: Span) -> Option[FuncType] {
+    match resolveMethodTypeForCall(c, objType, property, arity, span) {
+        Some(mft) => Some(mft)
+        None => match resolveMemberType(c, objType, property, span) {
+            Func(mft) => Some(mft)
+            _ => None
         }
-        _ => { checkerErrorf(c, nodePos(data.callee), "attempt to call a value that is not a function: $(typeToString(methodType))", []); Unknown }
+    }
+}
+
+fn checkMethodCallWithFuncType(c: Checker, data: CallExprData, node: Node, ft: FuncType) -> Type {
+    c.specializations.set(nodeId(node), ft)
+    if data.args.size() > ft.params.size() {
+        checkerErrorf(c, nodePos(node), "argumentos em excesso: esperado $(ft.params.size()), encontrado $(data.args.size())", [])
+    }
+    if data.args.size() < ft.params.size() {
+        checkerErrorf(c, nodePos(node), "argumentos insuficientes: esperado $(ft.params.size()), encontrado $(data.args.size())", [])
+    }
+    for i in range(0, data.args.size()) {
+        val at = c.checkNode(data.args.get(i))
+        if i < ft.params.size() {
+            if !isAssignable(c, ft.params.get(i), at) {
+                checkerErrorf(c, nodePos(data.args.get(i)), "incompatible argument $(i + 1): expected $(typeToString(ft.params.get(i))), got $(typeToString(at))", [])
+            }
+        }
+    }
+    return ft.returnType
+}
+
+fn checkGenericMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, objType: Type) -> Type {
+    val span = nodePos(node)
+    match lookupMethodFuncType(c, objType, me.property, data.args.size(), span) {
+        Some(ft) => checkMethodCallWithFuncType(c, data, node, ft)
+        None => {
+            val memberType = resolveMemberType(c, objType, me.property, span)
+            checkerErrorf(c, nodePos(data.callee), "attempt to call a value that is not a function: $(typeToString(memberType))", [])
+            return Unknown
+        }
     }
 }

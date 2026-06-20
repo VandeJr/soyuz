@@ -585,3 +585,10 @@ pub fn collectFileImports(c: Checker, body: List[Node]) {
         }
     }
 }
+
+pub fn canAccessClassMember(c: Checker, ct: ClassType) -> Bool {
+    match c.currentClass {
+        Some(cur) if cur.name == ct.name => true
+        _ => c.currentExtend == ct.name
+    }
+}
