@@ -864,8 +864,26 @@ fn channelOptionType(c: Checker, innerType: Type) -> Type {
     return Type.Specialized(base, [innerType])
 }
 
+fn syncGuardType(c: Checker, guardName: String, innerType: Type) -> Type = match c.scope.resolve(guardName) {
+    Some(sym) => match sym.typ {
+        Class(gct) => Type.Specialized(Type.Class(gct), [innerType])
+        _ => Unknown
+    }
+    None => Unknown
+}
+
+fn syncClassNew(c: Checker, ct: ClassType, node: Node, data: CallExprData) -> Type {
+    val argType = c.checkNode(data.args.get(0))
+    val retType = Type.Specialized(Type.Class(ct), [argType])
+    c.specializations.set(nodeId(node), FuncType { params: [argType], returnType: retType, generics: [], defaults: [], isOptional: [] })
+    return retType
+}
+
 fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, objType: Type) -> Type {
     match objType {
+        Class(ct) if (ct.name == "Mutex" || ct.name == "RwLock" || ct.name == "Atomic") && me.property == "new" && data.args.size() == 1 => {
+            syncClassNew(c, ct, node, data)
+        }
         Class(ct) if ct.name == "Channel" && me.property == "new" && data.args.size() == 1 => {
             c.checkNode(data.args.get(0))
             val retType = Type.Specialized(Type.Class(ct), [Unknown])
@@ -894,6 +912,53 @@ fn checkMethodCall(c: Checker, data: CallExprData, node: Node, me: MemberExprDat
                 }
                 "close" => UnitType
                 "isClosed" => BoolType
+                _ => checkGenericMethodCall(c, data, node, me, objType)
+            }
+        }
+        Specialized(Class(mCt), params) if mCt.name == "Mutex" && params.size() > 0 => {
+            val innerType = params.get(0)
+            return match me.property {
+                "lock" => syncGuardType(c, "MutexGuard", innerType)
+                _ => checkGenericMethodCall(c, data, node, me, objType)
+            }
+        }
+        Specialized(Class(rwCt), params) if rwCt.name == "RwLock" && params.size() > 0 => {
+            val innerType = params.get(0)
+            return match me.property {
+                "read" => syncGuardType(c, "ReadGuard", innerType)
+                "write" => syncGuardType(c, "WriteGuard", innerType)
+                _ => checkGenericMethodCall(c, data, node, me, objType)
+            }
+        }
+        Specialized(Class(aCt), params) if aCt.name == "Atomic" && params.size() > 0 => {
+            val innerType = params.get(0)
+            return match me.property {
+                "load" => innerType
+                "add" if data.args.size() == 1 => {
+                    val at = c.checkNode(data.args.get(0))
+                    if !isAssignable(c, innerType, at) {
+                        checkerErrorf(c, nodePos(data.args.get(0)), "incompatible argument 1: expected $(typeToString(innerType)), got $(typeToString(at))", [])
+                    }
+                    innerType
+                }
+                "store" if data.args.size() == 1 => {
+                    val at = c.checkNode(data.args.get(0))
+                    if !isAssignable(c, innerType, at) {
+                        checkerErrorf(c, nodePos(data.args.get(0)), "incompatible argument 1: expected $(typeToString(innerType)), got $(typeToString(at))", [])
+                    }
+                    UnitType
+                }
+                "compareAndSwap" if data.args.size() == 2 => {
+                    val at1 = c.checkNode(data.args.get(0))
+                    val at2 = c.checkNode(data.args.get(1))
+                    if !isAssignable(c, innerType, at1) {
+                        checkerErrorf(c, nodePos(data.args.get(0)), "incompatible argument 1: expected $(typeToString(innerType)), got $(typeToString(at1))", [])
+                    }
+                    if !isAssignable(c, innerType, at2) {
+                        checkerErrorf(c, nodePos(data.args.get(1)), "incompatible argument 2: expected $(typeToString(innerType)), got $(typeToString(at2))", [])
+                    }
+                    BoolType
+                }
                 _ => checkGenericMethodCall(c, data, node, me, objType)
             }
         }

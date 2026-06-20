@@ -1,9 +1,13 @@
-// M12 — m12 tests (stub — port from soyuz-go/internal/checker/)
+// M12 — sync primitives tests (port of soyuz-go/internal/checker/m_sync_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM12(src: String) -> List[TypeError] {
@@ -12,8 +16,117 @@ fn checkM12(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM12Baseline() {
-    // TODO: port milestone 12 tests from soyuz-go
-    val errs = checkM12("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M12 baseline stub")
+test fn testM12MutexNewReturnsSpecializedType() {
+    val src = "
+fn main() {
+    val m = Mutex.new(0)
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "Mutex.new(0) não deve gerar erros")
+}
+
+test fn testM12MutexLockReturnsMutexGuard() {
+    val src = "
+fn main() {
+    val m = Mutex.new(0)
+    val guard = m.lock()
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "mutex.lock() não deve gerar erros")
+}
+
+test fn testM12MutexGuardValueType() {
+    val src = "
+fn getGuardValue(guard: MutexGuard[Int]) -> Int = guard.value
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "guard.value deve ter tipo Int")
+}
+
+test fn testM12MutexGuardValueAssign() {
+    val src = "
+fn increment(m: Mutex[Int]) {
+    var guard = m.lock()
+    guard.value = guard.value + 1
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "guard.value = expr não deve gerar erros")
+}
+
+test fn testM12RwLockNewReturnsSpecializedType() {
+    val src = "
+fn main() {
+    val rw = RwLock.new(0)
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "RwLock.new(0) não deve gerar erros")
+}
+
+test fn testM12RwLockReadReturnsReadGuard() {
+    val src = "
+fn main() {
+    val rw = RwLock.new(42)
+    val rg = rw.read()
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "rwlock.read() não deve gerar erros")
+}
+
+test fn testM12RwLockWriteReturnsWriteGuard() {
+    val src = "
+fn main() {
+    val rw = RwLock.new(0)
+    var wg = rw.write()
+    wg.value = 99
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "rwlock.write() e guard.value não devem gerar erros")
+}
+
+test fn testM12ReadGuardValueType() {
+    val src = "
+fn readValue(rg: ReadGuard[Int]) -> Int = rg.value
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "ReadGuard.value deve ter tipo Int")
+}
+
+test fn testM12AtomicNewReturnsSpecializedType() {
+    val src = "
+fn main() {
+    val a = Atomic.new(0)
+}
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "Atomic.new(0) não deve gerar erros")
+}
+
+test fn testM12AtomicLoadReturnsInnerType() {
+    val src = "
+fn readAtomic(a: Atomic[Int]) -> Int = a.load()
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "Atomic.load() deve retornar Int")
+}
+
+test fn testM12AtomicAddReturnsInnerType() {
+    val src = "
+fn addAtomic(a: Atomic[Int]) -> Int = a.add(1)
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "Atomic.add(1) deve retornar Int")
+}
+
+test fn testM12AtomicCasReturnsBool() {
+    val src = "
+fn casAtomic(a: Atomic[Int]) -> Bool = a.compareAndSwap(0, 1)
+"
+    val errs = checkM12(src)
+    assertMsg(errs.size() == 0, "Atomic.compareAndSwap deve retornar Bool")
 }
