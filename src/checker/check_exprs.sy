@@ -876,7 +876,41 @@ fn taskHandleOptionType(c: Checker) -> Type {
 fn checkTaskStaticCall(c: Checker, data: CallExprData, node: Node, me: MemberExprData, ct: ClassType) -> Type = match me.property {
     "all" => checkTaskAllCall(c, data, node, me.property)
     "allSettled" => checkTaskAllCall(c, data, node, me.property)
+    "fan" => checkTaskFanCall(c, data, node)
     _ => checkGenericMethodCall(c, data, node, me, Type.Class(ct))
+}
+
+fn checkTaskFanCall(c: Checker, data: CallExprData, node: Node) -> Type {
+    if data.args.size() < 2 {
+        checkerErrorf(c, nodePos(node), "Task.fan requer ao menos um valor de entrada e uma função", [])
+        return Unknown
+    }
+    val firstType = c.checkNode(data.args.get(0))
+    if match firstType {
+        Func(_) => true
+        _ => false
+    } {
+        checkerErrorf(c, nodePos(data.args.get(0)), "Task.fan: use entrada |> Task.fan(f, g, ...) — primeiro argumento deve ser o valor de entrada, não uma função", [])
+        return Unknown
+    }
+    val taskBase = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Task"))
+    var taskTypes: List[Type] = []
+    for i in range(1, data.args.size()) {
+        val arg = data.args.get(i)
+        val ft = c.checkNode(arg)
+        match ft {
+            Func(fnt) => {
+                taskTypes.append(Type.Specialized(taskBase, [fnt.returnType]))
+            }
+            _ => {
+                checkerErrorf(c, nodePos(arg), "Task.fan: argumento $(i) deve ser uma função, obtido $(typeToString(ft))", [])
+                taskTypes.append(Unknown)
+            }
+        }
+    }
+    val retType = Type.Tuple(taskTypes)
+    c.specializations.set(nodeId(node), FuncType { params: [], returnType: retType, generics: [], defaults: [], isOptional: [] })
+    return retType
 }
 
 fn checkTaskAllCall(c: Checker, data: CallExprData, node: Node, method: String) -> Type {
