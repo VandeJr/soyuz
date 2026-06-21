@@ -148,7 +148,7 @@ pub fn evalConstExpr(node: Node) -> Option[ConstValue] = match node {
     _ => constFromLiteralNode(node)
 }
 
-fn checkerTypeForNode(g: Generator, id: Int) -> Option[Type] {
+pub fn checkerTypeForNode(g: Generator, id: Int) -> Option[Type] {
     if id >= g.check.nodeTypes.size() { return None }
     return g.check.nodeTypes.get(id)
 }

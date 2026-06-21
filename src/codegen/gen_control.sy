@@ -1,10 +1,165 @@
 import (
-    { Node } from @ast/ast
+    { Node, BlockStmtData, IfStmtData, WhileStmtData, LoopStmtData, ReturnStmtData, BreakStmtData } from @ast/ast
+    { nodeId } from @ast/ast_helpers
     { Type, UnitType, typeToString } from @checker/types
     { Generator } from @codegen/generator
     { LoopCtx } from @codegen/types
-    { LlvmType, LlvmBasicBlock } from @codegen/llvm_types
+    { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
+    { mapTypeToLLVM } from @codegen/gen_types
+    { LlvmType, LlvmBasicBlock, llvmVoid } from @codegen/llvm_types
 )
+
+pub enum TerminatorKind {
+    NoTerminator
+    ReturnTerm
+    BreakTerm
+    ContinueTerm
+}
+
+pub record StmtResult {
+    llvmType: LlvmType,
+    terminator: TerminatorKind
+}
+
+fn stmtResultFromNode(g: Generator, node: Node, term: TerminatorKind) -> Option[StmtResult] {
+    return match checkerTypeForNode(g, nodeId(node)) {
+        None => None
+        Some(t) => Some(StmtResult { llvmType: mapTypeToLLVM(g, t), terminator: term })
+    }
+}
+
+fn dummyLoopBlock() -> LlvmBasicBlock {
+    return LlvmBasicBlock { handle: 0 }
+}
+
+fn hasCurrentLoop(g: Generator) -> Bool {
+    match currentLoop(g) {
+        None => false
+        Some(_) => true
+    }
+}
+
+fn exprGeneratesOk(g: Generator, node: Node) -> Bool {
+    match generateExprNode(g, node) {
+        None => false
+        Some(_) => true
+    }
+}
+
+fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[StmtResult] {
+    for stmt in data.statements {
+        val ok = match generateStmtNode(g, stmt) {
+            None => false
+            Some(_) => true
+        }
+        if !ok { return None }
+    }
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResult] {
+    return match generateExprNode(g, data.condition) {
+        None => None
+        Some(_) => {
+            match generateStmtNode(g, data.consequent) {
+                None => None
+                Some(_) => match data.alternate {
+                    None => stmtResultFromNode(g, node, NoTerminator)
+                    Some(alt) => match generateStmtNode(g, alt) {
+                        None => None
+                        Some(_) => stmtResultFromNode(g, node, NoTerminator)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[StmtResult] {
+    return match generateExprNode(g, data.condition) {
+        None => None
+        Some(_) => {
+            pushLoop(g, newLoopCtx(dummyLoopBlock(), dummyLoopBlock(), llvmVoid()))
+            val bodyOk = match generateStmtNode(g, data.body) {
+                None => false
+                Some(_) => true
+            }
+            popLoop(g)
+            if !bodyOk { return None }
+            return stmtResultFromNode(g, node, NoTerminator)
+        }
+    }
+}
+
+fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[StmtResult] {
+    val loopType = match checkerTypeForNode(g, nodeId(node)) {
+        None => UnitType
+        Some(t) => t
+    }
+    var resultLlvm = llvmVoid()
+    if loopNeedsResultAlloca(loopType) {
+        resultLlvm = mapTypeToLLVM(g, loopType)
+    }
+    pushLoop(g, newLoopCtx(dummyLoopBlock(), dummyLoopBlock(), resultLlvm))
+    val bodyOk = match generateStmtNode(g, data.body) {
+        None => false
+        Some(_) => true
+    }
+    popLoop(g)
+    if !bodyOk { return None }
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {
+    match data.value {
+        Some(v) => {
+            if !exprGeneratesOk(g, v) { return None }
+        }
+        None => {}
+    }
+    return stmtResultFromNode(g, node, ReturnTerm)
+}
+
+fn generateBreakStmt(g: Generator, node: Node, data: BreakStmtData) -> Option[StmtResult] {
+    if !hasCurrentLoop(g) { return None }
+    match data.value {
+        Some(v) => {
+            if !exprGeneratesOk(g, v) { return None }
+        }
+        None => {}
+    }
+    return stmtResultFromNode(g, node, BreakTerm)
+}
+
+fn generateContinueStmt(g: Generator, node: Node) -> Option[StmtResult] {
+    if !hasCurrentLoop(g) { return None }
+    return stmtResultFromNode(g, node, ContinueTerm)
+}
+
+fn stmtFromExpr(g: Generator, node: Node) -> Option[StmtResult] {
+    return match generateExprNode(g, node) {
+        None => None
+        Some(er) => stmtResultFromNode(g, node, NoTerminator)
+    }
+}
+
+pub fn generateStmtNode(g: Generator, node: Node) -> Option[StmtResult] = match node {
+    BlockStmt(_, _, data) => generateBlockStmt(g, node, data)
+    IfStmt(_, _, data) => generateIfStmt(g, node, data)
+    WhileStmt(_, _, data) => generateWhileStmt(g, node, data)
+    LoopStmt(_, _, data) => generateLoopStmt(g, node, data)
+    ReturnStmt(_, _, data) => generateReturnStmt(g, node, data)
+    BreakStmt(_, _, data) => generateBreakStmt(g, node, data)
+    ContinueStmt(_, _) => generateContinueStmt(g, node)
+    _ => stmtFromExpr(g, node)
+}
+
+pub fn hasTerminator(result: StmtResult) -> Bool = match result.terminator {
+    NoTerminator => false
+    ReturnTerm => true
+    BreakTerm => true
+    ContinueTerm => true
+}
 
 pub fn loopNeedsResultAlloca(loopType: Type) -> Bool {
     return typeToString(loopType) != "Unit"

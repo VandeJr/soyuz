@@ -1,11 +1,11 @@
 import (
-    { Node, LoopStmtData, BlockStmtData, FuncDeclData } from @ast/ast
+    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, UnitType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, UnitType, BoolType } from @checker/types
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
-    { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx } from @codegen/gen_control
-    { LlvmBasicBlock, llvmI64, llvmVoid } from @codegen/llvm_types
+    { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, generateStmtNode, hasTerminator } from @codegen/gen_control
+    { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -49,4 +49,81 @@ test fn testIsControlFlowStmt() {
     assertMsg(isLoopStmt(loopNode), "loop stmt")
     assertMsg(isControlFlowStmt(loopNode), "loop is control flow")
     assertMsg(!isBreakOrContinue(loopNode), "loop is not break")
+}
+
+fn controlMapHasIntType(m: Map[Int, Type], key: Int) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn controlCheckerWithNodeTypes(types: Map[Int, Type]) -> CheckResult {
+    var maxId = 0
+    for id in types.keys() {
+        if id > maxId { maxId = id }
+    }
+    var cr = controlTestCheckResult()
+    var i = 0
+    loop {
+        if i > maxId { break }
+        if controlMapHasIntType(types, i) {
+            cr.nodeTypes.append(Some(types.get(i)))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
+
+test fn testGenerateIfStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val cond = Node.IntLiteral(1, span, IntLiteralData { value: "1" })
+    val thenBranch = Node.ReturnStmt(3, span, ReturnStmtData { value: None })
+    val ifNode = Node.IfStmt(4, span, IfStmtData { condition: cond, consequent: thenBranch, alternate: None })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, BoolType)
+    types.set(3, UnitType)
+    types.set(4, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, ifNode) {
+        None => assertMsg(false, "expected if stmt result")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "if without return in branch still NoTerminator at if level")
+        }
+    }
+}
+
+test fn testGenerateReturnStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 10 }
+    val ret = Node.ReturnStmt(1, span, ReturnStmtData { value: None })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, ret) {
+        None => assertMsg(false, "expected return result")
+        Some(r) => assertMsg(hasTerminator(r), "return terminates")
+    }
+}
+
+test fn testGenerateBreakOutsideLoop() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 5 }
+    val brk = Node.BreakStmt(1, span, BreakStmtData { value: None })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    assertMsg(generateStmtNode(g, brk) == None, "break outside loop fails")
+}
+
+test fn testGenerateBreakInsideLoop() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 5 }
+    val brk = Node.BreakStmt(1, span, BreakStmtData { value: None })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    pushLoop(g, newLoopCtx(LlvmBasicBlock { handle: 1 }, LlvmBasicBlock { handle: 2 }, llvmI64()))
+    match generateStmtNode(g, brk) {
+        None => assertMsg(false, "expected break inside loop")
+        Some(r) => assertMsg(hasTerminator(r), "break terminates")
+    }
+    popLoop(g)
 }
