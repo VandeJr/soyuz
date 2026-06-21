@@ -6,7 +6,7 @@ import (
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, recordLoopBreakStore } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, recordLoopBreakStore } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -110,6 +110,18 @@ fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[St
     }
 }
 
+fn finishLoopBodyFromNode(g: Generator, bodyBlock: LlvmBasicBlock, body: Node) -> Bool {
+    return match generateStmtNode(g, body) {
+        None => false
+        Some(r) => {
+            if !hasTerminator(r) {
+                emitBrToBlockStub(g, bodyBlock)
+            }
+            true
+        }
+    }
+}
+
 fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[StmtResult] {
     val loopType = match checkerTypeForNode(g, nodeId(node)) {
         None => UnitType
@@ -117,28 +129,20 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
     }
     val bodyBlock = newBlock(g, "loop_body")
     val afterBlock = newBlock(g, "loop_after")
-    setCurrentBlock(g, bodyBlock)
+    emitBrToBlockStub(g, bodyBlock)
     if loopNeedsResultAlloca(loopType) {
         val resultLlvm = mapTypeToLLVM(g, loopType)
         val resultAlloca = newAlloca(g, resultLlvm)
         pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: Some(resultAlloca), resultLlvm: resultLlvm })
-        val bodyOk = match generateStmtNode(g, data.body) {
-            None => false
-            Some(_) => true
-        }
+        if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
         popLoop(g)
-        if !bodyOk { return None }
         setCurrentBlock(g, afterBlock)
         setLoopResultLoad(g, resultAlloca)
         return stmtResultFromNode(g, node, NoTerminator)
     }
     pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
-    val bodyOk = match generateStmtNode(g, data.body) {
-        None => false
-        Some(_) => true
-    }
+    if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
     popLoop(g)
-    if !bodyOk { return None }
     setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
 }
@@ -172,6 +176,14 @@ fn currentLoopNeedsBreakValue(g: Generator) -> Bool {
     }
 }
 
+fn branchToLoopAfter(g: Generator, ctx: LoopCtx) {
+    emitBrToBlockStub(g, ctx.after)
+}
+
+fn branchToLoopCond(g: Generator, ctx: LoopCtx) {
+    emitBrToBlockStub(g, ctx.cond)
+}
+
 fn generateBreakStmt(g: Generator, node: Node, data: BreakStmtData) -> Option[StmtResult] {
     if !hasCurrentLoop(g) { return None }
     val needsValue = currentLoopNeedsBreakValue(g)
@@ -187,12 +199,24 @@ fn generateBreakStmt(g: Generator, node: Node, data: BreakStmtData) -> Option[St
             }
         }
     }
-    return stmtResultFromNode(g, node, BreakTerm)
+    match currentLoop(g) {
+        None => return None
+        Some(ctx) => {
+            branchToLoopAfter(g, ctx)
+            return stmtResultFromNode(g, node, BreakTerm)
+        }
+    }
 }
 
 fn generateContinueStmt(g: Generator, node: Node) -> Option[StmtResult] {
     if !hasCurrentLoop(g) { return None }
-    return stmtResultFromNode(g, node, ContinueTerm)
+    match currentLoop(g) {
+        None => return None
+        Some(ctx) => {
+            branchToLoopCond(g, ctx)
+            return stmtResultFromNode(g, node, ContinueTerm)
+        }
+    }
 }
 
 fn stmtFromExpr(g: Generator, node: Node) -> Option[StmtResult] {

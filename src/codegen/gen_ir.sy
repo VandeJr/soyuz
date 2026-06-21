@@ -65,6 +65,11 @@ pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
     return true
 }
 
+pub fn emitBrToBlockStub(g: Generator, target: LlvmBasicBlock) -> Bool {
+    setCurrentBlock(g, target)
+    return true
+}
+
 pub fn clearMatchPhiIncomings(g: Generator) {
     g.matchPhiIncomings = []
     g.matchPhiResult = None

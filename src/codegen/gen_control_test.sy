@@ -5,7 +5,7 @@ import (
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
-    { blockNameRegistered } from @codegen/gen_ir
+    { blockNameRegistered, emitBrToBlockStub, currentBlockHandle } from @codegen/gen_ir
     { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -290,6 +290,67 @@ test fn testGenerateUnitLoopNoResultLoad() {
         Some(_) => {
             assertMsg(g.valueHandleCounter == handlesBefore, "unit loop has no result alloca")
             assertMsg(g.loopResultLoad == None, "unit loop has no result load")
+        }
+    }
+}
+
+test fn testBreakBranchesToLoopAfter() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 5 }
+    val brk = Node.BreakStmt(1, span, BreakStmtData { value: None })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val after = LlvmBasicBlock { handle: 99 }
+    val cond = LlvmBasicBlock { handle: 88 }
+    pushLoop(g, LoopCtx { cond: cond, after: after, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    match generateStmtNode(g, brk) {
+        None => assertMsg(false, "expected break stmt")
+        Some(r) => {
+            assertMsg(hasTerminator(r), "break terminates")
+            match g.current {
+                None => assertMsg(false, "expected current block after break")
+                Some(block) => assertMsg(block.handle == 99, "break branches to loop after")
+            }
+        }
+    }
+    popLoop(g)
+}
+
+test fn testContinueBranchesToLoopCond() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 5 }
+    val cont = Node.ContinueStmt(1, span)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val after = LlvmBasicBlock { handle: 99 }
+    val cond = LlvmBasicBlock { handle: 88 }
+    pushLoop(g, LoopCtx { cond: cond, after: after, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    match generateStmtNode(g, cont) {
+        None => assertMsg(false, "expected continue stmt")
+        Some(r) => {
+            assertMsg(hasTerminator(r), "continue terminates")
+            match g.current {
+                None => assertMsg(false, "expected current block after continue")
+                Some(block) => assertMsg(block.handle == 88, "continue branches to loop cond")
+            }
+        }
+    }
+    popLoop(g)
+}
+
+test fn testGenerateLoopEndsOnAfterBlock() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val body = Node.BlockStmt(3, span, BlockStmtData { statements: [] })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, loopNode) {
+        None => assertMsg(false, "expected loop stmt")
+        Some(_) => match currentBlockHandle(g) {
+            None => assertMsg(false, "expected current block after loop")
+            Some(handle) => assertMsg(handle > 0, "loop finishes on after block")
         }
     }
 }

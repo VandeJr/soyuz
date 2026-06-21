@@ -2,7 +2,7 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub } from @codegen/gen_ir
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrToBlockStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub } from @codegen/gen_ir
     { llvmI64 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -101,5 +101,17 @@ test fn testEmitPhiStub() {
     match g.matchPhiResult {
         None => assertMsg(false, "matchPhiResult set")
         Some(phi) => assertMsg(phi.handle > 0, "stored phi result")
+    }
+}
+
+test fn testEmitBrToBlockStub() {
+    val g = newGenerator(irTestCheckResult())
+    val target = newBlock(g, "loop_after")
+    val other = newBlock(g, "loop_body")
+    setCurrentBlock(g, other)
+    assertMsg(emitBrToBlockStub(g, target), "br to block stub")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block")
+        Some(handle) => assertMsg(handle == target.handle, "current at branch target")
     }
 }
