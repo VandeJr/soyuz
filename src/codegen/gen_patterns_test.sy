@@ -3,7 +3,8 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { mapTypeToLLVM } from @codegen/gen_types
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -284,6 +285,13 @@ test fn testRegisterPatternBinding() {
         if k == "x" { hasX = true }
     }
     assertMsg(hasX, "x in g.vars")
+}
+
+test fn testPatternBindingSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    assertMsg(llvmTypesEqual(patternBindingSlotType(g, false, IntType), llvmI64()), "no subject defaults to i64")
+    assertMsg(llvmTypesEqual(patternBindingSlotType(g, true, IntType), llvmI64()), "Int subject maps to i64")
+    assertMsg(llvmTypesEqual(patternBindingSlotType(g, true, StringType), mapTypeToLLVM(g, StringType)), "String subject maps to string ptr")
 }
 
 test fn testMatchPatternDispatchWildcard() {

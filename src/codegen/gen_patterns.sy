@@ -380,13 +380,20 @@ fn matchPatternAdvance(g: Generator, thenBlockName: String) -> Bool {
     return true
 }
 
+pub fn patternBindingSlotType(g: Generator, hasSubject: Bool, subjectType: Type) -> LlvmType {
+    if hasSubject {
+        return mapTypeToLLVM(g, subjectType)
+    }
+    return llvmI64()
+}
+
 pub fn registerPatternBinding(g: Generator, name: String, slotType: LlvmType) -> Bool {
     g.vars.set(name, newAlloca(g, slotType))
     return true
 }
 
-fn matchPatternBindingDispatch(g: Generator, name: String, thenBlockName: String) -> Bool {
-    if !registerPatternBinding(g, name, llvmI64()) { return false }
+fn matchPatternBindingDispatch(g: Generator, name: String, hasSubject: Bool, subjectType: Type, thenBlockName: String) -> Bool {
+    if !registerPatternBinding(g, name, patternBindingSlotType(g, hasSubject, subjectType)) { return false }
     return matchPatternAdvance(g, thenBlockName)
 }
 
@@ -446,7 +453,7 @@ fn matchPatternRecordFieldsLoop(g: Generator, fields: List[RecordPatternField], 
     val field = fields.get(index)
     return match field.pattern {
         None => {
-            if !registerPatternBinding(g, field.name, llvmI64()) { return false }
+            if !registerPatternBinding(g, field.name, patternBindingSlotType(g, hasSubject, subjectType)) { return false }
             matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
         }
         Some(inner) => {
@@ -489,7 +496,7 @@ fn matchPatternTupleDispatch(g: Generator, elements: List[Pattern], thenBlockNam
 
 fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
     Wildcard(_, _) => matchPatternAdvance(g, thenBlockName)
-    Binding(_, _, name) => matchPatternBindingDispatch(g, name, thenBlockName)
+    Binding(_, _, name) => matchPatternBindingDispatch(g, name, hasSubject, subjectType, thenBlockName)
     Literal(_, _, value) => {
         if !literalPatternDispatchOk(value) { return false }
         return matchPatternAdvance(g, thenBlockName)
