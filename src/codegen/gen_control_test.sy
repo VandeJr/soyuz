@@ -1,11 +1,12 @@
 import (
-    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData, IdentifierData } from @ast/ast
+    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData, IdentifierData, VarDeclData, CallExprData, TaskExprData, VarKind } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, UnitType, BoolType, ClassType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
     { blockNameRegistered, emitBrToBlockStub, currentBlockHandle } from @codegen/gen_ir
+    { taskDropHandleRuntime, taskRuntimeSymbolRegistered } from @codegen/gen_task
     { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -580,6 +581,53 @@ test fn testGenerateLoopEndsOnAfterBlock() {
         Some(_) => match currentBlockHandle(g) {
             None => assertMsg(false, "expected current block after loop")
             Some(handle) => assertMsg(handle > 0, "loop finishes on after block")
+        }
+    }
+}
+
+fn controlTaskClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+// Port of m_task_test.go TestTaskDropOnScopeExit — block scope emits srt_drop_task_handle stub.
+test fn testBlockEmitsTaskDropOnScopeExit() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = controlTaskClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val callee = Node.Identifier(1, span, IdentifierData { name: "work" })
+    val call = Node.CallExpr(2, span, CallExprData { callee: callee, args: [] })
+    val taskExpr = Node.TaskExpr(3, span, TaskExprData { inner: call })
+    val varDecl = Node.VarDecl(4, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Val,
+        name: "t",
+        pattern: None,
+        typeExpr: None,
+        init: Some(taskExpr)
+    })
+    var stmts: List[Node] = []
+    stmts.append(varDecl)
+    val block = Node.BlockStmt(5, span, BlockStmtData { statements: stmts })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Basic("Unit"))
+    types.set(2, IntType)
+    types.set(3, taskInt)
+    types.set(4, taskInt)
+    types.set(5, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, block) {
+        None => assertMsg(false, "expected block with task var codegen")
+        Some(_) => {
+            assertMsg(g.taskDropStub != None, "task drop stub stored at block exit")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskDropHandleRuntime()), "srt_drop_task_handle registered")
         }
     }
 }

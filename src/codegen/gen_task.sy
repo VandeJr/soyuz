@@ -122,6 +122,21 @@ pub fn generateTaskAwaitStub(g: Generator) -> Option[LlvmValue] {
     return Some(stub)
 }
 
+pub fn generateTaskDropStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskDropHandleRuntime())
+    val stub = stubLlvmValue(g)
+    g.taskDropStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn emitTaskDrops(g: Generator, names: List[String]) -> Bool {
+    if names.size() == 0 { return true }
+    return match generateTaskDropStub(g) {
+        None => false
+        Some(_) => true
+    }
+}
+
 pub fn pushTaskScope(g: Generator) {
     var stack = g.taskVarStack
     stack.append([])

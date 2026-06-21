@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -142,4 +142,14 @@ test fn testOwnTaskVarAndPopScope() {
     val owned = popTaskScope(g)
     assertMsg(owned.size() == 1, "one task var owned")
     assertMsg(isTaskInstanceType(Type.Specialized(Type.Class(taskEmptyClass("Task")), [IntType])), "task instance type")
+}
+
+test fn testEmitTaskDrops() {
+    val g = newGenerator(taskEmptyCheckResult())
+    var names: List[String] = []
+    names.append("t")
+    assertMsg(emitTaskDrops(g, []), "empty drop list ok")
+    assertMsg(emitTaskDrops(g, names), "emit task drops")
+    assertMsg(g.taskDropStub != None, "drop stub stored")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskDropHandleRuntime()), "srt_drop_task_handle registered")
 }

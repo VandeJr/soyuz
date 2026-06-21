@@ -7,6 +7,7 @@ import (
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { isListType, listElemType, isMapType, mapKeyType, isIteratorType, iteratorElemType, generateMapKeysStub } from @codegen/gen_collections
     { ensureRuntimeCollectionStructs, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, forIteratorCondBlockName, forIteratorBodyBlockName, forIteratorIncrBlockName, forIteratorAfterBlockName } from @codegen/gen_iter
+    { pushTaskScope, popTaskScope, emitTaskDrops } from @codegen/gen_task
     { mapTypeToLLVM } from @codegen/gen_types
     { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
@@ -67,10 +68,24 @@ fn generateBlockStmts(g: Generator, stmts: List[Node], index: Int) -> BlockStep 
 }
 
 fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[StmtResult] {
+    pushTaskScope(g)
     return match generateBlockStmts(g, data.statements, 0) {
-        Failed => None
-        Continue => stmtResultFromNode(g, node, NoTerminator)
-        Done(r) => Some(r)
+        Failed => {
+            popTaskScope(g)
+            None
+        }
+        Continue => {
+            val owned = popTaskScope(g)
+            if !emitTaskDrops(g, owned) { return None }
+            stmtResultFromNode(g, node, NoTerminator)
+        }
+        Done(r) => {
+            val owned = popTaskScope(g)
+            if !hasTerminator(r) {
+                if !emitTaskDrops(g, owned) { return None }
+            }
+            Some(r)
+        }
     }
 }
 
