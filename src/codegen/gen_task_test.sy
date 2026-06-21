@@ -1,0 +1,117 @@
+import (
+    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, TaskExprData, IntLiteralData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
+    { isTaskCallInner, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, generateTaskEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { assertMsg } from @soyuz/testing
+)
+
+fn taskEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn taskEmptyClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+test fn testIsTaskCallInner() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val callee = Node.Identifier(1, span, IdentifierData { name: "double" })
+    val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
+    var args: List[Node] = []
+    args.append(arg)
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    assertMsg(isTaskCallInner(call), "CallExpr is task call inner")
+    val taskInner = Node.TaskExpr(4, span, TaskExprData { inner: call })
+    assertMsg(!isTaskCallInner(taskInner), "TaskExpr not direct call inner")
+}
+
+test fn testIsTaskAwaitCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskAwaitMethodCall(awaitMember, g), "t.await on Task[Int]")
+    val detachMember = Node.MemberExpr(3, span, MemberExprData { object: tId, property: "detach" })
+    assertMsg(!isTaskAwaitMethodCall(detachMember, g), "t.detach not await")
+}
+
+test fn testIsTaskDetachCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val detachMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskDetachMethodCall(detachMember, g), "t.detach on Task[Int]")
+}
+
+test fn testGenerateTaskEnqueueStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskEnqueueStub(g) {
+        None => assertMsg(false, "task enqueue stub")
+        Some(_) => {
+            assertMsg(g.taskEnqueueStub != None, "enqueue stub stored")
+            assertMsg(g.taskLastWrapperName != None, "wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    match g.taskLastWrapperName {
+        None => assertMsg(false, "wrapper name")
+        Some(name) => assertMsg(name == "__task_wrapper_1", "wrapper counter used")
+    }
+}
+
+test fn testGenerateTaskDetachStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskDetachStub(g) {
+        None => assertMsg(false, "task detach stub")
+        Some(_) => assertMsg(g.taskDetachStub != None, "detach stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+}
+
+test fn testGenerateTaskAwaitStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskAwaitStub(g) {
+        None => assertMsg(false, "task await stub")
+        Some(_) => assertMsg(g.taskAwaitStub != None, "await stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+}
+
+test fn testOwnTaskVarAndPopScope() {
+    val g = newGenerator(taskEmptyCheckResult())
+    pushTaskScope(g)
+    ownTaskVar(g, "t")
+    val owned = popTaskScope(g)
+    assertMsg(owned.size() == 1, "one task var owned")
+    assertMsg(isTaskInstanceType(Type.Specialized(Type.Class(taskEmptyClass("Task")), [IntType])), "task instance type")
+}

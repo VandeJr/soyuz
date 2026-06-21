@@ -1,5 +1,5 @@
 import (
-    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData, RecordLiteralData, RecordLiteralField } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData, RecordLiteralData, RecordLiteralField, TaskExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
@@ -10,6 +10,7 @@ import (
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
+    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCallInner, ownTaskVar, generateTaskEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub } from @codegen/gen_task
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -527,6 +528,32 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
+    if isTaskDetachMethodCall(data.callee, g) {
+        if data.args.size() != 0 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateTaskDetachStub(g) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
+    if isTaskAwaitMethodCall(data.callee, g) {
+        if data.args.size() != 0 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateTaskAwaitStub(g) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
     if isTaskGatherCall(data.callee) {
         if data.args.size() != 2 { return None }
         if !isTaskGatherFnArg(data.args.get(1)) { return None }
@@ -592,6 +619,7 @@ fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[
                         None => exprResultFromNode(g, node, NoConst)
                         Some(t) => {
                             if isArcType(t) { ownArcVar(g, data.name) }
+                            if isTaskInstanceType(t) { ownTaskVar(g, data.name) }
                             exprResultFromNode(g, node, NoConst)
                         }
                     }
@@ -727,6 +755,20 @@ fn generateMatchExprResult(g: Generator, node: Node, data: MatchExprData) -> Opt
     }
 }
 
+fn generateTaskExprResult(g: Generator, node: Node, data: TaskExprData) -> Option[ExprResult] {
+    if !isTaskCallInner(data.inner) { return None }
+    return match data.inner {
+        CallExpr(_, _, callData) => {
+            if !generateAllCallArgs(g, callData.args) { return None }
+            match generateTaskEnqueueStub(g) {
+                None => None
+                Some(_) => exprResultFromNode(g, node, NoConst)
+            }
+        }
+        _ => None
+    }
+}
+
 pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match node {
     IntLiteral(_, _, _) => generateLiteralExprResult(g, node)
     FloatLiteral(_, _, _) => generateLiteralExprResult(g, node)
@@ -743,6 +785,7 @@ pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match 
     AssignExpr(_, _, data) => generateAssignExprResult(g, node, data)
     RecordLiteral(_, _, data) => generateRecordLiteralResult(g, node, data)
     MatchExpr(_, _, data) => generateMatchExprResult(g, node, data)
+    TaskExpr(_, _, data) => generateTaskExprResult(g, node, data)
     _ => None
 }
 

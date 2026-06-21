@@ -1,5 +1,5 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData, RecordPatternField } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData, RecordPatternField, TaskExprData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, BoolType, EnumType, ClassType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -13,6 +13,7 @@ import (
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
+    { taskRuntimeDetach, taskRuntimeSetResult, taskRuntimeSymbolRegistered, generateTaskEnqueueStub } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -1648,6 +1649,78 @@ test fn testTaskGatherCallExprCodegen() {
             assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeNew()), "soyuz_list_new registered")
             assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeAppend()), "soyuz_list_append registered")
             assertMsg(gatherBlockNamesRegistered(g), "gather loop blocks registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskEnqueue — task double(5) expr dispatch.
+test fn testTaskEnqueueExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val callee = Node.Identifier(1, span, IdentifierData { name: "double" })
+    val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
+    var args: List[Node] = []
+    args.append(arg)
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: call })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Basic("Unit"))
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task enqueue expr codegen")
+        Some(_) => {
+            assertMsg(g.taskEnqueueStub != None, "task enqueue stub stored")
+            assertMsg(g.taskLastWrapperName != None, "task wrapper name stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskDetach — t.detach() call expr dispatch.
+test fn testTaskDetachCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, taskInt)
+    types.set(2, taskInt)
+    types.set(3, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected task detach call codegen")
+        Some(_) => {
+            assertMsg(g.taskDetachStub != None, "task detach stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskAwait — t.await() call expr dispatch.
+test fn testTaskAwaitCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, taskInt)
+    types.set(2, taskInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected task await call codegen")
+        Some(_) => {
+            assertMsg(g.taskAwaitStub != None, "task await stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
         }
     }
 }

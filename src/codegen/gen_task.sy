@@ -1,0 +1,112 @@
+import (
+    { Node } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue } from @codegen/gen_ir
+    { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
+)
+
+pub fn taskRuntimeDetach() -> String {
+    return "srt_detach"
+}
+
+pub fn taskRuntimeSetResult() -> String {
+    return "srt_set_task_result"
+}
+
+fn taskCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
+}
+
+pub fn isTaskInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match taskCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isTaskInstanceType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isTaskAwaitMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "await")
+}
+
+pub fn isTaskDetachMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "detach")
+}
+
+pub fn isTaskCallInner(inner: Node) -> Bool = match inner {
+    CallExpr(_, _, _) => true
+    _ => false
+}
+
+fn registerTaskRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.taskRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.taskRuntimeSymbols
+        syms.append(symbol)
+        g.taskRuntimeSymbols = syms
+    }
+}
+
+pub fn taskRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.taskRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn generateTaskEnqueueStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskEnqueueStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskDetachStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeDetach())
+    val stub = stubLlvmValue(g)
+    g.taskDetachStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskAwaitStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    val stub = stubLlvmValue(g)
+    g.taskAwaitStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn pushTaskScope(g: Generator) {
+    var stack = g.taskVarStack
+    stack.append([])
+    g.taskVarStack = stack
+}
+
+pub fn ownTaskVar(g: Generator, name: String) {
+    if g.taskVarStack.size() == 0 { return }
+    var top = g.taskVarStack.get(g.taskVarStack.size() - 1)
+    top.append(name)
+    var stack = g.taskVarStack
+    stack.set(g.taskVarStack.size() - 1, top)
+    g.taskVarStack = stack
+}
+
+pub fn popTaskScope(g: Generator) -> List[String] {
+    if g.taskVarStack.size() == 0 { return [] }
+    val owned = g.taskVarStack.get(g.taskVarStack.size() - 1)
+    var stack = g.taskVarStack
+    stack.removeAt(g.taskVarStack.size() - 1)
+    g.taskVarStack = stack
+    return owned
+}

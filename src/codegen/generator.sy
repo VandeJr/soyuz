@@ -154,6 +154,11 @@ pub class Generator {
     pub var gatherListGetStub: Option[LlvmValue] = None
     pub var gatherTaskWrapperName: Option[String] = None
     pub var gatherRuntimeSymbols: List[String] = []
+    pub var taskEnqueueStub: Option[LlvmValue] = None
+    pub var taskDetachStub: Option[LlvmValue] = None
+    pub var taskAwaitStub: Option[LlvmValue] = None
+    pub var taskLastWrapperName: Option[String] = None
+    pub var taskRuntimeSymbols: List[String] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {
