@@ -139,6 +139,12 @@ pub class Generator {
     pub var rwLockNewStub: Option[LlvmValue] = None
     pub var rwLockReadStub: Option[LlvmValue] = None
     pub var syncRuntimeSymbols: List[String] = []
+    pub var arcNewStub: Option[LlvmValue] = None
+    pub var arcCloneStub: Option[LlvmValue] = None
+    pub var arcGetStub: Option[LlvmValue] = None
+    pub var arcRefcountStub: Option[LlvmValue] = None
+    pub var arcReleaseStub: Option[LlvmValue] = None
+    pub var arcRuntimeSymbols: List[String] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

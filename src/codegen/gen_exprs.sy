@@ -8,6 +8,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub } from @codegen/gen_channel
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
+    { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -360,6 +361,53 @@ fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> O
 }
 
 fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Option[ExprResult] {
+    if isArcNewCall(data.callee) {
+        if data.args.size() != 1 { return None }
+        if !generateAllCallArgs(g, data.args) { return None }
+        return match generateArcNewStub(g) {
+            None => None
+            Some(_) => exprResultFromNode(g, node, NoConst)
+        }
+    }
+    if isArcCloneCall(data.callee, g) {
+        if data.args.size() != 0 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateArcCloneStub(g) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
+    if isArcGetCall(data.callee, g) {
+        if data.args.size() != 0 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateArcGetStub(g) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
+    if isArcRefcountCall(data.callee, g) {
+        if data.args.size() != 0 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateArcRefcountStub(g) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
     if isChannelNewCall(data.callee) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
@@ -529,7 +577,15 @@ fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[
             None => exprResultFromNode(g, node, NoConst)
             Some(init) => match generateExprNode(g, init) {
                 None => None
-                Some(_) => exprResultFromNode(g, node, NoConst)
+                Some(_) => {
+                    match checkerTypeForNode(g, nodeId(node)) {
+                        None => exprResultFromNode(g, node, NoConst)
+                        Some(t) => {
+                            if isArcType(t) { ownArcVar(g, data.name) }
+                            exprResultFromNode(g, node, NoConst)
+                        }
+                    }
+                }
             }
         }
     }

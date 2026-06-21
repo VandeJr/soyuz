@@ -11,6 +11,7 @@ import (
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { assertMsg } from @soyuz/testing
 )
 
@@ -1518,6 +1519,98 @@ test fn testSyncGuardValueWriteExprCodegen() {
         Some(_) => {
             assertMsg(g.syncGuardWriteStub != None, "sync guard write stub stored")
             assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeSet()), "srt_mutex_guard_set registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcNewEmitsSrtArcNew — Arc.new(42) call expr dispatch.
+test fn testArcNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcId = Node.Identifier(1, span, IdentifierData { name: "Arc" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: arcId, property: "new" })
+    val arg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
+    var args: List[Node] = []
+    args.append(arg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(arcClass))
+    types.set(2, Type.Class(arcClass))
+    types.set(3, IntType)
+    types.set(4, arcInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.new call codegen")
+        Some(_) => {
+            assertMsg(g.arcNewStub != None, "arc new stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeNew()), "srt_arc_new registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcCloneEmitsSrtArcClone — a.clone() call expr dispatch.
+test fn testArcCloneCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "clone" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, arcInt)
+    types.set(2, arcInt)
+    types.set(3, arcInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.clone call codegen")
+        Some(_) => {
+            assertMsg(g.arcCloneStub != None, "arc clone stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeClone()), "srt_arc_clone registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcGetEmitsSrtArcGet — a.get() call expr dispatch.
+test fn testArcGetCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "get" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, arcInt)
+    types.set(2, arcInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.get call codegen")
+        Some(_) => {
+            assertMsg(g.arcGetStub != None, "arc get stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeGet()), "srt_arc_get registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcRefcountEmitsSrtArcRefcount — a.refcount() call expr dispatch.
+test fn testArcRefcountCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "refcount" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, arcInt)
+    types.set(2, arcInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.refcount call codegen")
+        Some(_) => {
+            assertMsg(g.arcRefcountStub != None, "arc refcount stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeRefcount()), "srt_arc_refcount registered")
         }
     }
 }
