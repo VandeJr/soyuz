@@ -304,9 +304,13 @@ test fn testGenerateFuncVariantsBodyWhenGuardCreatesBlocks() {
     val g = newGenerator(cr)
     assertMsg(generateFuncVariantsBody(g, "pick"), "when-guard blocks codegen")
     assertMsg(blockNameRegistered(g, "v0_guard_ok"), "guard ok block registered")
+    assertMsg(blockNameRegistered(g, "variant_0_next"), "guard fail block registered")
     assertMsg(blockNameRegistered(g, "variant_0_body"), "guarded variant body block")
-    assertMsg(blockNameRegistered(g, "variant_0_next"), "guarded variant next block")
     assertMsg(blockNameRegistered(g, "variant_1_body"), "catchall variant body block")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "current block after variant loop")
+        Some(handle) => assertMsg(handle > 0, "current block set after variants")
+    }
 }
 
 test fn testGenerateFuncVariantsBodyLiteralParam() {
