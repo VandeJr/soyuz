@@ -39,6 +39,26 @@ pub fn isConstructorPattern(p: Pattern) -> Bool = match p {
     _ => false
 }
 
+pub fn isLiteralPattern(p: Pattern) -> Bool = match p {
+    Literal(_, _, _) => true
+    _ => false
+}
+
+pub fn isRangePattern(p: Pattern) -> Bool = match p {
+    Range(_, _, _, _, _) => true
+    _ => false
+}
+
+pub fn patternRequiresCondBr(p: Pattern) -> Bool = match p {
+    Wildcard(_, _) => false
+    Binding(_, _, _) => false
+    Literal(_, _, _) => true
+    Constructor(_, _, _, _) => true
+    Record(_, _, _, _) => false
+    Tuple(_, _, _) => false
+    Range(_, _, _, _, _) => true
+}
+
 pub fn isCatchallMatchPattern(p: Pattern) -> Bool {
     return isWildcardPattern(p)
 }
@@ -170,6 +190,35 @@ pub fn enumFieldPatternOkBlockName(variantName: String, fieldIndex: Int) -> Stri
 
 pub fn tupleElemPatternOkBlockName(index: Int) -> String {
     return "tuple_elem_$(index)_ok"
+}
+
+pub fn recordFieldPatternOkBlockName() -> String {
+    return "field_match_ok"
+}
+
+fn funcParamPatternOkBlockName(variantIdx: Int, paramIdx: Int) -> String {
+    return "v$(variantIdx)_p$(paramIdx)_ok"
+}
+
+pub record FuncParamPatternStep {
+    paramIndex: Int,
+    pattern: Pattern,
+    okBlockName: String
+}
+
+fn buildFuncParamPatternStepsLoop(params: List[FuncParam], variantIdx: Int, index: Int, steps: List[FuncParamPatternStep]) -> List[FuncParamPatternStep] {
+    if index >= params.size() { return steps }
+    var result = steps
+    result.append(FuncParamPatternStep {
+        paramIndex: index,
+        pattern: params.get(index).pattern,
+        okBlockName: funcParamPatternOkBlockName(variantIdx, index)
+    })
+    return buildFuncParamPatternStepsLoop(params, variantIdx, index + 1, result)
+}
+
+pub fn buildFuncParamPatternSteps(variantIdx: Int, params: List[FuncParam]) -> List[FuncParamPatternStep] {
+    return buildFuncParamPatternStepsLoop(params, variantIdx, 0, [])
 }
 
 pub fn matchArmPatternOkBlockName(index: Int) -> String {

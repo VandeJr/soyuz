@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
-    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode } from @codegen/gen_exprs
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk } from @codegen/gen_exprs
     { generateEnumDecl } from @codegen/gen_structs
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
@@ -48,6 +48,12 @@ test fn testTypeConstantNames() {
     val names = typeConstantNames()
     assertMsg(names.get("IntType") == "Int", "IntType maps to Int")
     assertMsg(isArithmeticBinaryOp("+"), "plus is arithmetic")
+}
+
+test fn testLiteralPatternValueOk() {
+    assertMsg(literalPatternValueOk(LiteralPatternValue.Int("42")), "int literal ok")
+    assertMsg(!literalPatternValueOk(LiteralPatternValue.Int("")), "empty int invalid")
+    assertMsg(literalPatternValueOk(LiteralPatternValue.Bool(true)), "bool literal ok")
 }
 
 fn exprTestCheckResult() -> CheckResult = CheckResult {

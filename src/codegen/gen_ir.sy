@@ -1,0 +1,41 @@
+import (
+    { Generator } from @codegen/generator
+    { LlvmBasicBlock } from @codegen/llvm_types
+)
+
+fn blockNameUseCount(g: Generator, name: String) -> Int {
+    for k in g.blockNames.keys() {
+        if k == name { return g.blockNames.get(name) }
+    }
+    return 0
+}
+
+fn recordBlockNameUse(g: Generator, name: String) {
+    val count = blockNameUseCount(g, name)
+    g.blockNames.set(name, count + 1)
+}
+
+pub fn blockNameWithSuffix(name: String, count: Int) -> String {
+    if count == 0 { return name }
+    return "$(name)_$(count)"
+}
+
+pub fn uniqueBlockName(g: Generator, name: String) -> String {
+    return blockNameWithSuffix(name, blockNameUseCount(g, name))
+}
+
+pub fn newBlock(g: Generator, name: String) -> LlvmBasicBlock {
+    val block = LlvmBasicBlock { handle: g.blockHandleCounter + 1 }
+    g.blockHandleCounter = g.blockHandleCounter + 1
+    recordBlockNameUse(g, name)
+    return block
+}
+
+pub fn setCurrentBlock(g: Generator, block: LlvmBasicBlock) {
+    g.current = Some(block)
+}
+
+pub fn currentBlockHandle(g: Generator) -> Option[Int] = match g.current {
+    None => None
+    Some(block) => Some(block.handle)
+}

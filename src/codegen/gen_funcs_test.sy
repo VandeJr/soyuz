@@ -4,6 +4,7 @@ import (
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
     { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -253,6 +254,10 @@ test fn testGenerateFuncVariantsBodyLiteralParam() {
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
     assertMsg(generateFuncVariantsBody(g, "pick"), "literal param pattern variant body codegen")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block after param pattern dispatch")
+        Some(handle) => assertMsg(handle > 0, "param pattern sets current block")
+    }
 }
 
 test fn testShouldSkipFuncVariantsTestInNormalBuild() {

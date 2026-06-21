@@ -6,7 +6,9 @@ import (
     { generateStmtNode } from @codegen/gen_control
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl } from @codegen/gen_structs
-    { funcParamPatternsSupported } from @codegen/gen_patterns
+    { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternSupported } from @codegen/gen_patterns
+    { literalPatternValueOk } from @codegen/gen_exprs
+    { newBlock, setCurrentBlock } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { LlvmType } from @codegen/llvm_types
 )
@@ -211,8 +213,27 @@ pub fn buildFuncVariantPlans(g: Generator, name: String) -> List[FuncVariantPlan
     return buildFuncVariantPlansLoop(sorted, 0, [])
 }
 
+fn generateFuncParamPatternStep(g: Generator, step: FuncParamPatternStep) -> Bool {
+    if !matchPatternSupported(g, step.pattern) { return false }
+    val ok = match step.pattern {
+        Literal(_, _, value) => literalPatternValueOk(value)
+        _ => true
+    }
+    if !ok { return false }
+    setCurrentBlock(g, newBlock(g, step.okBlockName))
+    return true
+}
+
+fn generateFuncParamPatternStepsLoop(g: Generator, steps: List[FuncParamPatternStep], index: Int) -> Bool {
+    if index >= steps.size() { return true }
+    if !generateFuncParamPatternStep(g, steps.get(index)) { return false }
+    return generateFuncParamPatternStepsLoop(g, steps, index + 1)
+}
+
 fn generateFuncVariantParamPatterns(g: Generator, plan: FuncVariantPlan) -> Bool {
-    return funcParamPatternsSupported(g, plan.variant.params)
+    if !funcParamPatternsSupported(g, plan.variant.params) { return false }
+    val steps = buildFuncParamPatternSteps(plan.index, plan.variant.params)
+    return generateFuncParamPatternStepsLoop(g, steps, 0)
 }
 
 pub fn shouldSkipFuncVariants(g: Generator, name: String, variants: List[FuncDeclData]) -> Bool {

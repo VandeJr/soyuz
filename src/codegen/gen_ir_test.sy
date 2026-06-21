@@ -1,0 +1,43 @@
+import (
+    { FuncDeclData, Node } from @ast/ast
+    { CheckResult, FuncType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle } from @codegen/gen_ir
+    { assertMsg } from @soyuz/testing
+)
+
+fn irTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testBlockNameWithSuffix() {
+    assertMsg(blockNameWithSuffix("entry", 0) == "entry", "first block keeps name")
+    assertMsg(blockNameWithSuffix("entry", 1) == "entry_1", "second block suffix")
+}
+
+test fn testNewBlockAssignsUniqueHandles() {
+    val g = newGenerator(irTestCheckResult())
+    val first = newBlock(g, "v0_p0_ok")
+    val second = newBlock(g, "v0_p0_ok")
+    assertMsg(first.handle != second.handle, "duplicate names get unique handles")
+    assertMsg(uniqueBlockName(g, "v0_p0_ok") == "v0_p0_ok_1", "unique name after one use")
+}
+
+test fn testSetCurrentBlock() {
+    val g = newGenerator(irTestCheckResult())
+    val block = newBlock(g, "variant_0_body")
+    setCurrentBlock(g, block)
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block handle")
+        Some(handle) => assertMsg(handle == block.handle, "current block handle")
+    }
+}

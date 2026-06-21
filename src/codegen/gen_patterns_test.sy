@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -240,4 +240,24 @@ test fn testPatternMatchBlockNames() {
     assertMsg(rangePatternGeBlockName() == "range_ge", "range ge block")
     assertMsg(enumFieldPatternOkBlockName("Some", 0) == "enum_Some_field_0_ok", "enum field ok block")
     assertMsg(tupleElemPatternOkBlockName(1) == "tuple_elem_1_ok", "tuple elem ok block")
+}
+
+test fn testPatternRequiresCondBr() {
+    val span = patternsZeroSpan()
+    assertMsg(!patternRequiresCondBr(Pattern.Wildcard(0, span)), "wildcard unconditional")
+    assertMsg(!patternRequiresCondBr(Pattern.Binding(1, span, "x")), "binding unconditional")
+    assertMsg(patternRequiresCondBr(Pattern.Literal(2, span, LiteralPatternValue.Int("1"))), "literal conditional")
+    assertMsg(patternRequiresCondBr(Pattern.Constructor(3, span, "Some", [])), "constructor conditional")
+}
+
+test fn testBuildFuncParamPatternSteps() {
+    val span = patternsZeroSpan()
+    val literalParam = FuncParam { span: span, pattern: Pattern.Literal(0, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }
+    val bindingParam = FuncParam { span: span, pattern: Pattern.Binding(1, span, "x"), typeExpr: None, defaultExpr: None }
+    val steps = buildFuncParamPatternSteps(0, [literalParam, bindingParam])
+    assertMsg(steps.size() == 2, "two param pattern steps")
+    assertMsg(steps.get(0).okBlockName == "v0_p0_ok", "first param ok block")
+    assertMsg(steps.get(1).okBlockName == "v0_p1_ok", "second param ok block")
+    assertMsg(isLiteralPattern(steps.get(0).pattern), "first step literal pattern")
+    assertMsg(isBindingPattern(steps.get(1).pattern), "second step binding pattern")
 }

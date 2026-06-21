@@ -1,5 +1,5 @@
 import (
-    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
@@ -147,6 +147,17 @@ pub fn evalConstExpr(node: Node) -> Option[ConstValue] = match node {
     BinaryExpr(_, _, data) => evalConstBinary(data)
     UnaryExpr(_, _, data) => evalConstUnary(data)
     _ => constFromLiteralNode(node)
+}
+
+pub fn literalPatternValueOk(v: LiteralPatternValue) -> Bool = match v {
+    Int(s) => match parseIntLiteralText(s) {
+        None => false
+        Some(_) => true
+    }
+    Float(_) => true
+    String(_) => true
+    Char(_) => true
+    Bool(_) => true
 }
 
 pub fn checkerTypeForNode(g: Generator, id: Int) -> Option[Type] {
