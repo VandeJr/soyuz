@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl, generateRecordDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, tuplePatternElemSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
     { mapTypeToLLVM } from @codegen/gen_types
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
@@ -309,6 +309,14 @@ test fn testRecordPatternFieldSlotType() {
     assertMsg(llvmTypesEqual(recordPatternFieldSlotType(g, false, pointType, "Point", "x"), llvmI64()), "x from struct info without subject")
 }
 
+test fn testTuplePatternElemSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val tupleType = Type.Tuple([IntType, Type.Basic("Float")])
+    assertMsg(llvmTypesEqual(tuplePatternElemSlotType(g, true, tupleType, 0), llvmI64()), "tuple elem 0 from checker")
+    assertMsg(llvmTypesEqual(tuplePatternElemSlotType(g, true, tupleType, 1), llvmF64()), "tuple elem 1 from checker")
+    assertMsg(llvmTypesEqual(tuplePatternElemSlotType(g, false, tupleType, 0), llvmI64()), "no subject defaults to i64")
+}
+
 test fn testMatchPatternDispatchWildcard() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
@@ -394,7 +402,10 @@ test fn testMatchPatternDispatchTupleElements() {
     val a = Pattern.Binding(3, span, "a")
     val b = Pattern.Binding(4, span, "b")
     val pat = Pattern.Tuple(2, span, [a, b])
+    val tupleType = Type.Tuple([IntType, Type.Basic("Float")])
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "tuple (a,b) dispatch")
     assertMsg(blockNameRegistered(g, "tuple_elem_0_ok"), "first tuple elem ok block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "tuple final then block")
+    val g2 = newGenerator(patternsEmptyCheckResult())
+    assertMsg(matchPatternDispatchWithSubject(g2, pat, tupleType, "match_arm_0_pattern_ok", "match_arm_0_next"), "tuple with subject dispatch")
 }

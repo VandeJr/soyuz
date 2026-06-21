@@ -427,6 +427,34 @@ pub fn recordPatternFieldSlotType(g: Generator, hasSubject: Bool, subjectType: T
     return recordPatternFieldSlotTypeFallback(g, hasSubject, subjectType, recordName, fieldName)
 }
 
+fn checkerTupleElemType(subjectType: Type, index: Int) -> Option[Type] {
+    return match subjectType {
+        Tuple(elements) => {
+            if index >= elements.size() { return None }
+            return Some(elements.get(index))
+        }
+        _ => None
+    }
+}
+
+fn tuplePatternElemSubjectType(hasSubject: Bool, subjectType: Type, index: Int) -> Type {
+    if !hasSubject { return subjectType }
+    return match checkerTupleElemType(subjectType, index) {
+        None => subjectType
+        Some(elemType) => elemType
+    }
+}
+
+pub fn tuplePatternElemSlotType(g: Generator, hasSubject: Bool, subjectType: Type, index: Int) -> LlvmType {
+    if hasSubject {
+        return match checkerTupleElemType(subjectType, index) {
+            Some(elemType) => mapTypeToLLVM(g, elemType)
+            None => patternBindingSlotType(g, hasSubject, subjectType)
+        }
+    }
+    return patternBindingSlotType(g, hasSubject, subjectType)
+}
+
 pub fn registerPatternBinding(g: Generator, name: String, slotType: LlvmType) -> Bool {
     g.vars.set(name, newAlloca(g, slotType))
     return true
@@ -522,8 +550,9 @@ fn matchPatternTupleElemThenBlock(index: Int, elemCount: Int, thenBlockName: Str
 fn matchPatternTupleElementsLoop(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= elements.size() { return true }
     val elemThen = matchPatternTupleElemThenBlock(index, elements.size(), thenBlockName)
+    val elemSubjectType = tuplePatternElemSubjectType(hasSubject, subjectType, index)
     val dispatched = match hasSubject {
-        true => matchPatternDispatchWithSubject(g, elements.get(index), subjectType, elemThen, nextBlockName)
+        true => matchPatternDispatchWithSubject(g, elements.get(index), elemSubjectType, elemThen, nextBlockName)
         false => matchPatternDispatchNoSubject(g, elements.get(index), elemThen, nextBlockName)
     }
     if !dispatched { return false }
