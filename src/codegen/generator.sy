@@ -128,6 +128,7 @@ pub class Generator {
     pub var channelRecvNoneResult: Option[LlvmValue] = None
     pub var channelRecvPhiResult: Option[LlvmValue] = None
     pub var channelRecvTryMode: Bool = false
+    pub var channelCloseStub: Option[LlvmValue] = None
     pub var channelRuntimeSymbols: List[String] = []
 }
 

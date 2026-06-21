@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { blockNameRegistered } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -119,6 +119,30 @@ test fn testIsChannelTryRecvCall() {
     assertMsg(isChannelTryRecvCall(tryRecvMember, g), "ch.tryRecv on Channel[Int]")
     val recvMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "recv" })
     assertMsg(!isChannelTryRecvCall(recvMember, g), "ch.recv not tryRecv")
+}
+
+test fn testIsChannelCloseCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelEmptyClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val closeMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "close" })
+    var cr = channelEmptyCheckResult()
+    cr.nodeTypes.append(Some(channelInt))
+    cr.nodeTypes.append(Some(channelInt))
+    val g = newGenerator(cr)
+    assertMsg(isChannelCloseCall(closeMember, g), "ch.close on Channel[Int]")
+    val sendMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "send" })
+    assertMsg(!isChannelCloseCall(sendMember, g), "ch.send not close")
+}
+
+test fn testGenerateChannelCloseStub() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateChannelCloseStub(g) {
+        None => assertMsg(false, "channel close stub")
+        Some(_) => assertMsg(g.channelCloseStub != None, "stub stored on generator")
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeClose()), "srt_chan_close registered")
 }
 
 test fn testGenerateChannelTryRecvStub() {

@@ -9,7 +9,7 @@ import (
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
-    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -1299,6 +1299,29 @@ test fn testChannelTryRecvCallExprCodegen() {
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeTryRecv()), "srt_chan_try_recv registered")
             assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
             assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelCloseEmitsSrtChanClose — ch.close() call expr dispatch.
+test fn testChannelCloseCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "close" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.close() codegen")
+        Some(_) => {
+            assertMsg(g.channelCloseStub != None, "channel close stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeClose()), "srt_chan_close registered")
         }
     }
 }

@@ -92,6 +92,10 @@ pub fn isChannelTryRecvCall(callee: Node, g: Generator) -> Bool {
     return isChannelInstanceMethodCall(callee, g, "tryRecv")
 }
 
+pub fn isChannelCloseCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "close")
+}
+
 pub fn chanSomeBlockName() -> String {
     return "chan_some"
 }
@@ -169,4 +173,11 @@ pub fn generateChannelRecvStub(g: Generator, tryMode: Bool) -> Option[LlvmValue]
     val phi = stubLlvmValue(g)
     g.channelRecvPhiResult = Some(phi)
     return Some(phi)
+}
+
+pub fn generateChannelCloseStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeClose())
+    val stub = stubLlvmValue(g)
+    g.channelCloseStub = Some(stub)
+    return Some(stub)
 }
