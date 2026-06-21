@@ -570,10 +570,12 @@ test fn testMatchPatternDispatchTupleElements() {
     assertMsg(blockNameRegistered(g, "tuple_elem_0_ok"), "first tuple elem ok block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "tuple final then block")
     assertMsg(g.tuplePatternElemLoads.size() == 0, "no elem loads without subject")
+    assertMsg(g.tuplePatternElemStores.size() == 0, "no elem stores without subject")
     val g2 = newGenerator(patternsEmptyCheckResult())
     val handlesBefore = g2.valueHandleCounter
     assertMsg(matchPatternDispatchWithSubject(g2, pat, tupleType, "match_arm_0_pattern_ok", "match_arm_0_next"), "tuple with subject dispatch")
     assertMsg(g2.tuplePatternSubject != None, "tuple subject stub")
     assertMsg(g2.tuplePatternElemLoads.size() == 2, "elem load per tuple binding")
+    assertMsg(g2.tuplePatternElemStores.size() == 2, "elem store per tuple binding")
     assertMsg(g2.valueHandleCounter > handlesBefore + 4, "subject plus elem gep/load stubs")
 }

@@ -817,6 +817,7 @@ fn matchPatternTupleElemThenBlock(index: Int, elemCount: Int, thenBlockName: Str
 fn clearTuplePatternElemStubs(g: Generator) {
     g.tuplePatternSubject = None
     g.tuplePatternElemLoads = []
+    g.tuplePatternElemStores = []
 }
 
 fn emitTuplePatternSubjectStub(g: Generator, hasSubject: Bool) -> Bool {
@@ -838,19 +839,53 @@ fn emitTupleElemLoadStub(g: Generator) -> LlvmValue {
     return elemVal
 }
 
+fn appendTuplePatternElemStore(g: Generator, elemVal: LlvmValue) {
+    var stores = g.tuplePatternElemStores
+    stores.append(elemVal)
+    g.tuplePatternElemStores = stores
+}
+
+fn registerTupleBindingFromLoad(g: Generator, name: String, loaded: LlvmValue, slotType: LlvmType) -> Bool {
+    val alloca = newAlloca(g, slotType)
+    emitStoreStub(g, loaded, alloca)
+    appendTuplePatternElemStore(g, loaded)
+    g.vars.set(name, alloca)
+    return true
+}
+
+fn matchPatternTupleBindingDispatch(g: Generator, name: String, hasSubject: Bool, subjectType: Type, index: Int, elemThen: String) -> Bool {
+    val slotType = tuplePatternElemSlotType(g, hasSubject, subjectType, index)
+    if hasSubject {
+        val loaded = emitTupleElemLoadStub(g)
+        if !registerTupleBindingFromLoad(g, name, loaded, slotType) { return false }
+    } else {
+        if !registerPatternBinding(g, name, slotType) { return false }
+    }
+    return matchPatternAdvance(g, elemThen)
+}
+
 fn matchPatternTupleElementsLoop(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= elements.size() { return true }
+    val elem = elements.get(index)
     val elemThen = matchPatternTupleElemThenBlock(index, elements.size(), thenBlockName)
     val elemSubjectType = tuplePatternElemSubjectType(hasSubject, subjectType, index)
-    if hasSubject {
-        emitTupleElemLoadStub(g)
+    return match elem {
+        Binding(_, _, name) => {
+            if !matchPatternTupleBindingDispatch(g, name, hasSubject, subjectType, index, elemThen) { return false }
+            matchPatternTupleElementsLoop(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+        }
+        _ => {
+            if hasSubject {
+                emitTupleElemLoadStub(g)
+            }
+            val dispatched = match hasSubject {
+                true => matchPatternDispatchWithSubject(g, elem, elemSubjectType, elemThen, nextBlockName)
+                false => matchPatternDispatchNoSubject(g, elem, elemThen, nextBlockName)
+            }
+            if !dispatched { return false }
+            matchPatternTupleElementsLoop(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+        }
     }
-    val dispatched = match hasSubject {
-        true => matchPatternDispatchWithSubject(g, elements.get(index), elemSubjectType, elemThen, nextBlockName)
-        false => matchPatternDispatchNoSubject(g, elements.get(index), elemThen, nextBlockName)
-    }
-    if !dispatched { return false }
-    return matchPatternTupleElementsLoop(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
 }
 
 fn matchPatternTupleDispatch(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
