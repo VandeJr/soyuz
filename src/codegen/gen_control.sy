@@ -46,15 +46,29 @@ fn exprGeneratesOk(g: Generator, node: Node) -> Bool {
     }
 }
 
-fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[StmtResult] {
-    for stmt in data.statements {
-        val ok = match generateStmtNode(g, stmt) {
-            None => false
-            Some(_) => true
+pub enum BlockStep {
+    Failed
+    Continue
+    Done(r: StmtResult)
+}
+
+fn generateBlockStmts(g: Generator, stmts: List[Node], index: Int) -> BlockStep {
+    if index >= stmts.size() { return Continue }
+    return match generateStmtNode(g, stmts.get(index)) {
+        None => Failed
+        Some(r) => {
+            if hasTerminator(r) { return Done(r) }
+            return generateBlockStmts(g, stmts, index + 1)
         }
-        if !ok { return None }
     }
-    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[StmtResult] {
+    return match generateBlockStmts(g, data.statements, 0) {
+        Failed => None
+        Continue => stmtResultFromNode(g, node, NoTerminator)
+        Done(r) => Some(r)
+    }
 }
 
 fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResult] {

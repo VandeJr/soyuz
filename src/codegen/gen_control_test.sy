@@ -181,3 +181,19 @@ test fn testGenerateBreakValueRequiredInValueLoop() {
     val g = newGenerator(controlCheckerWithNodeTypes(types))
     assertMsg(generateStmtNode(g, loopNode) == None, "break without value in value loop fails")
 }
+
+test fn testGenerateBlockStopsOnReturn() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(2, span, ReturnStmtData { value: None })
+    val dead = Node.IntLiteral(3, span, IntLiteralData { value: "99" })
+    val block = Node.BlockStmt(1, span, BlockStmtData { statements: [ret, dead] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    types.set(2, UnitType)
+    types.set(3, IntType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, block) {
+        None => assertMsg(false, "expected block with return")
+        Some(r) => assertMsg(hasTerminator(r), "block stops at return")
+    }
+}

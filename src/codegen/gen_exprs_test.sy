@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, CharType, StringType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode } from @codegen/gen_exprs
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -232,5 +232,45 @@ test fn testGenerateExprNodeUnaryMinus() {
                 _ => assertMsg(false, "expected HasValue IntVal -7")
             }
         }
+    }
+}
+
+test fn testGenerateVarDeclNode() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 10 }
+    val init = Node.IntLiteral(2, span, IntLiteralData { value: "0" })
+    val node = Node.VarDecl(1, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Var,
+        name: "x",
+        pattern: None,
+        typeExpr: None,
+        init: Some(init)
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isVarDeclNode(node), "var decl")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected var decl result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "var x -> i64")
+    }
+}
+
+test fn testGenerateAssignExprNode() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 6 }
+    val left = Node.Identifier(2, span, IdentifierData { name: "x" })
+    val right = Node.IntLiteral(3, span, IntLiteralData { value: "20" })
+    val node = Node.AssignExpr(4, span, AssignExprData { left: left, right: right })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isAssignNode(node), "assign expr")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected assign result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "assign -> i64")
     }
 }

@@ -1,5 +1,5 @@
 import (
-    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
@@ -235,6 +235,26 @@ fn generateIndexExprResult(g: Generator, node: Node, data: IndexExprData) -> Opt
     }
 }
 
+fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[ExprResult] {
+    match data.pattern {
+        Some(_) => None
+        None => match data.init {
+            None => exprResultFromNode(g, node, NoConst)
+            Some(init) => match generateExprNode(g, init) {
+                None => None
+                Some(_) => exprResultFromNode(g, node, NoConst)
+            }
+        }
+    }
+}
+
+fn generateAssignExprResult(g: Generator, node: Node, data: AssignExprData) -> Option[ExprResult] {
+    return match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
+        (Some(_), Some(_)) => exprResultFromNode(g, node, NoConst)
+        _ => None
+    }
+}
+
 pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match node {
     IntLiteral(_, _, _) => generateLiteralExprResult(g, node)
     FloatLiteral(_, _, _) => generateLiteralExprResult(g, node)
@@ -246,7 +266,19 @@ pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match 
     Identifier(_, _, data) => generateIdentifierExprResult(g, node, data)
     CallExpr(_, _, data) => generateCallExprResult(g, node, data)
     IndexExpr(_, _, data) => generateIndexExprResult(g, node, data)
+    VarDecl(_, _, data) => generateVarDeclResult(g, node, data)
+    AssignExpr(_, _, data) => generateAssignExprResult(g, node, data)
     _ => None
+}
+
+pub fn isVarDeclNode(node: Node) -> Bool = match node {
+    VarDecl(_, _, _) => true
+    _ => false
+}
+
+pub fn isAssignNode(node: Node) -> Bool = match node {
+    AssignExpr(_, _, _) => true
+    _ => false
 }
 
 pub fn isUnaryNode(node: Node) -> Bool = match node {
