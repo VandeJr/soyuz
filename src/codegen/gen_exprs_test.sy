@@ -1782,3 +1782,37 @@ test fn testTaskAllCallExprCodegen() {
         }
     }
 }
+
+// Port of m18_task_fan_test.go TestTaskFanEmitsMultipleEnqueueAndWrappers — Task.fan(n, f, g) dispatch.
+test fn testTaskFanCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "fan" })
+    val input = Node.IntLiteral(3, span, IntLiteralData { value: "5" })
+    val f1 = Node.Identifier(4, span, IdentifierData { name: "double" })
+    val f2 = Node.Identifier(5, span, IdentifierData { name: "triple" })
+    var args: List[Node] = []
+    args.append(input)
+    args.append(f1)
+    args.append(f2)
+    val call = Node.CallExpr(6, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(taskClass))
+    types.set(2, Type.Class(taskClass))
+    types.set(3, IntType)
+    types.set(4, Type.Basic("Unit"))
+    types.set(5, Type.Basic("Unit"))
+    types.set(6, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Task.fan call codegen")
+        Some(_) => {
+            assertMsg(g.taskFanStub != None, "task fan stub stored")
+            assertMsg(g.taskFanFnCount == 2, "two fan functions")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+        }
+    }
+}

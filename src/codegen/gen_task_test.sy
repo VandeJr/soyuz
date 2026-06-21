@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, generateTaskAllStub, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -167,6 +167,47 @@ test fn testGenerateTaskAllStub() {
         }
     }
     assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+}
+
+test fn testIsTaskFanCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val fanMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "fan" })
+    assertMsg(isTaskStaticFan("Task", "fan"), "Task.fan static")
+    assertMsg(isTaskFanCall(fanMember), "Task.fan call")
+    assertMsg(!isTaskFanCall(Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "all" })), "Task.all not fan")
+}
+
+test fn testTaskFanFnArgsValid() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val input = Node.IntLiteral(1, span, IntLiteralData { value: "5" })
+    val f1 = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val f2 = Node.Identifier(3, span, IdentifierData { name: "triple" })
+    var args: List[Node] = []
+    args.append(input)
+    args.append(f1)
+    args.append(f2)
+    assertMsg(taskFanFnArgsValid(args), "input plus two fn ids")
+    var badArgs: List[Node] = []
+    badArgs.append(input)
+    badArgs.append(input)
+    assertMsg(!taskFanFnArgsValid(badArgs), "second arg must be fn id")
+}
+
+test fn testGenerateTaskFanStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskFanStub(g, 2) {
+        None => assertMsg(false, "task fan stub")
+        Some(_) => {
+            assertMsg(g.taskFanStub != None, "fan stub stored")
+            assertMsg(g.taskFanFnCount == 2, "fn count stored")
+            assertMsg(g.taskLastWrapperName != None, "wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
     assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
 }
 

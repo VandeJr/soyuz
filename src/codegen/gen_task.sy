@@ -45,6 +45,34 @@ pub fn isTaskAllCombinatorCall(callee: Node) -> Bool = match callee {
     _ => false
 }
 
+pub fn isTaskStaticFan(typeName: String, methodName: String) -> Bool {
+    return typeName == "Task" && methodName == "fan"
+}
+
+pub fn isTaskFanCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isTaskStaticFan(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isTaskFanFnArg(arg: Node) -> Bool = match arg {
+    Identifier(_, _, _) => true
+    _ => false
+}
+
+pub fn taskFanFnArgsValid(args: List[Node]) -> Bool {
+    if args.size() < 2 { return false }
+    var i = 1
+    loop {
+        if i >= args.size() { break }
+        if !isTaskFanFnArg(args.get(i)) { return false }
+        i = i + 1
+    }
+    return true
+}
+
 fn taskCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
     if id >= g.check.nodeTypes.size() { return None }
     return g.check.nodeTypes.get(id)
@@ -152,6 +180,18 @@ pub fn generateTaskAllStub(g: Generator, argCount: Int) -> Option[LlvmValue] {
     g.taskAllArgCount = argCount
     val stub = stubLlvmValue(g)
     g.taskAllStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskFanStub(g: Generator, fnCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
+    g.taskFanFnCount = fnCount
+    g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskFanStub = Some(stub)
     return Some(stub)
 }
 
