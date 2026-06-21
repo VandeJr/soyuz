@@ -1,9 +1,10 @@
 import (
     { Type } from @checker/types
-    { Pattern, MatchArm, MatchExprData, RecordPatternField, FuncParam } from @ast/ast
+    { Pattern, MatchArm, MatchExprData, RecordPatternField, FuncParam, LiteralPatternValue } from @ast/ast
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
+    { newBlock, setCurrentBlock } from @codegen/gen_ir
     { LlvmType, llvmI64, llvmI8Ptr, llvmStructType } from @codegen/llvm_types
 )
 
@@ -368,4 +369,70 @@ fn resolveSpecializedPayloadLlvm(g: Generator, variantName: String, params: List
         return Some(llvmI8Ptr())
     }
     return noneLlvmTypeOption()
+}
+
+fn matchPatternAdvance(g: Generator, thenBlockName: String) -> Bool {
+    setCurrentBlock(g, newBlock(g, thenBlockName))
+    return true
+}
+
+fn literalPatternDispatchOk(v: LiteralPatternValue) -> Bool = match v {
+    Int(s) => s != ""
+    Float(_) => true
+    String(_) => true
+    Char(_) => true
+    Bool(_) => true
+}
+
+fn matchPatternConstructorDispatch(g: Generator, name: String, args: List[Pattern], subjectType: Type, thenBlockName: String) -> Bool {
+    return match enumVariantForPattern(g, name, Some(subjectType)) {
+        None => false
+        Some(lookup) => {
+            if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
+            setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
+            matchPatternAdvance(g, thenBlockName)
+        }
+    }
+}
+
+fn matchPatternConstructorDispatchNoSubject(g: Generator, name: String, args: List[Pattern], thenBlockName: String) -> Bool {
+    return match enumVariantForPattern(g, name, None) {
+        None => false
+        Some(lookup) => {
+            if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
+            setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
+            matchPatternAdvance(g, thenBlockName)
+        }
+    }
+}
+
+fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
+    Wildcard(_, _) => matchPatternAdvance(g, thenBlockName)
+    Binding(_, _, _) => matchPatternAdvance(g, thenBlockName)
+    Literal(_, _, value) => {
+        if !literalPatternDispatchOk(value) { return false }
+        return matchPatternAdvance(g, thenBlockName)
+    }
+    Constructor(_, _, name, args) => {
+        if hasSubject {
+            return matchPatternConstructorDispatch(g, name, args, subjectType, thenBlockName)
+        }
+        return matchPatternConstructorDispatchNoSubject(g, name, args, thenBlockName)
+    }
+    Record(_, _, _, _) => matchPatternAdvance(g, thenBlockName)
+    Tuple(_, _, _) => matchPatternAdvance(g, thenBlockName)
+    Range(_, _, _, _, _) => {
+        newBlock(g, rangePatternGeBlockName())
+        matchPatternAdvance(g, thenBlockName)
+    }
+}
+
+pub fn matchPatternDispatchNoSubject(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String) -> Bool {
+    if !matchPatternSupported(g, pat) { return false }
+    return matchPatternDispatchBody(g, pat, thenBlockName, nextBlockName, false, Type.Basic("Unknown"))
+}
+
+pub fn matchPatternDispatchWithSubject(g: Generator, pat: Pattern, subjectType: Type, thenBlockName: String, nextBlockName: String) -> Bool {
+    if !matchPatternSupportedWithType(g, pat, subjectType) { return false }
+    return matchPatternDispatchBody(g, pat, thenBlockName, nextBlockName, true, subjectType)
 }

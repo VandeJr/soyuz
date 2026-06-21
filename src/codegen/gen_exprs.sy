@@ -5,7 +5,7 @@ import (
     { Generator } from @codegen/generator
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternSupported, matchPatternSupportedWithType } from @codegen/gen_patterns
+    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
     { newBlock, setCurrentBlock } from @codegen/gen_ir
 )
 
@@ -279,7 +279,7 @@ fn generateMatchGuardFromArm(g: Generator, matchArm: MatchArm) -> Bool = match m
 fn generateMatchArmBlocks(g: Generator, plan: MatchArmPlan) -> Bool {
     newBlock(g, plan.nextBlockName)
     newBlock(g, plan.bodyBlockName)
-    setCurrentBlock(g, newBlock(g, plan.patternOkBlockName))
+    newBlock(g, plan.patternOkBlockName)
     return true
 }
 
@@ -288,13 +288,14 @@ fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: I
     if index >= plans.size() { return true }
     val plan = plans.get(index)
     if !generateMatchArmBlocks(g, plan) { return false }
-    val subjectType = checkerTypeForNode(g, nodeId(data.subject))
-    val supported = match subjectType {
-        None => matchPatternSupported(g, plan.matchArm.pattern)
-        Some(t) => matchPatternSupportedWithType(g, plan.matchArm.pattern, t)
+    val subjectId = nodeId(data.subject)
+    val dispatched = match checkerTypeForNode(g, subjectId) {
+        None => matchPatternDispatchNoSubject(g, plan.matchArm.pattern, plan.patternOkBlockName, plan.nextBlockName)
+        Some(st) => matchPatternDispatchWithSubject(g, plan.matchArm.pattern, st, plan.patternOkBlockName, plan.nextBlockName)
     }
-    if !supported { return false }
+    if !dispatched { return false }
     if !generateMatchGuardFromArm(g, plan.matchArm) { return false }
+    setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
     match generateExprNode(g, plan.matchArm.body) {
         None => false
         Some(_) => generateMatchArmsLoop(g, node, data, index + 1)

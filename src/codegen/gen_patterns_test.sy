@@ -3,7 +3,8 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -260,4 +261,34 @@ test fn testBuildFuncParamPatternSteps() {
     assertMsg(steps.get(1).okBlockName == "v0_p1_ok", "second param ok block")
     assertMsg(isLiteralPattern(steps.get(0).pattern), "first step literal pattern")
     assertMsg(isBindingPattern(steps.get(1).pattern), "second step binding pattern")
+}
+
+test fn testMatchPatternDispatchWildcard() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val pat = Pattern.Wildcard(0, span)
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "wildcard dispatch")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block after wildcard dispatch")
+        Some(handle) => assertMsg(handle > 0, "current block handle set")
+    }
+}
+
+test fn testMatchPatternDispatchConstructor() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    val pat = Pattern.Constructor(2, span, "Verde", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    assertMsg(matchPatternDispatchWithSubject(g, pat, corType, "match_arm_0_pattern_ok", "match_arm_0_next"), "constructor dispatch")
+    assertMsg(blockNameRegistered(g, "match_Verde_ok"), "constructor ok block registered")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
 }

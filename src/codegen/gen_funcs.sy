@@ -6,8 +6,7 @@ import (
     { generateStmtNode } from @codegen/gen_control
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl } from @codegen/gen_structs
-    { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternSupported } from @codegen/gen_patterns
-    { literalPatternValueOk } from @codegen/gen_exprs
+    { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
     { newBlock, setCurrentBlock } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { LlvmType } from @codegen/llvm_types
@@ -213,27 +212,20 @@ pub fn buildFuncVariantPlans(g: Generator, name: String) -> List[FuncVariantPlan
     return buildFuncVariantPlansLoop(sorted, 0, [])
 }
 
-fn generateFuncParamPatternStep(g: Generator, step: FuncParamPatternStep) -> Bool {
-    if !matchPatternSupported(g, step.pattern) { return false }
-    val ok = match step.pattern {
-        Literal(_, _, value) => literalPatternValueOk(value)
-        _ => true
-    }
-    if !ok { return false }
-    setCurrentBlock(g, newBlock(g, step.okBlockName))
-    return true
+fn generateFuncParamPatternStep(g: Generator, step: FuncParamPatternStep, variantNextName: String) -> Bool {
+    return matchPatternDispatchNoSubject(g, step.pattern, step.okBlockName, variantNextName)
 }
 
-fn generateFuncParamPatternStepsLoop(g: Generator, steps: List[FuncParamPatternStep], index: Int) -> Bool {
+fn generateFuncParamPatternStepsLoop(g: Generator, steps: List[FuncParamPatternStep], index: Int, variantNextName: String) -> Bool {
     if index >= steps.size() { return true }
-    if !generateFuncParamPatternStep(g, steps.get(index)) { return false }
-    return generateFuncParamPatternStepsLoop(g, steps, index + 1)
+    if !generateFuncParamPatternStep(g, steps.get(index), variantNextName) { return false }
+    return generateFuncParamPatternStepsLoop(g, steps, index + 1, variantNextName)
 }
 
 fn generateFuncVariantParamPatterns(g: Generator, plan: FuncVariantPlan) -> Bool {
     if !funcParamPatternsSupported(g, plan.variant.params) { return false }
     val steps = buildFuncParamPatternSteps(plan.index, plan.variant.params)
-    return generateFuncParamPatternStepsLoop(g, steps, 0)
+    return generateFuncParamPatternStepsLoop(g, steps, 0, plan.nextBlockName)
 }
 
 pub fn shouldSkipFuncVariants(g: Generator, name: String, variants: List[FuncDeclData]) -> Bool {
