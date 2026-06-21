@@ -6,7 +6,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { recordFieldLlvmType } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca } from @codegen/gen_ir
-    { LlvmType, llvmI64, llvmI8Ptr, llvmStructType } from @codegen/llvm_types
+    { LlvmType, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
 pub record EnumVariantLookup {
@@ -354,6 +354,19 @@ pub fn resolveEnumPayloadType(g: Generator, vi: VariantInfo, variantName: String
     }
 }
 
+pub fn resolveEnumPayloadTypeWithChecker(g: Generator, vi: VariantInfo, variantName: String, subjectType: Type) -> LlvmType {
+    match vi.payloadType {
+        Some(ty) => ty
+        None => match resolveEnumPayloadFromFields(g, vi, variantName) {
+            Some(ty) => ty
+            None => match resolveSpecializedPayloadType(g, variantName, subjectType) {
+                Some(ty) => ty
+                None => llvmI64()
+            }
+        }
+    }
+}
+
 fn resolveEnumPayloadFromFields(g: Generator, vi: VariantInfo, variantName: String) -> Option[LlvmType] {
     if vi.fields.size() > 1 {
         return Some(llvmStructType("", vi.fields))
@@ -544,6 +557,44 @@ pub fn constructorPatternArgSubjectType(hasSubject: Bool, subjectType: Type, var
     }
 }
 
+fn constructorPatternArgSlotTypeFromVariant(g: Generator, hasSubject: Bool, subjectType: Type, vi: VariantInfo, variantName: String, argIndex: Int) -> LlvmType {
+    if argIndex < vi.fields.size() {
+        return vi.fields.get(argIndex)
+    }
+    if hasSubject {
+        val payloadTy = resolveEnumPayloadTypeWithChecker(g, vi, variantName, subjectType)
+        return match llvmStructFieldAt(payloadTy, argIndex) {
+            None => patternBindingSlotType(g, hasSubject, constructorPatternArgSubjectType(hasSubject, subjectType, variantName, argIndex))
+            Some(fieldLlvm) => fieldLlvm
+        }
+    }
+    return patternBindingSlotType(g, hasSubject, constructorPatternArgSubjectType(hasSubject, subjectType, variantName, argIndex))
+}
+
+pub fn constructorPatternArgSlotType(g: Generator, hasSubject: Bool, subjectType: Type, vi: VariantInfo, variantName: String, argIndex: Int) -> LlvmType {
+    if hasSubject {
+        return match checkerEnumVariantFieldType(subjectType, variantName, argIndex) {
+            Some(fieldType) => mapTypeToLLVM(g, fieldType)
+            None => constructorPatternArgSlotTypeFromVariant(g, hasSubject, subjectType, vi, variantName, argIndex)
+        }
+    }
+    return constructorPatternArgSlotTypeFromVariant(g, hasSubject, subjectType, vi, variantName, argIndex)
+}
+
+fn matchPatternConstructorArgDispatch(g: Generator, variantName: String, vi: VariantInfo, pat: Pattern, argThen: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, argIndex: Int) -> Bool = match pat {
+    Binding(_, _, name) => {
+        if !registerPatternBinding(g, name, constructorPatternArgSlotType(g, hasSubject, subjectType, vi, variantName, argIndex)) { return false }
+        matchPatternAdvance(g, argThen)
+    }
+    _ => {
+        val argSubjectType = constructorPatternArgSubjectType(hasSubject, subjectType, variantName, argIndex)
+        if hasSubject {
+            return matchPatternDispatchWithSubject(g, pat, argSubjectType, argThen, nextBlockName)
+        }
+        return matchPatternDispatchNoSubject(g, pat, argThen, nextBlockName)
+    }
+}
+
 fn matchPatternConstructorArgThenBlock(variantName: String, argIndex: Int, argCount: Int, thenBlockName: String) -> String {
     if argIndex == argCount - 1 { return thenBlockName }
     return enumFieldPatternOkBlockName(variantName, argIndex)
@@ -552,11 +603,7 @@ fn matchPatternConstructorArgThenBlock(variantName: String, argIndex: Int, argCo
 fn matchPatternConstructorArgsLoop(g: Generator, variantName: String, vi: VariantInfo, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= args.size() { return true }
     val argThen = matchPatternConstructorArgThenBlock(variantName, index, args.size(), thenBlockName)
-    val argSubjectType = constructorPatternArgSubjectType(hasSubject, subjectType, variantName, index)
-    val dispatched = match hasSubject {
-        true => matchPatternDispatchWithSubject(g, args.get(index), argSubjectType, argThen, nextBlockName)
-        false => matchPatternDispatchNoSubject(g, args.get(index), argThen, nextBlockName)
-    }
+    val dispatched = matchPatternConstructorArgDispatch(g, variantName, vi, args.get(index), argThen, nextBlockName, hasSubject, subjectType, index)
     if !dispatched { return false }
     return matchPatternConstructorArgsLoop(g, variantName, vi, args, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
 }

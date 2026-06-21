@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType, typeToString } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl, generateRecordDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, tuplePatternElemSlotType, constructorPatternArgSubjectType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, resolveEnumPayloadTypeWithChecker, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, tuplePatternElemSlotType, constructorPatternArgSubjectType, constructorPatternArgSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
     { mapTypeToLLVM } from @codegen/gen_types
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
@@ -322,6 +322,40 @@ test fn testConstructorPatternArgSubjectType() {
     pairFields.set("Pair", [IntType, Type.Basic("Float")])
     val dataType = Type.Enum(EnumType { name: "Data", variants: pairFields, variantFieldNames: Map[String, List[String]]{}, generics: [] })
     assertMsg(typeToString(constructorPatternArgSubjectType(true, dataType, "Pair", 1)) == "Float", "arg 1 subject is Float")
+}
+
+test fn testConstructorPatternArgSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val f0 = EnumField { name: "a", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val f1 = EnumField { name: "b", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val pair = EnumVariant { span: span, name: "Pair", fields: [f0, f1] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data")
+    match enumVariantForPattern(g, "Pair", None) {
+        None => assertMsg(false, "Pair variant lookup")
+        Some(lookup) => {
+            assertMsg(llvmTypesEqual(constructorPatternArgSlotType(g, false, Type.Basic("Unknown"), lookup.variantInfo, "Pair", 0), llvmI64()), "arg 0 from variant fields")
+            assertMsg(llvmTypesEqual(constructorPatternArgSlotType(g, false, Type.Basic("Unknown"), lookup.variantInfo, "Pair", 1), llvmF64()), "arg 1 from variant fields")
+            var pairFields = Map[String, List[Type]]{}
+            pairFields.set("Pair", [IntType, Type.Basic("Float")])
+            val dataType = Type.Enum(EnumType { name: "Data", variants: pairFields, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+            assertMsg(llvmTypesEqual(constructorPatternArgSlotType(g, true, dataType, lookup.variantInfo, "Pair", 1), llvmF64()), "arg 1 from checker enum fields")
+        }
+    }
+}
+
+test fn testResolveEnumPayloadTypeWithChecker() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Some", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [v] }), "Option")
+    match enumVariantForPattern(g, "Some", None) {
+        None => assertMsg(false, "Some lookup")
+        Some(lookup) => {
+            val subject = Type.Specialized(Type.Basic("Option"), [IntType])
+            val ty = resolveEnumPayloadTypeWithChecker(g, lookup.variantInfo, "Some", subject)
+            assertMsg(llvmTypesEqual(ty, llvmI64()), "Some payload with checker subject")
+        }
+    }
 }
 
 test fn testMatchPatternDispatchWildcard() {
