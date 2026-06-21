@@ -1,11 +1,12 @@
 import (
-    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
+    { VariantInfo } from @codegen/types
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
+    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPattern } from @codegen/gen_patterns
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
 )
 
@@ -240,11 +241,67 @@ fn generateAllCallArgs(g: Generator, args: List[Node]) -> Bool {
     return true
 }
 
+fn clearEnumConstructorExprStubs(g: Generator) {
+    g.constructorTagLoad = None
+    g.constructorPayloadPtr = None
+    g.constructorArgLoads = []
+    g.constructorArgStores = []
+}
+
+fn appendEnumConstructorArgLoadStubs(g: Generator, count: Int) -> Bool {
+    var loads = g.constructorArgLoads
+    var i = 0
+    loop {
+        if i >= count { break }
+        loads.append(stubLlvmValue(g))
+        i = i + 1
+    }
+    g.constructorArgLoads = loads
+    return true
+}
+
+fn emitEnumConstructorExprStubs(g: Generator, vi: VariantInfo, argCount: Int) -> Bool {
+    clearEnumConstructorExprStubs(g)
+    g.constructorTagLoad = Some(stubLlvmValue(g))
+    if vi.payloadType != None {
+        g.constructorPayloadPtr = Some(stubLlvmValue(g))
+    }
+    return appendEnumConstructorArgLoadStubs(g, argCount)
+}
+
+fn enumVariantLookupFromMember(g: Generator, objectNode: Node, property: String) -> Option[EnumVariantLookup] = match objectNode {
+    Identifier(id, _, _) => match checkerTypeForNode(g, id) {
+        None => None
+        Some(t) => enumVariantForPattern(g, property, Some(t))
+    }
+    _ => None
+}
+
+fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> Option[ExprResult] = match enumVariantLookupFromMember(g, data.object, data.property) {
+    None => None
+    Some(lookup) => {
+        if !emitEnumConstructorExprStubs(g, lookup.variantInfo, 0) { return None }
+        exprResultFromNode(g, node, NoConst)
+    }
+}
+
 fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Option[ExprResult] {
     if !generateAllCallArgs(g, data.args) { return None }
-    return match generateExprNode(g, data.callee) {
-        None => None
-        Some(_) => exprResultFromNode(g, node, NoConst)
+    return match data.callee {
+        MemberExpr(_, _, memberData) => match enumVariantLookupFromMember(g, memberData.object, memberData.property) {
+            None => match generateExprNode(g, data.callee) {
+                None => None
+                Some(_) => exprResultFromNode(g, node, NoConst)
+            }
+            Some(lookup) => {
+                if !emitEnumConstructorExprStubs(g, lookup.variantInfo, data.args.size()) { return None }
+                exprResultFromNode(g, node, NoConst)
+            }
+        }
+        _ => match generateExprNode(g, data.callee) {
+            None => None
+            Some(_) => exprResultFromNode(g, node, NoConst)
+        }
     }
 }
 
@@ -388,6 +445,7 @@ pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match 
     BinaryExpr(_, _, data) => generateBinaryExprResult(g, node, data)
     UnaryExpr(_, _, data) => generateUnaryExprResult(g, node, data)
     Identifier(_, _, data) => generateIdentifierExprResult(g, node, data)
+    MemberExpr(_, _, data) => generateMemberExprResult(g, node, data)
     CallExpr(_, _, data) => generateCallExprResult(g, node, data)
     IndexExpr(_, _, data) => generateIndexExprResult(g, node, data)
     VarDecl(_, _, data) => generateVarDeclResult(g, node, data)

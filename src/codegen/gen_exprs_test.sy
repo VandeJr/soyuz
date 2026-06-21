@@ -1,5 +1,5 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -482,6 +482,83 @@ test fn testM6EnumWithFieldsMatchCodegen() {
             assertMsg(blockNameRegistered(g, "match_arm_0_body"), "Circulo arm body block")
             assertMsg(blockNameRegistered(g, "match_arm_1_body"), "Retangulo arm body block")
             assertMsg(matchPhiIncomingCount(g) == 3, "two arm bodies plus fallthrough phi")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumDotSyntax — Cor.Vermelho zero-arg enum constructor.
+test fn testM6EnumDotSyntaxCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val corId = Node.Identifier(1, span, IdentifierData { name: "Cor" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: corId, property: "Vermelho" })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Vermelho", [])
+    variants.set("Verde", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(2, corType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    match generateExprNode(g, member) {
+        None => assertMsg(false, "expected Cor.Vermelho enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, corType)), "Cor.Vermelho returns Cor")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            assertMsg(g.constructorPayloadPtr == None, "zero-arg variant has no payload ptr")
+            assertMsg(g.constructorArgLoads.size() == 0, "zero-arg constructor has no arg loads")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumDotSyntaxWithArgs — Forma.Circulo(3.14).
+test fn testM6EnumDotSyntaxWithArgsCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val floatType = Type.Basic("Float")
+    val formaId = Node.Identifier(1, span, IdentifierData { name: "Forma" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: formaId, property: "Circulo" })
+    val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "3.14" })
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: [arg] })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Circulo", [floatType])
+    val formaType = Type.Enum(EnumType {
+        name: "Forma",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, formaType)
+    types.set(2, formaType)
+    types.set(3, floatType)
+    types.set(4, formaType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val raioField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val circulo = EnumVariant { span: span, name: "Circulo", fields: [raioField] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo] }), "register Forma")
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Forma.Circulo(3.14) enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, formaType)), "Forma.Circulo returns Forma")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            match g.constructorPayloadPtr {
+                None => assertMsg(false, "payload variant allocates payload ptr stub")
+                Some(v) => assertMsg(v.handle > 0, "payload ptr handle")
+            }
+            assertMsg(g.constructorArgLoads.size() == 1, "one constructor arg load stub")
         }
     }
 }
