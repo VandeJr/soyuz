@@ -79,6 +79,13 @@ else
   echo "  tools/codegen-collections-check.sh ausente"
 fi
 
+hr "Codegen class check (bootstrap, S6)"
+if [[ -x tools/codegen-class-check.sh ]]; then
+  bash tools/codegen-class-check.sh 2>&1 || echo "→ codegen class check FALHOU"
+else
+  echo "  tools/codegen-class-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

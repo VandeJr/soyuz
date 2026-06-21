@@ -1,10 +1,11 @@
 import (
-    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField } from @ast/ast
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { generateRecordDecl, generateEnumDecl, generateTopLevelDecl, structInfoRegistered, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
-    { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8 } from @codegen/llvm_types
+    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
+    { ensureSoyuzStringLlvmTypes } from @codegen/gen_types
+    { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8, llvmPointerType } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -123,4 +124,86 @@ test fn testGenerateTopLevelDeclEnumNode() {
     val node = Node.EnumDecl(1, structsZeroSpan(), decl)
     assertMsg(generateTopLevelDecl(g, node), "top-level enum ok")
     assertMsg(enumInfoRegistered(g, "Cor"), "Cor via top-level")
+}
+
+test fn testGenerateClassDeclFields() {
+    val g = newGenerator(structsEmptyCheckResult())
+    ensureSoyuzStringLlvmTypes(g)
+    val countField = VarDeclData {
+        namePos: structsZeroSpan(),
+        isPub: false,
+        kind: VarKind.Var,
+        name: "count",
+        pattern: None,
+        typeExpr: Some(TypeExpr.Named(0, structsZeroSpan(), "Int")),
+        init: None
+    }
+    val labelField = VarDeclData {
+        namePos: structsZeroSpan(),
+        isPub: false,
+        kind: VarKind.Var,
+        name: "label",
+        pattern: None,
+        typeExpr: Some(TypeExpr.Named(0, structsZeroSpan(), "String")),
+        init: None
+    }
+    val decl = ClassDeclData {
+        isPub: true,
+        name: "Contador",
+        generics: [],
+        interfaces: [],
+        body: []
+    }
+    var body: List[Node] = []
+    body.append(Node.VarDecl(2, structsZeroSpan(), countField))
+    body.append(Node.VarDecl(3, structsZeroSpan(), labelField))
+    val classDecl = ClassDeclData {
+        isPub: decl.isPub,
+        name: decl.name,
+        generics: decl.generics,
+        interfaces: decl.interfaces,
+        body: body
+    }
+    assertMsg(generateClassDecl(g, classDecl), "class decl ok")
+    assertMsg(classInfoRegistered(g, "Contador"), "Contador in classes")
+    assertMsg(structInfoRegistered(g, "Contador"), "Contador data struct")
+    match recordFieldIndex(g, "Contador", "count") {
+        None => assertMsg(false, "count field index")
+        Some(idx) => assertMsg(idx == 0, "count at index 0")
+    }
+    match recordFieldIndex(g, "Contador", "label") {
+        None => assertMsg(false, "label field index")
+        Some(idx) => assertMsg(idx == 1, "label at index 1")
+    }
+    val strPtr = match g.soyuzStringPtrType {
+        None => llvmPointerType(llvmStructType("SoyuzString", [llvmI64()]))
+        Some(t) => t
+    }
+    val expected = llvmStructType("Contador", [llvmI64(), strPtr])
+    assertMsg(llvmTypesEqual(g.classes.get("Contador").typ, expected), "Contador class layout")
+}
+
+test fn testGenerateTopLevelDeclClassNode() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val countField = VarDeclData {
+        namePos: structsZeroSpan(),
+        isPub: false,
+        kind: VarKind.Var,
+        name: "count",
+        pattern: None,
+        typeExpr: Some(TypeExpr.Named(0, structsZeroSpan(), "Int")),
+        init: None
+    }
+    var body: List[Node] = []
+    body.append(Node.VarDecl(2, structsZeroSpan(), countField))
+    val decl = ClassDeclData {
+        isPub: true,
+        name: "Contador",
+        generics: [],
+        interfaces: [],
+        body: body
+    }
+    val node = Node.ClassDecl(1, structsZeroSpan(), decl)
+    assertMsg(generateTopLevelDecl(g, node), "top-level class ok")
+    assertMsg(classInfoRegistered(g, "Contador"), "Contador via top-level")
 }

@@ -1,9 +1,11 @@
 import (
-    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData } from @ast/ast
+    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, ClassDeclData, VarDeclData } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type } from @checker/types
     { Generator } from @codegen/generator
-    { StructInfo, EnumInfo, VariantInfo } from @codegen/types
-    { mapSoyuzTypeToLLVM } from @codegen/gen_types
-    { LlvmType, llvmI64, llvmI8, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
+    { StructInfo, EnumInfo, VariantInfo, ClassInfo } from @codegen/types
+    { mapSoyuzTypeToLLVM, mapTypeToLLVM } from @codegen/gen_types
+    { LlvmType, LlvmFunc, LlvmGlobal, llvmI64, llvmI8, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
 fn structsMapHasStruct(m: Map[String, StructInfo], key: String) -> Bool {
@@ -14,6 +16,27 @@ fn structsMapHasStruct(m: Map[String, StructInfo], key: String) -> Bool {
 fn structsMapHasEnum(m: Map[String, EnumInfo], key: String) -> Bool {
     for k in m.keys() { if k == key { return true } }
     return false
+}
+
+fn structsMapHasClass(m: Map[String, ClassInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn classFieldLlvmType(g: Generator, data: VarDeclData) -> LlvmType = match data.typeExpr {
+    Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
+    None => match data.init {
+        None => llvmI64()
+        Some(initNode) => match checkerNodeTypeForId(g, nodeId(initNode)) {
+            None => llvmI64()
+            Some(t) => mapTypeToLLVM(g, t)
+        }
+    }
+}
+
+fn checkerNodeTypeForId(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
 }
 
 fn enumFieldIndexName(index: Int) -> String {
@@ -90,15 +113,48 @@ pub fn generateInterfaceDecl(g: Generator, data: InterfaceDeclData) -> Bool {
     return true
 }
 
+fn registerClassVarField(g: Generator, vd: VarDeclData, indices: Map[String, Int], fieldTypes: List[LlvmType], fieldIdx: Int) -> Int {
+    indices.set(vd.name, fieldIdx)
+    fieldTypes.append(classFieldLlvmType(g, vd))
+    return fieldIdx + 1
+}
+
+pub fn generateClassDecl(g: Generator, data: ClassDeclData) -> Bool {
+    if data.generics.size() > 0 { return true }
+    var indices: Map[String, Int] = Map[String, Int]{}
+    var fieldTypes: List[LlvmType] = []
+    var fieldIdx = 0
+    for member in data.body {
+        match member {
+            VarDecl(_, _, vd) => { fieldIdx = registerClassVarField(g, vd, indices, fieldTypes, fieldIdx); () }
+            _ => {}
+        }
+    }
+    val st = llvmStructType(data.name, fieldTypes)
+    g.structs.set(data.name, StructInfo { typ: st, fieldIndices: indices })
+    g.classes.set(data.name, ClassInfo {
+        typ: st,
+        fieldIndices: indices,
+        methods: Map[String, List[LlvmFunc]]{},
+        vtables: Map[String, LlvmGlobal]{}
+    })
+    return true
+}
+
 pub fn generateTopLevelDecl(g: Generator, node: Node) -> Bool = match node {
     RecordDecl(_, _, data) => generateRecordDecl(g, data)
     EnumDecl(_, _, data) => generateEnumDecl(g, data)
     InterfaceDecl(_, _, data) => generateInterfaceDecl(g, data)
+    ClassDecl(_, _, data) => generateClassDecl(g, data)
     _ => true
 }
 
 pub fn structInfoRegistered(g: Generator, name: String) -> Bool {
     return structsMapHasStruct(g.structs, name)
+}
+
+pub fn classInfoRegistered(g: Generator, name: String) -> Bool {
+    return structsMapHasClass(g.classes, name)
 }
 
 pub fn enumInfoRegistered(g: Generator, name: String) -> Bool {
