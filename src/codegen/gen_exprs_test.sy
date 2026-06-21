@@ -782,6 +782,44 @@ test fn testMatchExprRecordPatternCodegen() {
     }
 }
 
+test fn testMatchExprTuplePatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val body = Node.Identifier(10, span, IdentifierData { name: "a" })
+    val aPat = Pattern.Binding(6, span, "a")
+    val bPat = Pattern.Binding(7, span, "b")
+    val pat = Pattern.Tuple(2, span, [aPat, bPat])
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    val floatType = Type.Basic("Float")
+    val tupleType = Type.Tuple([IntType, floatType])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, tupleType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on tuple pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "tuple arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "tuple arm body block")
+            assertMsg(blockNameRegistered(g, "tuple_elem_0_ok"), "first tuple elem ok block")
+            assertMsg(g.tuplePatternSubject != None, "tuple subject stub during match")
+            assertMsg(g.tuplePatternElemLoads.size() == 2, "elem load per tuple binding")
+            assertMsg(g.tuplePatternElemStores.size() == 2, "elem store per tuple binding")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
 // Port of soyuz-go/internal/codegen/when_guard_test.go TestMatchWhenGuardCodegen.
 test fn testMatchWhenGuardCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
