@@ -1,6 +1,6 @@
 import (
     { Type } from @checker/types
-    { Pattern, MatchArm, MatchExprData, RecordPatternField } from @ast/ast
+    { Pattern, MatchArm, MatchExprData, RecordPatternField, FuncParam } from @ast/ast
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
@@ -122,6 +122,16 @@ fn constructorPatternArgsOk(args: List[Pattern], vi: VariantInfo) -> Bool {
         return args.size() <= vi.fields.size()
     }
     return args.size() <= 1
+}
+
+fn funcParamPatternsSupportedLoop(g: Generator, params: List[FuncParam], index: Int) -> Bool {
+    if index >= params.size() { return true }
+    if !matchPatternSupported(g, params.get(index).pattern) { return false }
+    return funcParamPatternsSupportedLoop(g, params, index + 1)
+}
+
+pub fn funcParamPatternsSupported(g: Generator, params: List[FuncParam]) -> Bool {
+    return funcParamPatternsSupportedLoop(g, params, 0)
 }
 
 pub fn matchPatternSupported(g: Generator, pat: Pattern) -> Bool = match pat {

@@ -6,6 +6,7 @@ import (
     { generateStmtNode } from @codegen/gen_control
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl } from @codegen/gen_structs
+    { funcParamPatternsSupported } from @codegen/gen_patterns
     { mapTypeToLLVM } from @codegen/gen_types
     { LlvmType } from @codegen/llvm_types
 )
@@ -210,6 +211,28 @@ pub fn buildFuncVariantPlans(g: Generator, name: String) -> List[FuncVariantPlan
     return buildFuncVariantPlansLoop(sorted, 0, [])
 }
 
+fn generateFuncVariantParamPatterns(g: Generator, plan: FuncVariantPlan) -> Bool {
+    return funcParamPatternsSupported(g, plan.variant.params)
+}
+
+pub fn shouldSkipFuncVariants(g: Generator, name: String, variants: List[FuncDeclData]) -> Bool {
+    if variants.size() == 0 { return false }
+    if variants.get(0).isTest && !g.isTestBuild { return true }
+    if name == "main" && g.isTestBuild { return true }
+    return false
+}
+
+fn funcVariantsListHasName(names: List[String], name: String) -> Bool {
+    for n in names { if n == name { return true } }
+    return false
+}
+
+fn appendFuncVariantName(names: List[String], name: String) -> List[String] {
+    var result = names
+    result.append(name)
+    return result
+}
+
 fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = match plan.variant.whenGuard {
     None => true
     Some(expr) => match generateExprNode(g, expr) {
@@ -221,6 +244,7 @@ fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = m
 fn generateFuncVariantsBodyLoop(g: Generator, plans: List[FuncVariantPlan], index: Int) -> Bool {
     if index >= plans.size() { return true }
     val plan = plans.get(index)
+    if !generateFuncVariantParamPatterns(g, plan) { return false }
     if !generateFuncVariantWhenGuard(g, plan) { return false }
     match plan.variant.body {
         None => generateFuncVariantsBodyLoop(g, plans, index + 1)
@@ -241,20 +265,53 @@ pub record ProgramResult {
     funcCount: Int
 }
 
-pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResult] {
-    var count = 0
-    for decl in body {
-        val ok = match decl {
-            FuncDecl(_, _, data) => match generateFuncDeclNode(g, decl, data) {
-                None => false
-                Some(_) => {
-                    count = count + 1
-                    true
-                }
-            }
-            _ => generateTopLevelDecl(g, decl)
-        }
-        if !ok { return None }
+pub record ProgramFuncStep {
+    processed: List[String],
+    addedCount: Int
+}
+
+fn programFuncStep(processed: List[String], addedCount: Int) -> ProgramFuncStep {
+    return ProgramFuncStep { processed: processed, addedCount: addedCount }
+}
+
+fn generateProgramFuncDecl(g: Generator, node: Node, data: FuncDeclData, processed: List[String]) -> Option[ProgramFuncStep] {
+    if funcVariantsListHasName(processed, data.name) {
+        return Some(programFuncStep(processed, 0))
     }
-    return Some(ProgramResult { funcCount: count })
+    val variants = funcVariantsForName(g, data.name)
+    if variants.size() > 0 {
+        if shouldSkipFuncVariants(g, data.name, variants) {
+            return Some(programFuncStep(appendFuncVariantName(processed, data.name), 0))
+        }
+        if !generateFuncVariantsBody(g, data.name) { return None }
+        return Some(programFuncStep(appendFuncVariantName(processed, data.name), 1))
+    }
+    return match generateFuncDeclNode(g, node, data) {
+        None => None
+        Some(_) => Some(programFuncStep(processed, 1))
+    }
+}
+
+fn generateProgramTopLevelDecl(g: Generator, decl: Node, processed: List[String]) -> Option[ProgramFuncStep] {
+    if !generateTopLevelDecl(g, decl) { return None }
+    return Some(programFuncStep(processed, 0))
+}
+
+fn generateProgramBodyLoop(g: Generator, body: List[Node], index: Int, processed: List[String], count: Int) -> Option[ProgramResult] {
+    if index >= body.size() {
+        return Some(ProgramResult { funcCount: count })
+    }
+    val decl = body.get(index)
+    val step = match decl {
+        FuncDecl(_, _, data) => generateProgramFuncDecl(g, decl, data, processed)
+        _ => generateProgramTopLevelDecl(g, decl, processed)
+    }
+    return match step {
+        None => None
+        Some(result) => generateProgramBodyLoop(g, body, index + 1, result.processed, count + result.addedCount)
+    }
+}
+
+pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResult] {
+    return generateProgramBodyLoop(g, body, 0, [], 0)
 }
