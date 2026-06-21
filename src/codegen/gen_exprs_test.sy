@@ -13,7 +13,7 @@ import (
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
-    { taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
+    { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -1699,6 +1699,28 @@ test fn testTaskDetachCallExprCodegen() {
         Some(_) => {
             assertMsg(g.taskDetachStub != None, "task detach stub stored")
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskCancelEmitsSrtCancel — t.cancel() call expr dispatch.
+test fn testTaskCancelCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, taskInt)
+    types.set(2, taskInt)
+    types.set(3, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected task cancel call codegen")
+        Some(_) => {
+            assertMsg(g.taskCancelStub != None, "task cancel stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeCancel()), "srt_cancel registered")
         }
     }
 }

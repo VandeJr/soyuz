@@ -159,6 +159,7 @@ pub class Generator {
     pub var gatherRuntimeSymbols: List[String] = []
     pub var taskEnqueueStub: Option[LlvmValue] = None
     pub var taskDetachStub: Option[LlvmValue] = None
+    pub var taskCancelStub: Option[LlvmValue] = None
     pub var taskAwaitStub: Option[LlvmValue] = None
     pub var taskDropStub: Option[LlvmValue] = None
     pub var taskAllStub: Option[LlvmValue] = None

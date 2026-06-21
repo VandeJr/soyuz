@@ -13,6 +13,10 @@ pub fn taskRuntimeDetach() -> String {
     return "srt_detach"
 }
 
+pub fn taskRuntimeCancel() -> String {
+    return "srt_cancel"
+}
+
 pub fn taskRuntimeSetResult() -> String {
     return "srt_set_task_result"
 }
@@ -162,6 +166,10 @@ pub fn isTaskDetachMethodCall(callee: Node, g: Generator) -> Bool {
     return isTaskInstanceMethodCall(callee, g, "detach")
 }
 
+pub fn isTaskCancelMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "cancel")
+}
+
 pub fn isTaskTapMethodCall(callee: Node, g: Generator) -> Bool {
     return isTaskInstanceMethodCall(callee, g, "tap")
 }
@@ -306,6 +314,13 @@ pub fn generateTaskDetachStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeDetach())
     val stub = stubLlvmValue(g)
     g.taskDetachStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskCancelStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeCancel())
+    val stub = stubLlvmValue(g)
+    g.taskCancelStub = Some(stub)
     return Some(stub)
 }
 

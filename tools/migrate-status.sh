@@ -128,6 +128,13 @@ else
   echo "  tools/codegen-task-check.sh ausente"
 fi
 
+hr "Codegen task-cancel check (bootstrap, S7)"
+if [[ -x tools/codegen-task-cancel-check.sh ]]; then
+  bash tools/codegen-task-cancel-check.sh 2>&1 || echo "→ codegen task-cancel check FALHOU"
+else
+  echo "  tools/codegen-task-cancel-check.sh ausente"
+fi
+
 hr "Codegen task-handle check (bootstrap, S7)"
 if [[ -x tools/codegen-task-handle-check.sh ]]; then
   bash tools/codegen-task-handle-check.sh 2>&1 || echo "→ codegen task-handle check FALHOU"
