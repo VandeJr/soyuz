@@ -62,6 +62,8 @@ pub class Generator {
     pub var constructorTagLoad: Option[LlvmValue] = None
     pub var constructorPayloadPtr: Option[LlvmValue] = None
     pub var constructorArgLoads: List[LlvmValue] = []
+    pub var recordPatternSubject: Option[LlvmValue] = None
+    pub var recordPatternFieldLoads: List[LlvmValue] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

@@ -518,6 +518,27 @@ test fn testMatchPatternDispatchRecordShorthandFields() {
     }
     assertMsg(hasX, "x bound from record field")
     assertMsg(hasY, "y bound from record field")
+    assertMsg(g.recordPatternFieldLoads.size() == 0, "no field loads without subject")
+}
+
+test fn testMatchPatternDispatchRecordWithSubjectFieldLoads() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yDecl = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Float") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl, yDecl] }), "Point")
+    val xField = RecordPatternField { name: "x", pattern: None }
+    val yField = RecordPatternField { name: "y", pattern: None }
+    val pat = Pattern.Record(2, span, "Point", [xField, yField])
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    pointFields.set("y", Type.Basic("Float"))
+    val pointType = Type.Record("Point", pointFields, [])
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point with subject")
+    assertMsg(g.recordPatternSubject != None, "record subject stub")
+    assertMsg(g.recordPatternFieldLoads.size() == 2, "field load per shorthand field")
+    assertMsg(g.valueHandleCounter > handlesBefore + 4, "subject plus field gep/load stubs")
 }
 
 test fn testMatchPatternDispatchTupleElements() {

@@ -726,10 +726,37 @@ fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, vi: Va
     return matchPatternConstructorArgsLoop(g, variantName, vi, args, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
+fn clearRecordPatternFieldStubs(g: Generator) {
+    g.recordPatternSubject = None
+    g.recordPatternFieldLoads = []
+}
+
+fn emitRecordPatternSubjectStub(g: Generator, hasSubject: Bool) -> Bool {
+    if !hasSubject { return true }
+    g.recordPatternSubject = Some(stubLlvmValue(g))
+    return true
+}
+
+fn appendRecordPatternFieldLoad(g: Generator, fieldVal: LlvmValue) {
+    var loads = g.recordPatternFieldLoads
+    loads.append(fieldVal)
+    g.recordPatternFieldLoads = loads
+}
+
+fn emitRecordFieldLoadStub(g: Generator) -> LlvmValue {
+    val _fieldPtr = emitGepStub(g)
+    val fieldVal = emitLoadStub(g)
+    appendRecordPatternFieldLoad(g, fieldVal)
+    return fieldVal
+}
+
 fn matchPatternRecordFieldsLoop(g: Generator, recordName: String, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= fields.size() { return matchPatternAdvance(g, thenBlockName) }
     val field = fields.get(index)
     val fieldSubjectType = recordPatternFieldSubjectType(hasSubject, subjectType, field.name)
+    if hasSubject {
+        emitRecordFieldLoadStub(g)
+    }
     return match field.pattern {
         None => {
             if !registerPatternBinding(g, field.name, recordPatternFieldSlotType(g, hasSubject, subjectType, recordName, field.name)) { return false }
@@ -749,6 +776,8 @@ fn matchPatternRecordFieldsLoop(g: Generator, recordName: String, fields: List[R
 
 fn matchPatternRecordDispatch(g: Generator, recordName: String, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
     if fields.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
+    clearRecordPatternFieldStubs(g)
+    if !emitRecordPatternSubjectStub(g, hasSubject) { return false }
     return matchPatternRecordFieldsLoop(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
