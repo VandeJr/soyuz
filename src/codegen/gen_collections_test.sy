@@ -2,7 +2,7 @@ import (
     { Node, FuncDeclData } from @ast/ast
     { CheckResult, Type, FuncType, ClassType, IntType, CharType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { collectionElemKind, isListOrMapType, isListType, listElemType, isMapType, mapKeyType, isIteratorType, iteratorElemType, mapKeyIsStringKind, generateMapKeysStub, emitCollectionToStringStub } from @codegen/gen_collections
+    { collectionElemKind, isListOrMapType, isListType, listElemType, isMapType, mapKeyType, mapValType, isIteratorType, iteratorElemType, mapKeyIsStringKind, generateMapKeysStub, generateMapValuesStub, emitCollectionToStringStub } from @codegen/gen_collections
     { stubLlvmValue } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -79,6 +79,10 @@ test fn testIsMapType() {
         None => assertMsg(false, "Map key type")
         Some(t) => assertMsg(t == StringType, "key is String")
     }
+    match mapValType(mapStrInt) {
+        None => assertMsg(false, "Map val type")
+        Some(t) => assertMsg(t == IntType, "val is Int")
+    }
 }
 
 test fn testGenerateMapKeysStub() {
@@ -94,6 +98,21 @@ test fn testGenerateMapKeysStub() {
         }
     }
     assertMsg(generateMapKeysStub(g, mapVal, IntType) == None, "Int rejects map keys stub")
+}
+
+test fn testGenerateMapValuesStub() {
+    val g = newGenerator(collectionsEmptyCheckResult())
+    val mapClass = collectionsEmptyClass("Map")
+    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
+    val mapVal = stubLlvmValue(g)
+    match generateMapValuesStub(g, mapVal, mapIntInt) {
+        None => assertMsg(false, "expected map values stub")
+        Some(values) => {
+            assertMsg(values.handle > mapVal.handle, "values list handle")
+            assertMsg(g.forMapValuesStub != None, "map_values call stub recorded")
+        }
+    }
+    assertMsg(generateMapValuesStub(g, mapVal, IntType) == None, "Int rejects map values stub")
 }
 
 test fn testIsIteratorType() {

@@ -72,9 +72,28 @@ pub fn mapKeyType(t: Type) -> Option[Type] = match t {
     _ => None
 }
 
+pub fn mapValType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "Map" && params.size() >= 2 {
+                return Some(params.get(1))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
 pub fn generateMapKeysStub(g: Generator, _mapVal: LlvmValue, mapType: Type) -> Option[LlvmValue] {
     if !isMapType(mapType) { return None }
     g.forMapKeysStub = Some(stubLlvmValue(g))
+    return Some(stubLlvmValue(g))
+}
+
+pub fn generateMapValuesStub(g: Generator, _mapVal: LlvmValue, mapType: Type) -> Option[LlvmValue] {
+    if !isMapType(mapType) { return None }
+    g.forMapValuesStub = Some(stubLlvmValue(g))
     return Some(stubLlvmValue(g))
 }
 
