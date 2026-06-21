@@ -5,8 +5,8 @@ import (
     { Generator } from @codegen/generator
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchArmGuardPassBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock, snapshotVars, restoreVars } from @codegen/gen_ir
+    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
+    { newBlock, setCurrentBlock, snapshotVars, restoreVars, emitCondBrStub } from @codegen/gen_ir
 )
 
 pub enum ConstValue {
@@ -275,11 +275,7 @@ fn advanceMatchArmAfterPattern(g: Generator, plan: MatchArmPlan) -> Bool = match
     }
     Some(expr) => match generateExprNode(g, expr) {
         None => false
-        Some(_) => {
-            newBlock(g, matchArmGuardPassBlockName(plan.index))
-            setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
-            true
-        }
+        Some(_) => emitCondBrStub(g, plan.bodyBlockName, plan.nextBlockName)
     }
 }
 

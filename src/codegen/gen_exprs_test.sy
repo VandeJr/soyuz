@@ -381,8 +381,8 @@ test fn testGenerateMatchExprCreatesBlocks() {
         Some(_) => {
             assertMsg(blockNameRegistered(g, "match_merge"), "merge block registered")
             assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "first arm pattern ok block")
-            assertMsg(blockNameRegistered(g, "match_arm_0_guard_pass"), "guarded arm guard pass block")
             assertMsg(blockNameRegistered(g, "match_arm_0_body"), "first arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_next"), "guarded arm fail block")
             assertMsg(blockNameRegistered(g, "match_arm_1_next"), "second arm next block")
         }
     }
