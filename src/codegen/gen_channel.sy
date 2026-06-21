@@ -1,4 +1,5 @@
 import (
+    { Node } from @ast/ast
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
@@ -52,6 +53,14 @@ pub fn channelInnerType(t: Type) -> Option[Type] = match t {
 
 pub fn isChannelStaticNew(typeName: String, methodName: String) -> Bool {
     return typeName == "Channel" && methodName == "new"
+}
+
+pub fn isChannelNewCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isChannelStaticNew(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
 }
 
 fn registerChannelRuntimeSymbol(g: Generator, symbol: String) {

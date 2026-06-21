@@ -1,8 +1,9 @@
 import (
-    { Node, FuncDeclData } from @ast/ast
+    { Node, FuncDeclData, IdentifierData, MemberExprData } from @ast/ast
+    { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, channelRuntimeNew, generateChannelNewStub, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, channelRuntimeNew, generateChannelNewStub, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -57,6 +58,16 @@ test fn testIsChannelStaticNew() {
     assertMsg(isChannelStaticNew("Channel", "new"), "Channel.new")
     assertMsg(!isChannelStaticNew("Channel", "send"), "not Channel.send static")
     assertMsg(!isChannelStaticNew("List", "new"), "not List.new")
+}
+
+test fn testIsChannelNewCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    assertMsg(isChannelNewCall(member), "Channel.new member is channel new call")
+    val formaId = Node.Identifier(3, span, IdentifierData { name: "Forma" })
+    val formaMember = Node.MemberExpr(4, span, MemberExprData { object: formaId, property: "Circulo" })
+    assertMsg(!isChannelNewCall(formaMember), "enum constructor not channel new")
 }
 
 test fn testGenerateChannelNewStub() {

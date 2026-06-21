@@ -1,7 +1,7 @@
 import (
     { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData, RecordPatternField } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType, ClassType } from @checker/types
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk, constFromLiteralPatternValue } from @codegen/gen_exprs
     { generateLiteralPatternValue } from @codegen/gen_patterns
@@ -9,6 +9,7 @@ import (
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
+    { channelRuntimeNew, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -1169,6 +1170,43 @@ test fn testGenerateMatchExprRestoresBindingVarsBetweenArms() {
                 if k == "n" { hasN = true }
             }
             assertMsg(!hasN, "binding n not leaked after arms")
+        }
+    }
+}
+
+fn channelTestClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+// Port of m_channel_test.go TestChannelNewEmitsSrtChanNew — Channel.new(4) call expr dispatch.
+test fn testChannelNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "4" })
+    var args: List[Node] = []
+    args.append(capArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelClass))
+    types.set(2, Type.Class(channelClass))
+    types.set(3, IntType)
+    types.set(4, channelInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Channel.new(4) codegen")
+        Some(_) => {
+            assertMsg(g.channelNewStub != None, "channel new stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
         }
     }
 }
