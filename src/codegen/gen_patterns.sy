@@ -5,7 +5,7 @@ import (
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
     { recordFieldLlvmType } from @codegen/gen_structs
-    { stubLlvmValue, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
+    { stubLlvmValue, emitGepStub, emitLoadStub, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
     { LlvmType, LlvmValue, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
@@ -565,8 +565,47 @@ fn matchPatternRangeDispatch(g: Generator, from: LiteralPatternValue, to: Patter
     return emitCondBrStub(g, thenBlockName, nextBlockName)
 }
 
+fn clearConstructorPayloadStubs(g: Generator) {
+    g.constructorTagLoad = None
+    g.constructorPayloadPtr = None
+    g.constructorArgLoads = []
+}
+
+fn emitConstructorTagPayloadStubs(g: Generator, hasSubject: Bool) -> Bool {
+    if !hasSubject { return true }
+    val _subject = stubLlvmValue(g)
+    val _tagPtr = emitGepStub(g)
+    g.constructorTagLoad = Some(emitLoadStub(g))
+    g.constructorPayloadPtr = Some(emitGepStub(g))
+    return true
+}
+
+fn emitConstructorPayloadArgLoadStubs(g: Generator, variantName: String, vi: VariantInfo, args: List[Pattern], hasSubject: Bool, subjectType: Type) -> Bool {
+    if !hasSubject || args.size() == 0 { return true }
+    var loads: List[LlvmValue] = []
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        if args.size() == 1 {
+            val _castPtr = emitGepStub(g)
+            if vi.fields.size() == 1 {
+                val _fieldPtr = emitGepStub(g)
+            }
+        } else {
+            val _fieldPtr = emitGepStub(g)
+        }
+        loads.append(emitLoadStub(g))
+        i = i + 1
+    }
+    g.constructorArgLoads = loads
+    return true
+}
+
 fn matchPatternConstructorDispatchBody(g: Generator, name: String, vi: VariantInfo, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
     if !constructorPatternArgsOk(args, vi) { return false }
+    clearConstructorPayloadStubs(g)
+    if !emitConstructorTagPayloadStubs(g, hasSubject) { return false }
+    if !emitConstructorPayloadArgLoadStubs(g, name, vi, args, hasSubject, subjectType) { return false }
     setCurrentBlock(g, newBlock(g, constructorPatternTagCmpBlockName(name)))
     if !emitCondBrStub(g, constructorPatternMatchOkBlockName(name), nextBlockName) { return false }
     return matchPatternConstructorArgsDispatch(g, name, vi, args, thenBlockName, nextBlockName, hasSubject, subjectType)

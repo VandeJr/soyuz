@@ -59,6 +59,9 @@ pub class Generator {
     pub var loopResultDefaultStore: Option[LlvmValue] = None
     pub var rangePatternFromValue: Option[LlvmValue] = None
     pub var rangePatternToValue: Option[LlvmValue] = None
+    pub var constructorTagLoad: Option[LlvmValue] = None
+    pub var constructorPayloadPtr: Option[LlvmValue] = None
+    pub var constructorArgLoads: List[LlvmValue] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

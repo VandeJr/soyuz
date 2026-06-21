@@ -108,6 +108,14 @@ pub fn stubLlvmValue(g: Generator) -> LlvmValue {
     return stubValueHandle(g)
 }
 
+pub fn emitGepStub(g: Generator) -> LlvmValue {
+    return stubLlvmValue(g)
+}
+
+pub fn emitLoadStub(g: Generator) -> LlvmValue {
+    return stubLlvmValue(g)
+}
+
 pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
     if !llvmTypeHasDefaultZero(ty) { return None }
     return Some(stubValueHandle(g))

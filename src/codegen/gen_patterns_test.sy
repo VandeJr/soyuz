@@ -437,6 +437,29 @@ test fn testMatchPatternDispatchConstructor() {
     assertMsg(blockNameRegistered(g, "match_Verde_ok"), "constructor ok block registered")
     assertMsg(blockNameRegistered(g, "match_arm_0_next"), "constructor fail block registered")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
+    assertMsg(g.constructorTagLoad != None, "constructor tag load stub")
+    assertMsg(g.constructorPayloadPtr != None, "constructor payload ptr stub")
+}
+
+test fn testMatchPatternDispatchConstructorSomeWithSubjectPayloadLoads() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val binding = Pattern.Binding(3, span, "n")
+    val pat = Pattern.Constructor(2, span, "Some", [binding])
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optionType = Type.Enum(EnumType { name: "Option", variants: variants, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g, pat, optionType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(n) with subject")
+    assertMsg(g.constructorTagLoad != None, "tag load with subject")
+    assertMsg(g.constructorPayloadPtr != None, "payload ptr with subject")
+    assertMsg(g.constructorArgLoads.size() == 1, "one payload arg load")
+    assertMsg(g.valueHandleCounter > handlesBefore + 3, "subject access stubs allocate handles")
 }
 
 test fn testMatchPatternDispatchConstructorWithBindingArg() {
@@ -449,6 +472,8 @@ test fn testMatchPatternDispatchConstructorWithBindingArg() {
     val binding = Pattern.Binding(3, span, "n")
     val pat = Pattern.Constructor(2, span, "Some", [binding])
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(n) dispatch")
+    assertMsg(g.constructorTagLoad == None, "no tag load without subject")
+    assertMsg(g.constructorPayloadPtr == None, "no payload ptr without subject")
     assertMsg(blockNameRegistered(g, "match_Some_ok"), "constructor ok block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "binding then block")
 }
@@ -472,6 +497,7 @@ test fn testMatchPatternDispatchConstructorMultiFieldArgs() {
     val g2 = newGenerator(patternsEmptyCheckResult())
     assertMsg(generateEnumDecl(g2, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data g2")
     assertMsg(matchPatternDispatchWithSubject(g2, pat, dataType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Pair with subject dispatch")
+    assertMsg(g2.constructorArgLoads.size() == 2, "two payload arg loads with subject")
 }
 
 test fn testMatchPatternDispatchRecordShorthandFields() {
