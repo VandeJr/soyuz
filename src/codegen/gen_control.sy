@@ -5,8 +5,10 @@ import (
     { Generator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
+    { isListType, listElemType } from @codegen/gen_collections
+    { ensureRuntimeCollectionStructs, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName } from @codegen/gen_iter
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -252,6 +254,74 @@ fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: Ra
     return stmtResultFromNode(g, node, NoTerminator)
 }
 
+fn clearForListStubs(g: Generator) {
+    g.forListIndexAlloca = None
+    g.forListBindingAlloca = None
+    g.forListSizeLoad = None
+    g.forListGetStub = None
+    g.forListIncrLoad = None
+    g.forListIncrStore = None
+    g.forListCondLoad = None
+}
+
+fn emitForListCondStub(g: Generator, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if g.forListSizeLoad == None { return false }
+    return match g.forListIndexAlloca {
+        None => false
+        Some(_alloca) => {
+            val counter = emitLoadStub(g)
+            g.forListCondLoad = Some(counter)
+            emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+        }
+    }
+}
+
+fn emitForListIncrStub(g: Generator) -> Bool {
+    return match g.forListIndexAlloca {
+        None => false
+        Some(alloca) => {
+            val cur = emitLoadStub(g)
+            g.forListIncrLoad = Some(cur)
+            val next = stubLlvmValue(g)
+            emitStoreStub(g, next, alloca)
+            g.forListIncrStore = Some(next)
+            true
+        }
+    }
+}
+
+fn generateForListStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
+    clearForListStubs(g)
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    ensureRuntimeCollectionStructs(g)
+    val savedVars = snapshotVars(g)
+    val indexAlloca = newAlloca(g, mapTypeToLLVM(g, IntType))
+    g.forListIndexAlloca = Some(indexAlloca)
+    val bindAlloc = newAlloca(g, mapTypeToLLVM(g, elemType))
+    g.vars.set(data.binding, bindAlloc)
+    g.forListBindingAlloca = Some(bindAlloc)
+    g.forListSizeLoad = Some(stubLlvmValue(g))
+    val condBlock = newBlock(g, forListCondBlockName())
+    val bodyBlock = newBlock(g, forListBodyBlockName())
+    val incrBlock = newBlock(g, forListIncrBlockName())
+    val afterBlock = newBlock(g, forListAfterBlockName())
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !emitForListCondStub(g, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    g.forListGetStub = Some(stubLlvmValue(g))
+    emitStoreStub(g, stubLlvmValue(g), bindAlloc)
+    if !finishLoopBodyFromNode(g, incrBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, incrBlock)
+    if !emitForListIncrStub(g) { return None }
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, afterBlock)
+    restoreVars(g, savedVars)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
 fn generateForStmtGeneric(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
     if !exprGeneratesOk(g, data.iterable) { return None }
     val bodyBlock = newBlock(g, "for_body")
@@ -266,7 +336,18 @@ fn generateForStmtGeneric(g: Generator, node: Node, data: ForStmtData) -> Option
 
 fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] = match data.iterable {
     RangeExpr(_, _, rangeData) => generateForRangeStmt(g, node, data.binding, rangeData, data.body)
-    _ => generateForStmtGeneric(g, node, data)
+    _ => match checkerTypeForNode(g, nodeId(data.iterable)) {
+        None => generateForStmtGeneric(g, node, data)
+        Some(t) => {
+            if isListType(t) {
+                return match listElemType(t) {
+                    None => generateForStmtGeneric(g, node, data)
+                    Some(elemType) => generateForListStmt(g, node, data, elemType)
+                }
+            }
+            generateForStmtGeneric(g, node, data)
+        }
+    }
 }
 
 fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {

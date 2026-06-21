@@ -2,7 +2,7 @@ import (
     { Node, FuncDeclData } from @ast/ast
     { CheckResult, Type, FuncType, ClassType, IntType, CharType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { collectionElemKind, isListOrMapType, mapKeyIsStringKind, emitCollectionToStringStub } from @codegen/gen_collections
+    { collectionElemKind, isListOrMapType, isListType, listElemType, mapKeyIsStringKind, emitCollectionToStringStub } from @codegen/gen_collections
     { stubLlvmValue } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -53,6 +53,19 @@ test fn testIsListOrMapType() {
     assertMsg(isListOrMapType(mapIntInt), "Map[Int,Int] is collection")
     assertMsg(!isListOrMapType(taskInt), "Task[Int] not collection")
     assertMsg(!isListOrMapType(IntType), "Int not collection")
+}
+
+test fn testIsListType() {
+    val listClass = collectionsEmptyClass("List")
+    val mapClass = collectionsEmptyClass("Map")
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
+    assertMsg(isListType(listInt), "List[Int] is list")
+    assertMsg(!isListType(mapIntInt), "Map not list")
+    match listElemType(listInt) {
+        None => assertMsg(false, "List[Int] elem type")
+        Some(t) => assertMsg(t == IntType, "elem is Int")
+    }
 }
 
 test fn testEmitCollectionToStringStub() {

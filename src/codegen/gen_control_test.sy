@@ -1,7 +1,7 @@
 import (
-    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData } from @ast/ast
+    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData, IdentifierData } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, UnitType, BoolType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, UnitType, BoolType, ClassType } from @checker/types
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
@@ -188,6 +188,51 @@ test fn testGenerateForRangeStmt() {
                 if k == "i" { hasI = true }
             }
             assertMsg(hasI, "range binding registered in g.vars")
+        }
+    }
+}
+
+test fn testGenerateForListStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
+    val iterable = Node.Identifier(1, span, IdentifierData { name: "nums" })
+    val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "n", iterable: iterable, body: body })
+    val listClass = ClassType {
+        name: "List",
+        fields: Map[String, Type]{},
+        fieldPub: Map[String, Bool]{},
+        fieldInit: Map[String, Node]{},
+        methods: Map[String, List[FuncType]]{},
+        methodPub: Map[String, Bool]{},
+        implements: [],
+        generics: ["T"]
+    }
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, listInt)
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, forNode) {
+        None => assertMsg(false, "expected for-in list stmt result")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "for-in list completes without terminator")
+            assertMsg(blockNameRegistered(g, "forl_cond"), "for-list cond block registered")
+            assertMsg(blockNameRegistered(g, "forl_body"), "for-list body block registered")
+            assertMsg(blockNameRegistered(g, "forl_incr"), "for-list incr block registered")
+            assertMsg(blockNameRegistered(g, "forl_after"), "for-list after block registered")
+            assertMsg(g.forListIndexAlloca != None, "for-list index alloca recorded")
+            assertMsg(g.forListBindingAlloca != None, "for-list binding alloca recorded")
+            assertMsg(g.forListSizeLoad != None, "for-list size load stub")
+            assertMsg(g.forListGetStub != None, "for-list get stub")
+            assertMsg(g.forListCondLoad != None, "for-list cond load stub")
+            assertMsg(g.forListIncrLoad != None, "for-list incr load stub")
+            assertMsg(g.forListIncrStore != None, "for-list incr store stub")
+            var hasN = false
+            for k in g.vars.keys() {
+                if k == "n" { hasN = true }
+            }
+            assertMsg(!hasN, "binding n not leaked after for-in list")
         }
     }
 }

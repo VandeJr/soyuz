@@ -30,6 +30,27 @@ pub fn isListOrMapType(t: Type) -> Bool = match t {
     _ => false
 }
 
+pub fn isListType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "List" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn listElemType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "List" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
 pub fn emitCollectionToStringStub(g: Generator, _val: LlvmValue, soyuzType: Type) -> Option[LlvmValue] {
     if !isListOrMapType(soyuzType) { return None }
     return Some(stubLlvmValue(g))

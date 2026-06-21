@@ -86,6 +86,13 @@ pub class Generator {
     pub var listIterAllocStub: Option[LlvmValue] = None
     pub var listIterListStoreStub: Option[LlvmValue] = None
     pub var listIterIndexInitStub: Option[LlvmValue] = None
+    pub var forListIndexAlloca: Option[LlvmValue] = None
+    pub var forListBindingAlloca: Option[LlvmValue] = None
+    pub var forListSizeLoad: Option[LlvmValue] = None
+    pub var forListGetStub: Option[LlvmValue] = None
+    pub var forListIncrLoad: Option[LlvmValue] = None
+    pub var forListIncrStore: Option[LlvmValue] = None
+    pub var forListCondLoad: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {
