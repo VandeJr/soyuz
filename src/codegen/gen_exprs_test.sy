@@ -366,6 +366,69 @@ test fn testGenerateMatchExprEnumConstructor() {
     }
 }
 
+// Port of soyuz-go/internal/codegen/m6_enum_test.go TestM6EnumMatch (codegen block scaffolding).
+test fn testM6EnumMatchCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 80 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "c" })
+    val body0 = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val body1 = Node.IntLiteral(11, span, IntLiteralData { value: "2" })
+    val body2 = Node.IntLiteral(12, span, IntLiteralData { value: "3" })
+    val arm0 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(2, span, "Vermelho", []),
+        guard: None,
+        body: body0
+    }
+    val arm1 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(3, span, "Verde", []),
+        guard: None,
+        body: body1
+    }
+    val arm2 = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(4, span),
+        guard: None,
+        body: body2
+    }
+    val data = MatchExprData { subject: subject, arms: [arm0, arm1, arm2] }
+    val node = Node.MatchExpr(5, span, data)
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Vermelho", [])
+    variants.set("Verde", [])
+    variants.set("Azul", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    types.set(11, IntType)
+    types.set(12, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    val v2 = EnumVariant { span: span, name: "Azul", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1, v2] }), "register Cor")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected m6 enum match codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "classifica returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_Vermelho_tag_cmp"), "Vermelho tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_Verde_tag_cmp"), "Verde tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "first arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_1_body"), "second arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_2_body"), "wildcard arm body block")
+            assertMsg(matchPhiIncomingCount(g) == 4, "three arm bodies plus fallthrough phi")
+        }
+    }
+}
+
 test fn testGenerateMatchExprCreatesBlocks() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
     val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
