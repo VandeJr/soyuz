@@ -10,7 +10,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
-    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -1234,6 +1234,32 @@ test fn testMutexNewCallExprCodegen() {
         Some(_) => {
             assertMsg(g.mutexNewStub != None, "mutex new stub stored")
             assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeNew()), "srt_mutex_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockReadEmitsSrtRwlockRead (new half) — RwLock.new(0) call expr dispatch.
+test fn testRwLockNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = channelTestClass("RwLock")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwlockId = Node.Identifier(1, span, IdentifierData { name: "RwLock" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwlockId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(rwlockClass))
+    types.set(2, Type.Class(rwlockClass))
+    types.set(3, IntType)
+    types.set(4, rwlockInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected RwLock.new(0) codegen")
+        Some(_) => {
+            assertMsg(g.rwLockNewStub != None, "rwlock new stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeNew()), "srt_rwlock_new registered")
         }
     }
 }
