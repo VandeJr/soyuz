@@ -1,5 +1,5 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData, RecordPatternField } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -736,6 +736,48 @@ test fn testGenerateRecordLiteralCodegen() {
                 Some(v) => assertMsg(v.handle > 0, "alloc handle")
             }
             assertMsg(g.recordLiteralFieldStores.size() == 2, "field store per literal field")
+        }
+    }
+}
+
+test fn testMatchExprRecordPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "p" })
+    val body = Node.Identifier(10, span, IdentifierData { name: "x" })
+    val xField = RecordPatternField { name: "x", pattern: None }
+    val yField = RecordPatternField { name: "y", pattern: None }
+    val pat = Pattern.Record(2, span, "Point", [xField, yField])
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var pointFields: Map[String, Type] = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    pointFields.set("y", Type.Basic("Float"))
+    val pointType = Type.Record("Point", pointFields, [])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, pointType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yDecl = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Float") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl, yDecl] }), "register Point")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on Point record pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "record arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "record arm body block")
+            assertMsg(g.recordPatternSubject != None, "record subject stub during match")
+            assertMsg(g.recordPatternFieldLoads.size() == 2, "field load per shorthand field")
+            assertMsg(g.recordPatternFieldStores.size() == 2, "field store per shorthand binding")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
         }
     }
 }
