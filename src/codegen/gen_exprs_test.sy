@@ -486,6 +486,89 @@ test fn testM6EnumWithFieldsMatchCodegen() {
     }
 }
 
+// Port of m6_enum_test.go TestM6EnumSimple — bare Vermelho zero-arg enum constructor.
+test fn testM6EnumSimpleCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val vermelho = Node.Identifier(2, span, IdentifierData { name: "Vermelho" })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Vermelho", [])
+    variants.set("Verde", [])
+    variants.set("Azul", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    val ctorType = Type.Func(FuncType {
+        params: [],
+        returnType: corType,
+        generics: [],
+        defaults: [],
+        isOptional: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, ctorType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    val v2 = EnumVariant { span: span, name: "Azul", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1, v2] }), "register Cor")
+    match generateExprNode(g, vermelho) {
+        None => assertMsg(false, "expected Vermelho enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, corType)), "Vermelho returns Cor")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            assertMsg(g.constructorPayloadPtr == None, "zero-arg variant has no payload ptr")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumWithFields — Circulo(5.0) bare constructor call.
+test fn testM6EnumWithFieldsCtorCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val floatType = Type.Basic("Float")
+    val callee = Node.Identifier(2, span, IdentifierData { name: "Circulo" })
+    val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "5.0" })
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: [arg] })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Circulo", [floatType])
+    variants.set("Retangulo", [floatType])
+    val formaType = Type.Enum(EnumType {
+        name: "Forma",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(3, floatType)
+    types.set(4, formaType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val raioField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val larguraField = EnumField { name: "largura", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val circulo = EnumVariant { span: span, name: "Circulo", fields: [raioField] }
+    val retangulo = EnumVariant { span: span, name: "Retangulo", fields: [larguraField] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo, retangulo] }), "register Forma")
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Circulo(5.0) enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, formaType)), "Circulo(5.0) returns Forma")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            match g.constructorPayloadPtr {
+                None => assertMsg(false, "payload variant allocates payload ptr stub")
+                Some(v) => assertMsg(v.handle > 0, "payload ptr handle")
+            }
+            assertMsg(g.constructorArgLoads.size() == 1, "one constructor arg load stub")
+        }
+    }
+}
+
 // Port of m6_enum_test.go TestM6EnumDotSyntax — Cor.Vermelho zero-arg enum constructor.
 test fn testM6EnumDotSyntaxCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }

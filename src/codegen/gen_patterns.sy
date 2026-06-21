@@ -26,6 +26,23 @@ fn noneTypeOption() -> Option[Type] {
     return None
 }
 
+pub fn enumVariantForPatternWithSubject(g: Generator, variantName: String, subject: Type) -> Option[EnumVariantLookup] {
+    return match enumVariantBySubjectType(g, variantName, subject) {
+        Some(found) => Some(found)
+        None => match enumVariantForRegisteredEnum(g, variantName, variantName) {
+            Some(found) => Some(found)
+            None => enumVariantByScan(g, variantName)
+        }
+    }
+}
+
+pub fn enumVariantForPatternNoSubject(g: Generator, variantName: String) -> Option[EnumVariantLookup] {
+    return match enumVariantForRegisteredEnum(g, variantName, variantName) {
+        Some(found) => Some(found)
+        None => enumVariantByScan(g, variantName)
+    }
+}
+
 fn noneStringOption() -> Option[String] {
     return None
 }

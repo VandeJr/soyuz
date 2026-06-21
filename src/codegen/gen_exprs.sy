@@ -1,12 +1,12 @@
 import (
     { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
-    { Type } from @checker/types
+    { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
     { VariantInfo } from @codegen/types
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPattern } from @codegen/gen_patterns
+    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
 )
 
@@ -271,10 +271,24 @@ fn emitEnumConstructorExprStubs(g: Generator, vi: VariantInfo, argCount: Int) ->
 
 fn enumVariantLookupFromMember(g: Generator, objectNode: Node, property: String) -> Option[EnumVariantLookup] = match objectNode {
     Identifier(id, _, _) => match checkerTypeForNode(g, id) {
-        None => None
-        Some(t) => enumVariantForPattern(g, property, Some(t))
+        None => enumVariantForPatternNoSubject(g, property)
+        Some(subjectType) => enumVariantForPatternWithSubject(g, property, subjectType)
     }
     _ => None
+}
+
+fn enumVariantLookupFromFuncTypeConstructor(g: Generator, id: Int, variantName: String) -> Option[EnumVariantLookup] = match checkerTypeForNode(g, id) {
+    None => None
+    Some(t) => match t {
+        Func(ft) => {
+            if ft.params.size() != 0 { return None }
+            match ft.returnType {
+                Enum(_) => enumVariantForPatternWithSubject(g, variantName, ft.returnType)
+                _ => None
+            }
+        }
+        _ => None
+    }
 }
 
 fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> Option[ExprResult] = match enumVariantLookupFromMember(g, data.object, data.property) {
@@ -288,6 +302,16 @@ fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> O
 fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Option[ExprResult] {
     if !generateAllCallArgs(g, data.args) { return None }
     return match data.callee {
+        Identifier(_, _, idData) => match enumVariantForPatternNoSubject(g, idData.name) {
+            None => match generateExprNode(g, data.callee) {
+                None => None
+                Some(_) => exprResultFromNode(g, node, NoConst)
+            }
+            Some(lookup) => {
+                if !emitEnumConstructorExprStubs(g, lookup.variantInfo, data.args.size()) { return None }
+                exprResultFromNode(g, node, NoConst)
+            }
+        }
         MemberExpr(_, _, memberData) => match enumVariantLookupFromMember(g, memberData.object, memberData.property) {
             None => match generateExprNode(g, data.callee) {
                 None => None
@@ -305,8 +329,12 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
     }
 }
 
-fn generateIdentifierExprResult(g: Generator, node: Node, _: IdentifierData) -> Option[ExprResult] {
-    return exprResultFromNode(g, node, NoConst)
+fn generateIdentifierExprResult(g: Generator, node: Node, data: IdentifierData) -> Option[ExprResult] = match enumVariantLookupFromFuncTypeConstructor(g, nodeId(node), data.name) {
+    None => exprResultFromNode(g, node, NoConst)
+    Some(lookup) => {
+        if !emitEnumConstructorExprStubs(g, lookup.variantInfo, 0) { return None }
+        exprResultFromNode(g, node, NoConst)
+    }
 }
 
 fn generateIndexExprResult(g: Generator, node: Node, data: IndexExprData) -> Option[ExprResult] {
