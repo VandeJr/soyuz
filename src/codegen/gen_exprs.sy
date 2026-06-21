@@ -7,7 +7,7 @@ import (
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub } from @codegen/gen_channel
-    { isMutexNewCall, isMutexLockCall, generateMutexNewStub, generateMutexLockStub } from @codegen/gen_sync
+    { isMutexNewCall, isMutexLockCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -326,11 +326,36 @@ fn enumVariantLookupFromFuncTypeConstructor(g: Generator, id: Int, variantName: 
     }
 }
 
-fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> Option[ExprResult] = match enumVariantLookupFromMember(g, data.object, data.property) {
-    None => None
-    Some(lookup) => {
-        if !emitEnumConstructorExprStubs(g, lookup.variantInfo, 0) { return None }
-        exprResultFromNode(g, node, NoConst)
+fn tryGenerateSyncGuardReadMember(g: Generator, node: Node, data: MemberExprData) -> Option[ExprResult] {
+    return match syncGuardValueAccess(g, data) {
+        None => None
+        Some(kind) => match generateExprNode(g, data.object) {
+            None => None
+            Some(_) => match generateSyncGuardReadStub(g, kind) {
+                None => None
+                Some(_) => exprResultFromNode(g, node, NoConst)
+            }
+        }
+    }
+}
+
+fn tryGenerateSyncGuardWriteAssignFromLeft(g: Generator, node: Node, left: Node, right: Node) -> Option[ExprResult] {
+    return match left {
+        MemberExpr(_, _, memberData) => tryGenerateSyncGuardWriteAssign(g, node, memberData, right)
+        _ => None
+    }
+}
+
+fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> Option[ExprResult] {
+    return match tryGenerateSyncGuardReadMember(g, node, data) {
+        Some(r) => Some(r)
+        None => match enumVariantLookupFromMember(g, data.object, data.property) {
+            None => None
+            Some(lookup) => {
+                if !emitEnumConstructorExprStubs(g, lookup.variantInfo, 0) { return None }
+                exprResultFromNode(g, node, NoConst)
+            }
+        }
     }
 }
 
@@ -489,10 +514,29 @@ fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[
     }
 }
 
+fn tryGenerateSyncGuardWriteAssign(g: Generator, node: Node, memberData: MemberExprData, right: Node) -> Option[ExprResult] {
+    return match syncGuardValueAccess(g, memberData) {
+        None => None
+        Some(kind) => match generateExprNode(g, memberData.object) {
+            None => None
+            Some(_) => match generateExprNode(g, right) {
+                None => None
+                Some(_) => match generateSyncGuardWriteStub(g, kind) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+        }
+    }
+}
+
 fn generateAssignExprResult(g: Generator, node: Node, data: AssignExprData) -> Option[ExprResult] {
-    return match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
-        (Some(_), Some(_)) => exprResultFromNode(g, node, NoConst)
-        _ => None
+    return match tryGenerateSyncGuardWriteAssignFromLeft(g, node, data.left, data.right) {
+        Some(r) => Some(r)
+        None => match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
+            (Some(_), Some(_)) => exprResultFromNode(g, node, NoConst)
+            _ => None
+        }
     }
 }
 

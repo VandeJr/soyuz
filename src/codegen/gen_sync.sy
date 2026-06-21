@@ -1,5 +1,5 @@
 import (
-    { Node } from @ast/ast
+    { Node, MemberExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
@@ -13,6 +13,22 @@ pub fn mutexRuntimeNew() -> String {
 
 pub fn mutexRuntimeLock() -> String {
     return "srt_mutex_lock"
+}
+
+pub fn mutexGuardRuntimeGet() -> String {
+    return "srt_mutex_guard_get"
+}
+
+pub fn mutexGuardRuntimeSet() -> String {
+    return "srt_mutex_guard_set"
+}
+
+pub fn rwlockGuardRuntimeGet() -> String {
+    return "srt_rwlock_guard_get"
+}
+
+pub fn rwlockGuardRuntimeSet() -> String {
+    return "srt_rwlock_guard_set"
 }
 
 pub fn isMutexType(t: Type) -> Bool = match t {
@@ -68,6 +84,40 @@ pub fn isMutexLockCall(callee: Node, g: Generator) -> Bool {
     return isMutexInstanceMethodCall(callee, g, "lock")
 }
 
+pub fn syncGuardKind(t: Type) -> Option[String] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if params.size() == 0 { return None }
+            match ct.name {
+                "MutexGuard" => Some("mutex")
+                "ReadGuard" => Some("rwlock")
+                "WriteGuard" => Some("rwlock")
+                _ => None
+            }
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn syncGuardValueAccess(g: Generator, data: MemberExprData) -> Option[String] {
+    if data.property != "value" { return None }
+    match syncCheckerNodeType(g, nodeId(data.object)) {
+        None => None
+        Some(t) => syncGuardKind(t)
+    }
+}
+
+fn syncGuardRuntimeGet(kind: String) -> String {
+    if kind == "mutex" { return mutexGuardRuntimeGet() }
+    return rwlockGuardRuntimeGet()
+}
+
+fn syncGuardRuntimeSet(kind: String) -> String {
+    if kind == "mutex" { return mutexGuardRuntimeSet() }
+    return rwlockGuardRuntimeSet()
+}
+
 fn registerSyncRuntimeSymbol(g: Generator, symbol: String) {
     var found = false
     for s in g.syncRuntimeSymbols {
@@ -98,5 +148,21 @@ pub fn generateMutexLockStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, mutexRuntimeLock())
     val stub = stubLlvmValue(g)
     g.mutexLockStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateSyncGuardReadStub(g: Generator, kind: String) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, syncGuardRuntimeGet(kind))
+    val stub = stubLlvmValue(g)
+    g.syncGuardReadStub = Some(stub)
+    g.syncGuardLastKind = Some(kind)
+    return Some(stub)
+}
+
+pub fn generateSyncGuardWriteStub(g: Generator, kind: String) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, syncGuardRuntimeSet(kind))
+    val stub = stubLlvmValue(g)
+    g.syncGuardWriteStub = Some(stub)
+    g.syncGuardLastKind = Some(kind)
     return Some(stub)
 }

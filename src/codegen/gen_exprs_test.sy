@@ -10,7 +10,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
-    { mutexRuntimeNew, mutexRuntimeLock, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -1423,6 +1423,50 @@ test fn testChannelIsClosedCallExprCodegen() {
         Some(_) => {
             assertMsg(g.channelIsClosedStub != None, "channel isClosed stub stored")
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeIsClosed()), "srt_chan_is_closed registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexGuardValueRead — guard.value member expr dispatch.
+test fn testSyncGuardValueReadExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardClass = channelTestClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, guardInt)
+    types.set(2, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, member) {
+        None => assertMsg(false, "expected guard.value read codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardReadStub != None, "sync guard read stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeGet()), "srt_mutex_guard_get registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexGuardValueWrite — guard.value = expr assign dispatch.
+test fn testSyncGuardValueWriteExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardClass = channelTestClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
+    val left = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    val right = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    val assign = Node.AssignExpr(4, span, AssignExprData { left: left, right: right })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, guardInt)
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, assign) {
+        None => assertMsg(false, "expected guard.value write codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardWriteStub != None, "sync guard write stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeSet()), "srt_mutex_guard_set registered")
         }
     }
 }

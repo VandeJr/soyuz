@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, mutexRuntimeNew, mutexRuntimeLock, generateMutexNewStub, generateMutexLockStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, syncGuardKind, syncGuardValueAccess, mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, generateMutexNewStub, generateMutexLockStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -92,6 +92,57 @@ test fn testGenerateMutexLockStub() {
         Some(_) => assertMsg(g.mutexLockStub != None, "stub stored on generator")
     }
     assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeLock()), "srt_mutex_lock registered")
+}
+
+test fn testSyncGuardKind() {
+    val guardClass = syncEmptyClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    match syncGuardKind(guardInt) {
+        None => assertMsg(false, "MutexGuard[Int] kind")
+        Some(k) => assertMsg(k == "mutex", "mutex guard kind")
+    }
+    val readClass = syncEmptyClass("ReadGuard")
+    val readInt = Type.Specialized(Type.Class(readClass), [IntType])
+    match syncGuardKind(readInt) {
+        None => assertMsg(false, "ReadGuard[Int] kind")
+        Some(k) => assertMsg(k == "rwlock", "rwlock guard kind")
+    }
+}
+
+test fn testSyncGuardValueAccess() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardClass = syncEmptyClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
+    val valueMember = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(guardInt))
+    cr.nodeTypes.append(Some(guardInt))
+    val g = newGenerator(cr)
+    match syncGuardValueAccess(g, MemberExprData { object: guardId, property: "value" }) {
+        None => assertMsg(false, "guard.value access")
+        Some(k) => assertMsg(k == "mutex", "mutex guard value")
+    }
+    val otherMember = Node.MemberExpr(3, span, MemberExprData { object: guardId, property: "other" })
+    assertMsg(syncGuardValueAccess(g, MemberExprData { object: guardId, property: "other" }) == None, "not value property")
+}
+
+test fn testGenerateSyncGuardReadStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateSyncGuardReadStub(g, "mutex") {
+        None => assertMsg(false, "sync guard read stub")
+        Some(_) => assertMsg(g.syncGuardReadStub != None, "read stub stored")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeGet()), "srt_mutex_guard_get registered")
+}
+
+test fn testGenerateSyncGuardWriteStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateSyncGuardWriteStub(g, "mutex") {
+        None => assertMsg(false, "sync guard write stub")
+        Some(_) => assertMsg(g.syncGuardWriteStub != None, "write stub stored")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeSet()), "srt_mutex_guard_set registered")
 }
 
 test fn testGenerateMutexNewStub() {

@@ -133,6 +133,9 @@ pub class Generator {
     pub var channelRuntimeSymbols: List[String] = []
     pub var mutexNewStub: Option[LlvmValue] = None
     pub var mutexLockStub: Option[LlvmValue] = None
+    pub var syncGuardReadStub: Option[LlvmValue] = None
+    pub var syncGuardWriteStub: Option[LlvmValue] = None
+    pub var syncGuardLastKind: Option[String] = None
     pub var syncRuntimeSymbols: List[String] = []
 }
 
