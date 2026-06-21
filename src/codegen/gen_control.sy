@@ -6,7 +6,7 @@ import (
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, defaultLlvmValue, emitStoreStub, emitBreakValueStoreStub } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitBreakValueStoreStub } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -95,19 +95,19 @@ fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResu
 }
 
 fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[StmtResult] {
-    return match generateExprNode(g, data.condition) {
-        None => None
-        Some(_) => {
-            pushLoop(g, LoopCtx { cond: dummyLoopBlock(), after: dummyLoopBlock(), resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
-            val bodyOk = match generateStmtNode(g, data.body) {
-                None => false
-                Some(_) => true
-            }
-            popLoop(g)
-            if !bodyOk { return None }
-            return stmtResultFromNode(g, node, NoTerminator)
-        }
-    }
+    val condBlock = newBlock(g, "while_cond")
+    val bodyBlock = newBlock(g, "while_body")
+    val afterBlock = newBlock(g, "while_after")
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !exprGeneratesOk(g, data.condition) { return None }
+    if !emitCondBrToBlockStub(g, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: condBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    if !finishLoopBodyFromNode(g, condBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, afterBlock)
+    return stmtResultFromNode(g, node, NoTerminator)
 }
 
 fn storeLoopResultDefault(g: Generator, resultLlvm: LlvmType, resultAlloca: LlvmValue) {

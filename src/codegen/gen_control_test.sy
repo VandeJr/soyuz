@@ -211,7 +211,12 @@ test fn testGenerateWhileStmt() {
     val g = newGenerator(controlCheckerWithNodeTypes(types))
     match generateStmtNode(g, whileNode) {
         None => assertMsg(false, "expected while stmt result")
-        Some(r) => assertMsg(!hasTerminator(r), "while completes without terminator")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "while completes without terminator")
+            assertMsg(blockNameRegistered(g, "while_cond"), "while cond block registered")
+            assertMsg(blockNameRegistered(g, "while_body"), "while body block registered")
+            assertMsg(blockNameRegistered(g, "while_after"), "while after block registered")
+        }
     }
 }
 

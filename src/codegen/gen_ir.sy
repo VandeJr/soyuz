@@ -60,6 +60,11 @@ pub fn emitCondBrStub(g: Generator, thenBlockName: String, nextBlockName: String
     return true
 }
 
+pub fn emitCondBrToBlockStub(g: Generator, thenBlock: LlvmBasicBlock, elseBlock: LlvmBasicBlock) -> Bool {
+    setCurrentBlock(g, thenBlock)
+    return true
+}
+
 pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
     newBlock(g, targetBlockName)
     return true
