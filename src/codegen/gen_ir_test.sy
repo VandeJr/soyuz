@@ -2,7 +2,7 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount } from @codegen/gen_ir
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub } from @codegen/gen_ir
     { llvmI64 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -83,4 +83,23 @@ test fn testRecordMatchPhiIncoming() {
     val block = newBlock(g, "arm_body")
     recordMatchPhiIncoming(g, newAlloca(g, llvmI64()), block)
     assertMsg(matchPhiIncomingCount(g) == 1, "one phi incoming recorded")
+}
+
+test fn testEmitPhiStub() {
+    val g = newGenerator(irTestCheckResult())
+    clearMatchPhiIncomings(g)
+    match emitPhiStub(g) {
+        None => assertMsg(true, "no phi without incomings")
+        Some(_) => assertMsg(false, "unexpected phi")
+    }
+    val block = newBlock(g, "arm_body")
+    recordMatchPhiIncoming(g, newAlloca(g, llvmI64()), block)
+    match emitPhiStub(g) {
+        None => assertMsg(false, "expected phi stub")
+        Some(phi) => assertMsg(phi.handle > 0, "phi result handle")
+    }
+    match g.matchPhiResult {
+        None => assertMsg(false, "matchPhiResult set")
+        Some(phi) => assertMsg(phi.handle > 0, "stored phi result")
+    }
 }

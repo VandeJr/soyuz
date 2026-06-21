@@ -385,6 +385,10 @@ test fn testGenerateMatchExprCreatesBlocks() {
             assertMsg(blockNameRegistered(g, "match_arm_0_next"), "guarded arm fail block")
             assertMsg(blockNameRegistered(g, "match_arm_1_next"), "second arm next block")
             assertMsg(matchPhiIncomingCount(g) == 3, "arm values plus fallthrough phi incomings")
+            match g.matchPhiResult {
+                None => assertMsg(false, "match phi result stub")
+                Some(phi) => assertMsg(phi.handle > 0, "phi result handle at merge")
+            }
         }
     }
 }

@@ -67,6 +67,7 @@ pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
 
 pub fn clearMatchPhiIncomings(g: Generator) {
     g.matchPhiIncomings = []
+    g.matchPhiResult = None
 }
 
 pub fn matchPhiIncomingCount(g: Generator) -> Int {
@@ -77,6 +78,19 @@ pub fn recordMatchPhiIncoming(g: Generator, value: LlvmValue, block: LlvmBasicBl
     var incomings = g.matchPhiIncomings
     incomings.append(PhiIncoming { value: value, block: block })
     g.matchPhiIncomings = incomings
+}
+
+fn stubPhiValue(g: Generator) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn emitPhiStub(g: Generator) -> Option[LlvmValue] {
+    if matchPhiIncomingCount(g) == 0 { return None }
+    val phi = stubPhiValue(g)
+    g.matchPhiResult = Some(phi)
+    return Some(phi)
 }
 
 pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {
