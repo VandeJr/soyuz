@@ -1,11 +1,11 @@
 import (
-    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, ClassDeclData, VarDeclData, FuncDeclData, FuncParam, Pattern } from @ast/ast
+    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, InterfaceMethod, ClassDeclData, VarDeclData, FuncDeclData, FuncParam, Pattern, TypeExpr } from @ast/ast
     { nodeId } from @ast/ast_helpers
-    { Type, FuncType, UnitType } from @checker/types
+    { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
     { StructInfo, EnumInfo, VariantInfo, ClassInfo, PendingClassMethodBody } from @codegen/types
     { mapSoyuzTypeToLLVM, mapTypeToLLVM } from @codegen/gen_types
-    { stubLlvmFunc } from @codegen/gen_ir
+    { stubLlvmFunc, stubLlvmGlobal } from @codegen/gen_ir
     { LlvmType, LlvmFunc, LlvmGlobal, llvmI64, llvmI8, llvmVoid, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
@@ -186,6 +186,99 @@ fn appendClassMethodFn(methods: Map[String, List[LlvmFunc]], methodName: String,
     methods.set(methodName, fns)
 }
 
+fn appendClassMethodVariantArity(g: Generator, className: String, methodName: String, nonSelfArity: Int) {
+    var byMethod: Map[String, List[Int]] = Map[String, List[Int]]{}
+    for k in g.classMethodVariantArities.keys() {
+        if k == className { byMethod = g.classMethodVariantArities.get(className) }
+    }
+    var arities: List[Int] = []
+    for k in byMethod.keys() {
+        if k == methodName { arities = byMethod.get(methodName) }
+    }
+    arities.append(nonSelfArity)
+    byMethod.set(methodName, arities)
+    g.classMethodVariantArities.set(className, byMethod)
+}
+
+fn classMethodVariantAritiesFor(g: Generator, className: String, methodName: String) -> List[Int] {
+    for ck in g.classMethodVariantArities.keys() {
+        if ck == className {
+            val byMethod = g.classMethodVariantArities.get(className)
+            for mk in byMethod.keys() {
+                if mk == methodName { return byMethod.get(methodName) }
+            }
+        }
+    }
+    return []
+}
+
+fn classMethodByArityIndex(arities: List[Int], nonSelfArity: Int) -> Int {
+    var i = 0
+    for a in arities {
+        if a == nonSelfArity { return i }
+        i = i + 1
+    }
+    if arities.size() > 0 { return 0 }
+    return -1
+}
+
+pub fn vtableSymbolName(className: String, ifaceName: String) -> String {
+    return "__vtable_$(className)_$(ifaceName)"
+}
+
+fn appendClassVtableSymbol(g: Generator, className: String, symbol: String, slotCount: Int) {
+    var syms: List[String] = []
+    for k in g.classVtableSymbols.keys() {
+        if k == className { syms = g.classVtableSymbols.get(className) }
+    }
+    syms.append(symbol)
+    g.classVtableSymbols.set(className, syms)
+    g.classVtableSlotCounts.set(symbol, slotCount)
+}
+
+fn interfaceDeclRegistered(g: Generator, name: String) -> Bool {
+    for k in g.interfaceDecls.keys() {
+        if k == name { return true }
+    }
+    return false
+}
+
+fn interfaceMethodNonSelfArity(method: InterfaceMethod) -> Int {
+    var arity = 0
+    for p in method.params {
+        if !isSelfFuncParam(p) { arity = arity + 1 }
+    }
+    return arity
+}
+
+fn generateVtable(g: Generator, className: String, ifaceName: String, ifaceDecl: InterfaceDeclData) -> LlvmGlobal {
+    val slotCount = ifaceDecl.methods.size()
+    val symbol = vtableSymbolName(className, ifaceName)
+    appendClassVtableSymbol(g, className, symbol, slotCount)
+    for m in ifaceDecl.methods {
+        val ifaceArity = interfaceMethodNonSelfArity(m)
+        val arities = classMethodVariantAritiesFor(g, className, m.name)
+        val _slotIndex = classMethodByArityIndex(arities, ifaceArity)
+    }
+    return stubLlvmGlobal(g)
+}
+
+fn registerClassVtables(g: Generator, className: String, interfaces: List[TypeExpr]) -> Map[String, LlvmGlobal] {
+    var vtables: Map[String, LlvmGlobal] = Map[String, LlvmGlobal]{}
+    for ifaceExpr in interfaces {
+        match ifaceExpr {
+            Named(_, _, ifaceName) => {
+                if !interfaceDeclRegistered(g, ifaceName) { continue }
+                val ifaceDecl = g.interfaceDecls.get(ifaceName)
+                val vtable = generateVtable(g, className, ifaceName, ifaceDecl)
+                vtables.set(ifaceName, vtable)
+            }
+            _ => {}
+        }
+    }
+    return vtables
+}
+
 fn classMethodReturnLlvmType(g: Generator, member: Node, fd: FuncDeclData) -> LlvmType = match funcDeclFuncTypeFromNode(g, member) {
     None => match fd.returnType {
         Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
@@ -254,6 +347,7 @@ fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: L
                 }
                 val llvmFn = declareClassMethod(g, className, member, fd, methodName)
                 appendClassMethodFn(methods, fd.name, llvmFn)
+                appendClassMethodVariantArity(g, className, fd.name, key.arity)
                 var variants: List[FuncDeclData] = []
                 for n in nodes {
                     match n {
@@ -290,6 +384,28 @@ pub fn classMethodSymbolsForClass(g: Generator, className: String) -> List[Strin
     return []
 }
 
+pub fn classHasVtableSymbol(g: Generator, className: String, symbol: String) -> Bool {
+    for s in classVtableSymbolsForClass(g, className) {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn classVtableSymbolsForClass(g: Generator, className: String) -> List[String] {
+    for k in g.classVtableSymbols.keys() {
+        if k == className { return g.classVtableSymbols.get(className) }
+    }
+    return []
+}
+
+pub fn classVtableSlotCount(g: Generator, className: String, ifaceName: String) -> Int {
+    val symbol = vtableSymbolName(className, ifaceName)
+    for k in g.classVtableSlotCounts.keys() {
+        if k == symbol { return g.classVtableSlotCounts.get(symbol) }
+    }
+    return 0
+}
+
 pub fn generateClassDecl(g: Generator, data: ClassDeclData) -> Bool {
     if data.generics.size() > 0 { return true }
     var indices: Map[String, Int] = Map[String, Int]{}
@@ -306,11 +422,12 @@ pub fn generateClassDecl(g: Generator, data: ClassDeclData) -> Bool {
     g.structs.set(data.name, si)
     var methods: Map[String, List[LlvmFunc]] = Map[String, List[LlvmFunc]]{}
     registerClassMethods(g, data.name, si, data.body, methods)
+    val vtables = registerClassVtables(g, data.name, data.interfaces)
     g.classes.set(data.name, ClassInfo {
         typ: st,
         fieldIndices: indices,
         methods: methods,
-        vtables: Map[String, LlvmGlobal]{}
+        vtables: vtables
     })
     return true
 }

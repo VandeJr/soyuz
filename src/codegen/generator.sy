@@ -112,7 +112,11 @@ pub class Generator {
     pub var forIteratorCondLoad: Option[LlvmValue] = None
     pub var forIteratorBindingAlloca: Option[LlvmValue] = None
     pub var funcHandleCounter: Int = 0
+    pub var globalHandleCounter: Int = 0
     pub var classMethodSymbols: Map[String, List[String]] = Map[String, List[String]]{}
+    pub var classMethodVariantArities: Map[String, Map[String, List[Int]]] = Map[String, Map[String, List[Int]]]{}
+    pub var classVtableSymbols: Map[String, List[String]] = Map[String, List[String]]{}
+    pub var classVtableSlotCounts: Map[String, Int] = Map[String, Int]{}
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

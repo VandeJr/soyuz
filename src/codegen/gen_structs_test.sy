@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind, FuncParam, Pattern, BlockStmtData } from @ast/ast
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind, FuncParam, Pattern, BlockStmtData, InterfaceDeclData, InterfaceMethod } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, classHasMethodSymbol, classMethodSymbolName, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
+    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateInterfaceDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, classHasMethodSymbol, classHasVtableSymbol, classMethodSymbolName, classVtableSlotCount, vtableSymbolName, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
     { ensureSoyuzStringLlvmTypes } from @codegen/gen_types
     { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8, llvmPointerType } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -260,4 +260,56 @@ test fn testGenerateClassMethodOverloading() {
     assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 0, 2)), "incrementar_0")
     assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 1, 2)), "incrementar_1")
     assertMsg(g.classes.get("Contador").methods.get("incrementar").size() == 2, "two overloads registered")
+}
+
+test fn testGenerateClassVtable() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val selfParam = FuncParam { span: span, pattern: Pattern.Binding(1, span, "self"), typeExpr: None, defaultExpr: None }
+    val incrementarIface = InterfaceMethod {
+        span: span,
+        isPub: false,
+        name: "incrementar",
+        params: [],
+        returnType: None
+    }
+    var ifaceParams: List[FuncParam] = []
+    ifaceParams.append(selfParam)
+    val incrementarMethod = InterfaceMethod {
+        span: incrementarIface.span,
+        isPub: incrementarIface.isPub,
+        name: incrementarIface.name,
+        params: ifaceParams,
+        returnType: incrementarIface.returnType
+    }
+    var ifaceMethods: List[InterfaceMethod] = []
+    ifaceMethods.append(incrementarMethod)
+    val contavel = InterfaceDeclData {
+        isPub: true,
+        name: "Contavel",
+        generics: [],
+        methods: ifaceMethods
+    }
+    assertMsg(generateInterfaceDecl(g, contavel), "interface decl ok")
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    val incrementar = makeClassSelfMethod(span, 10, "incrementar", [], Some(emptyBody))
+    var body: List[Node] = []
+    body.append(incrementar)
+    var interfaces: List[TypeExpr] = []
+    interfaces.append(TypeExpr.Named(0, span, "Contavel"))
+    val decl = ClassDeclData {
+        isPub: true,
+        name: "Contador",
+        generics: [],
+        interfaces: interfaces,
+        body: body
+    }
+    assertMsg(generateClassDecl(g, decl), "class with vtable ok")
+    assertMsg(classHasVtableSymbol(g, "Contador", vtableSymbolName("Contador", "Contavel")), "vtable symbol")
+    assertMsg(classVtableSlotCount(g, "Contador", "Contavel") == 1, "one vtable slot")
+    var hasVtable = false
+    for k in g.classes.get("Contador").vtables.keys() {
+        if k == "Contavel" { hasVtable = true }
+    }
+    assertMsg(hasVtable, "Contavel vtable registered")
 }

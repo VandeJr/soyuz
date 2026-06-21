@@ -1,7 +1,7 @@
 import (
     { Generator } from @codegen/generator
     { PhiIncoming } from @codegen/types
-    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, llvmTypeHasDefaultZero } from @codegen/llvm_types
+    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, LlvmGlobal, llvmTypeHasDefaultZero } from @codegen/llvm_types
 )
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
@@ -117,6 +117,12 @@ pub fn stubLlvmFunc(g: Generator) -> LlvmFunc {
     val llvmFn = LlvmFunc { handle: g.funcHandleCounter + 1 }
     g.funcHandleCounter = g.funcHandleCounter + 1
     return llvmFn
+}
+
+pub fn stubLlvmGlobal(g: Generator) -> LlvmGlobal {
+    val global = LlvmGlobal { handle: g.globalHandleCounter + 1 }
+    g.globalHandleCounter = g.globalHandleCounter + 1
+    return global
 }
 
 pub fn emitGepStub(g: Generator) -> LlvmValue {
