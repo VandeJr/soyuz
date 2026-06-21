@@ -6,7 +6,7 @@ import (
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitBreakValueStoreStub, stubLlvmValue } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -179,6 +179,8 @@ fn clearForRangeStubs(g: Generator) {
     g.forRangeCounterAlloca = None
     g.forRangeFromValue = None
     g.forRangeToValue = None
+    g.forRangeIncrLoad = None
+    g.forRangeIncrStore = None
 }
 
 fn registerForRangeBinding(g: Generator, binding: String, startVal: LlvmValue) -> Bool {
@@ -187,6 +189,20 @@ fn registerForRangeBinding(g: Generator, binding: String, startVal: LlvmValue) -
     g.vars.set(binding, alloca)
     g.forRangeCounterAlloca = Some(alloca)
     return true
+}
+
+fn emitForRangeIncrStub(g: Generator) -> Bool {
+    return match g.forRangeCounterAlloca {
+        None => false
+        Some(alloca) => {
+            val cur = emitLoadStub(g)
+            g.forRangeIncrLoad = Some(cur)
+            val next = stubLlvmValue(g)
+            emitStoreStub(g, next, alloca)
+            g.forRangeIncrStore = Some(next)
+            true
+        }
+    }
 }
 
 fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: RangeExprData, body: Node) -> Option[StmtResult] {
@@ -210,6 +226,7 @@ fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: Ra
     if !finishLoopBodyFromNode(g, incrBlock, body) { return None }
     popLoop(g)
     setCurrentBlock(g, incrBlock)
+    if !emitForRangeIncrStub(g) { return None }
     emitBrToBlockStub(g, condBlock)
     setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)

@@ -166,6 +166,7 @@ test fn testGenerateForRangeStmt() {
     types.set(4, IntType)
     types.set(5, IntType)
     val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val handlesBefore = g.valueHandleCounter
     match generateStmtNode(g, forNode) {
         None => assertMsg(false, "expected for-range stmt result")
         Some(r) => {
@@ -177,6 +178,9 @@ test fn testGenerateForRangeStmt() {
             assertMsg(g.forRangeCounterAlloca != None, "range binding alloca recorded")
             assertMsg(g.forRangeFromValue != None, "range from bound recorded")
             assertMsg(g.forRangeToValue != None, "range to bound recorded")
+            assertMsg(g.forRangeIncrLoad != None, "for_incr loads counter stub")
+            assertMsg(g.forRangeIncrStore != None, "for_incr stores next counter stub")
+            assertMsg(g.valueHandleCounter > handlesBefore + 4, "range bounds plus incr load/store stubs")
             var hasI = false
             for k in g.vars.keys() {
                 if k == "i" { hasI = true }
