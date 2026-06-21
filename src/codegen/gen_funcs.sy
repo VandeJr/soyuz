@@ -1,7 +1,53 @@
 import (
-    { Pattern, FuncDeclData } from @ast/ast
-    { Type, typeToString } from @checker/types
+    { Node, FuncDeclData, Pattern } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { FuncType, Type, typeToString } from @checker/types
+    { Generator } from @codegen/generator
+    { generateStmtNode } from @codegen/gen_control
+    { checkerTypeForNode } from @codegen/gen_exprs
+    { mapTypeToLLVM } from @codegen/gen_types
+    { LlvmType } from @codegen/llvm_types
 )
+
+pub record FuncResult {
+    name: String,
+    returnLlvm: LlvmType,
+    paramCount: Int,
+    hasBody: Bool
+}
+
+fn funcDeclFuncType(g: Generator, node: Node) -> Option[FuncType] {
+    return match checkerTypeForNode(g, nodeId(node)) {
+        None => None
+        Some(Func(ft)) => Some(ft)
+        _ => None
+    }
+}
+
+pub fn generateFuncDeclNode(g: Generator, node: Node, data: FuncDeclData) -> Option[FuncResult] {
+    return match funcDeclFuncType(g, node) {
+        None => None
+        Some(ft) => {
+            val hasBody = match data.body {
+                None => false
+                Some(_) => true
+            }
+            val result = FuncResult {
+                name: data.name,
+                returnLlvm: mapTypeToLLVM(g, ft.returnType),
+                paramCount: data.params.size(),
+                hasBody: hasBody
+            }
+            match data.body {
+                None => Some(result)
+                Some(body) => match generateStmtNode(g, body) {
+                    None => None
+                    Some(_) => Some(result)
+                }
+            }
+        }
+    }
+}
 
 pub fn mangleSpecializedFuncName(name: String, params: List[Type]) -> String {
     var mangled = name

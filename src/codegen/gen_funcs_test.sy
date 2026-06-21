@@ -1,10 +1,40 @@
 import (
-    { Pattern, FuncDeclData, FuncParam, LiteralPatternValue } from @ast/ast
+    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, ReturnStmtData } from @ast/ast
     { Span } from @lexer/tokens
-    { Type, IntType, StringType } from @checker/types
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant } from @codegen/gen_funcs
+    { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, generateFuncDeclNode } from @codegen/gen_funcs
+    { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
+
+fn funcTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn funcCheckerWithNodeType(id: Int, t: Type) -> CheckResult {
+    var cr = funcTestCheckResult()
+    var i = 0
+    loop {
+        if i > id { break }
+        if i == id {
+            cr.nodeTypes.append(Some(t))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
 
 test fn testMangleSpecializedFuncName() {
     assertMsg(mangleSpecializedFuncName("identity", [IntType]) == "identity__Int", "identity Int")
@@ -35,4 +65,37 @@ test fn testFuncVariantDispatchPriority() {
     }
     assertMsg(funcVariantDispatchPriority(catchall) == 2, "catchall priority 2")
     assertMsg(!isWhenGuardVariant(catchall), "no when guard")
+}
+
+test fn testGenerateFuncDeclNode() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(2, span, ReturnStmtData { value: Some(Node.IntLiteral(3, span, IntLiteralData { value: "42" })) })
+    val ft = FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "main",
+        generics: [],
+        params: [],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val node = Node.FuncDecl(1, span, fd)
+    var cr = funcCheckerWithNodeType(1, Type.Func(ft))
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(UnitType))
+    val g = newGenerator(cr)
+    match generateFuncDeclNode(g, node, fd) {
+        None => assertMsg(false, "expected func result")
+        Some(r) => {
+            assertMsg(r.name == "main", "func name")
+            assertMsg(r.paramCount == 0, "no params")
+            assertMsg(r.hasBody, "has body")
+            assertMsg(llvmTypesEqual(r.returnLlvm, llvmI64()), "returns i64")
+        }
+    }
 }

@@ -1,5 +1,5 @@
 import (
-    { Node, BlockStmtData, IfStmtData, WhileStmtData, LoopStmtData, ReturnStmtData, BreakStmtData } from @ast/ast
+    { Node, BlockStmtData, IfStmtData, WhileStmtData, LoopStmtData, ForStmtData, ReturnStmtData, BreakStmtData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type, UnitType, typeToString } from @checker/types
     { Generator } from @codegen/generator
@@ -110,6 +110,18 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
     return stmtResultFromNode(g, node, NoTerminator)
 }
 
+fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    pushLoop(g, newLoopCtx(dummyLoopBlock(), dummyLoopBlock(), llvmVoid()))
+    val bodyOk = match generateStmtNode(g, data.body) {
+        None => false
+        Some(_) => true
+    }
+    popLoop(g)
+    if !bodyOk { return None }
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
 fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {
     match data.value {
         Some(v) => {
@@ -148,6 +160,8 @@ pub fn generateStmtNode(g: Generator, node: Node) -> Option[StmtResult] = match 
     IfStmt(_, _, data) => generateIfStmt(g, node, data)
     WhileStmt(_, _, data) => generateWhileStmt(g, node, data)
     LoopStmt(_, _, data) => generateLoopStmt(g, node, data)
+    ForStmt(_, _, data) => generateForStmt(g, node, data)
+    ForTaskStmt(_, _, data) => generateForStmt(g, node, data)
     ReturnStmt(_, _, data) => generateReturnStmt(g, node, data)
     BreakStmt(_, _, data) => generateBreakStmt(g, node, data)
     ContinueStmt(_, _) => generateContinueStmt(g, node)

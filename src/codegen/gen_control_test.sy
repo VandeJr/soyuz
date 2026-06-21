@@ -1,5 +1,5 @@
 import (
-    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData } from @ast/ast
+    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, UnitType, BoolType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -126,4 +126,20 @@ test fn testGenerateBreakInsideLoop() {
         Some(r) => assertMsg(hasTerminator(r), "break terminates")
     }
     popLoop(g)
+}
+
+test fn testGenerateForStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val iterable = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
+    val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "x", iterable: iterable, body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, forNode) {
+        None => assertMsg(false, "expected for stmt result")
+        Some(r) => assertMsg(!hasTerminator(r), "for completes without terminator")
+    }
 }
