@@ -3,7 +3,8 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
-    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk } from @codegen/gen_exprs
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk, constFromLiteralPatternValue } from @codegen/gen_exprs
+    { generateLiteralPatternValue } from @codegen/gen_patterns
     { generateEnumDecl } from @codegen/gen_structs
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
@@ -55,6 +56,22 @@ test fn testLiteralPatternValueOk() {
     assertMsg(literalPatternValueOk(LiteralPatternValue.Int("42")), "int literal ok")
     assertMsg(!literalPatternValueOk(LiteralPatternValue.Int("")), "empty int invalid")
     assertMsg(literalPatternValueOk(LiteralPatternValue.Bool(true)), "bool literal ok")
+}
+
+test fn testGenerateLiteralPatternValue() {
+    val g = newGenerator(exprTestCheckResult())
+    val handlesBefore = g.valueHandleCounter
+    match generateLiteralPatternValue(g, LiteralPatternValue.Int("7")) {
+        None => assertMsg(false, "expected int pattern value")
+        Some(v) => assertMsg(v.handle > handlesBefore, "pattern literal value handle")
+    }
+    match constFromLiteralPatternValue(LiteralPatternValue.Int("7")) {
+        None => assertMsg(false, "expected const from pattern int")
+        Some(cv) => match cv {
+            IntVal(n) => assertMsg(n == 7, "pattern int const value")
+            _ => assertMsg(false, "expected int const")
+        }
+    }
 }
 
 fn exprTestCheckResult() -> CheckResult = CheckResult {

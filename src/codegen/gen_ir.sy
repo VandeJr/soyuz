@@ -104,6 +104,10 @@ fn stubValueHandle(g: Generator) -> LlvmValue {
     return value
 }
 
+pub fn stubLlvmValue(g: Generator) -> LlvmValue {
+    return stubValueHandle(g)
+}
+
 pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
     if !llvmTypeHasDefaultZero(ty) { return None }
     return Some(stubValueHandle(g))

@@ -57,6 +57,8 @@ pub class Generator {
     pub var matchPhiResult: Option[LlvmValue] = None
     pub var loopResultLoad: Option[LlvmValue] = None
     pub var loopResultDefaultStore: Option[LlvmValue] = None
+    pub var rangePatternFromValue: Option[LlvmValue] = None
+    pub var rangePatternToValue: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

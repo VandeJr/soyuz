@@ -5,8 +5,8 @@ import (
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
     { recordFieldLlvmType } from @codegen/gen_structs
-    { newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
-    { LlvmType, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
+    { stubLlvmValue, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
+    { LlvmType, LlvmValue, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
 pub record EnumVariantLookup {
@@ -503,8 +503,23 @@ fn literalPatternDispatchOk(v: LiteralPatternValue) -> Bool = match v {
     Bool(_) => true
 }
 
+fn patternLiteralLlvmType(g: Generator, v: LiteralPatternValue) -> LlvmType = match v {
+    Int(_) => mapTypeToLLVM(g, Type.Basic("Int"))
+    Float(_) => mapTypeToLLVM(g, Type.Basic("Float"))
+    Bool(_) => mapTypeToLLVM(g, Type.Basic("Bool"))
+    Char(_) => mapTypeToLLVM(g, Type.Basic("Char"))
+    String(_) => mapTypeToLLVM(g, Type.Basic("String"))
+}
+
+pub fn generateLiteralPatternValue(g: Generator, v: LiteralPatternValue) -> Option[LlvmValue] {
+    if !literalPatternDispatchOk(v) { return None }
+    val _ty = patternLiteralLlvmType(g, v)
+    return Some(stubLlvmValue(g))
+}
+
 fn matchPatternLiteralDispatch(g: Generator, value: LiteralPatternValue, thenBlockName: String, nextBlockName: String) -> Bool {
     if !literalPatternDispatchOk(value) { return false }
+    if generateLiteralPatternValue(g, value) == None { return false }
     setCurrentBlock(g, newBlock(g, literalPatternCmpBlockName()))
     return emitCondBrStub(g, thenBlockName, nextBlockName)
 }
@@ -517,8 +532,35 @@ fn rangePatternBoundsOk(from: LiteralPatternValue, to: Pattern) -> Bool {
     }
 }
 
+fn rangePatternToLiteralValue(to: Pattern) -> Option[LiteralPatternValue] = match to {
+    Literal(_, _, toVal) => Some(toVal)
+    _ => None
+}
+
+fn recordRangePatternBounds(g: Generator, from: LlvmValue, to: LlvmValue) {
+    g.rangePatternFromValue = Some(from)
+    g.rangePatternToValue = Some(to)
+}
+
+fn generateRangePatternBounds(g: Generator, from: LiteralPatternValue, to: Pattern) -> Bool {
+    return match generateLiteralPatternValue(g, from) {
+        None => false
+        Some(fromVal) => match rangePatternToLiteralValue(to) {
+            None => false
+            Some(toLit) => match generateLiteralPatternValue(g, toLit) {
+                None => false
+                Some(toVal) => {
+                    recordRangePatternBounds(g, fromVal, toVal)
+                    true
+                }
+            }
+        }
+    }
+}
+
 fn matchPatternRangeDispatch(g: Generator, from: LiteralPatternValue, to: Pattern, inclusive: Bool, thenBlockName: String, nextBlockName: String) -> Bool {
     if !rangePatternBoundsOk(from, to) { return false }
+    if !generateRangePatternBounds(g, from, to) { return false }
     if !emitCondBrStub(g, rangePatternGeBlockName(), nextBlockName) { return false }
     return emitCondBrStub(g, thenBlockName, nextBlockName)
 }

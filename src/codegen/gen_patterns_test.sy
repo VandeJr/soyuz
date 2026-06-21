@@ -264,10 +264,14 @@ test fn testMatchPatternDispatchRangeCondBr() {
     val span = patternsZeroSpan()
     val to = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
     val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, true)
+    val handlesBefore = g.valueHandleCounter
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "range dispatch")
     assertMsg(blockNameRegistered(g, "range_ge"), "range ge stub block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "range then block")
     assertMsg(blockNameRegistered(g, "match_arm_0_next"), "range next block")
+    assertMsg(g.valueHandleCounter >= handlesBefore + 2, "range generates from and to bound values")
+    assertMsg(g.rangePatternFromValue != None, "range from bound recorded")
+    assertMsg(g.rangePatternToValue != None, "range to bound recorded")
     match currentBlockHandle(g) {
         None => assertMsg(false, "expected current block after range dispatch")
         Some(handle) => assertMsg(handle > 0, "range upper bound stub lands on then block")

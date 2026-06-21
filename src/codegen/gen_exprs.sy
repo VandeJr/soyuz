@@ -161,6 +161,17 @@ pub fn literalPatternValueOk(v: LiteralPatternValue) -> Bool = match v {
     Bool(_) => true
 }
 
+pub fn constFromLiteralPatternValue(v: LiteralPatternValue) -> Option[ConstValue] = match v {
+    Int(s) => match parseIntLiteralText(s) {
+        None => None
+        Some(n) => Some(IntVal(n))
+    }
+    Float(s) => Some(FloatVal(s))
+    String(s) => Some(StringVal(s))
+    Char(c) => Some(CharVal(c))
+    Bool(b) => Some(BoolVal(b))
+}
+
 pub fn checkerTypeForNode(g: Generator, id: Int) -> Option[Type] {
     if id >= g.check.nodeTypes.size() { return None }
     return g.check.nodeTypes.get(id)
