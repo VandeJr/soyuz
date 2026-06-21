@@ -292,3 +292,32 @@ test fn testMatchPatternDispatchConstructor() {
     assertMsg(blockNameRegistered(g, "match_Verde_ok"), "constructor ok block registered")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
 }
+
+test fn testMatchPatternDispatchConstructorWithBindingArg() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val binding = Pattern.Binding(3, span, "n")
+    val pat = Pattern.Constructor(2, span, "Some", [binding])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(n) dispatch")
+    assertMsg(blockNameRegistered(g, "match_Some_ok"), "constructor ok block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "binding then block")
+}
+
+test fn testMatchPatternDispatchConstructorMultiFieldArgs() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val f0 = EnumField { name: "a", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val f1 = EnumField { name: "b", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val pair = EnumVariant { span: span, name: "Pair", fields: [f0, f1] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data")
+    val arg0 = Pattern.Binding(4, span, "a")
+    val arg1 = Pattern.Binding(5, span, "b")
+    val pat = Pattern.Constructor(2, span, "Pair", [arg0, arg1])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Pair(a,b) dispatch")
+    assertMsg(blockNameRegistered(g, "enum_Pair_field_0_ok"), "first nested field ok block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "final then block")
+}

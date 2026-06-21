@@ -384,26 +384,47 @@ fn literalPatternDispatchOk(v: LiteralPatternValue) -> Bool = match v {
     Bool(_) => true
 }
 
-fn matchPatternConstructorDispatch(g: Generator, name: String, args: List[Pattern], subjectType: Type, thenBlockName: String) -> Bool {
+fn matchPatternConstructorDispatch(g: Generator, name: String, args: List[Pattern], subjectType: Type, thenBlockName: String, nextBlockName: String) -> Bool {
     return match enumVariantForPattern(g, name, Some(subjectType)) {
         None => false
         Some(lookup) => {
             if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
             setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
-            matchPatternAdvance(g, thenBlockName)
+            matchPatternConstructorArgsDispatch(g, name, args, thenBlockName, nextBlockName, true, subjectType)
         }
     }
 }
 
-fn matchPatternConstructorDispatchNoSubject(g: Generator, name: String, args: List[Pattern], thenBlockName: String) -> Bool {
+fn matchPatternConstructorDispatchNoSubject(g: Generator, name: String, args: List[Pattern], thenBlockName: String, nextBlockName: String) -> Bool {
     return match enumVariantForPattern(g, name, None) {
         None => false
         Some(lookup) => {
             if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
             setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
-            matchPatternAdvance(g, thenBlockName)
+            matchPatternConstructorArgsDispatch(g, name, args, thenBlockName, nextBlockName, false, Type.Basic("Unknown"))
         }
     }
+}
+
+fn matchPatternConstructorArgThenBlock(variantName: String, argIndex: Int, argCount: Int, thenBlockName: String) -> String {
+    if argIndex == argCount - 1 { return thenBlockName }
+    return enumFieldPatternOkBlockName(variantName, argIndex)
+}
+
+fn matchPatternConstructorArgsLoop(g: Generator, variantName: String, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
+    if index >= args.size() { return true }
+    val argThen = matchPatternConstructorArgThenBlock(variantName, index, args.size(), thenBlockName)
+    val dispatched = match hasSubject {
+        true => matchPatternDispatchWithSubject(g, args.get(index), subjectType, argThen, nextBlockName)
+        false => matchPatternDispatchNoSubject(g, args.get(index), argThen, nextBlockName)
+    }
+    if !dispatched { return false }
+    return matchPatternConstructorArgsLoop(g, variantName, args, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+}
+
+fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
+    if args.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
+    return matchPatternConstructorArgsLoop(g, variantName, args, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
 fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
@@ -415,9 +436,9 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
     }
     Constructor(_, _, name, args) => {
         if hasSubject {
-            return matchPatternConstructorDispatch(g, name, args, subjectType, thenBlockName)
+            return matchPatternConstructorDispatch(g, name, args, subjectType, thenBlockName, nextBlockName)
         }
-        return matchPatternConstructorDispatchNoSubject(g, name, args, thenBlockName)
+        return matchPatternConstructorDispatchNoSubject(g, name, args, thenBlockName, nextBlockName)
     }
     Record(_, _, _, _) => matchPatternAdvance(g, thenBlockName)
     Tuple(_, _, _) => matchPatternAdvance(g, thenBlockName)
