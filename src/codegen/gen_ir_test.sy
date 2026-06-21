@@ -2,7 +2,7 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, blockNameRegistered } from @codegen/gen_ir
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount } from @codegen/gen_ir
     { llvmI64 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -75,4 +75,12 @@ test fn testEmitCondBrStub() {
         None => assertMsg(false, "current block after cond br")
         Some(handle) => assertMsg(handle > 0, "current at then block")
     }
+}
+
+test fn testRecordMatchPhiIncoming() {
+    val g = newGenerator(irTestCheckResult())
+    clearMatchPhiIncomings(g)
+    val block = newBlock(g, "arm_body")
+    recordMatchPhiIncoming(g, newAlloca(g, llvmI64()), block)
+    assertMsg(matchPhiIncomingCount(g) == 1, "one phi incoming recorded")
 }

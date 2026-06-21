@@ -5,7 +5,7 @@ import (
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk } from @codegen/gen_exprs
     { generateEnumDecl } from @codegen/gen_structs
-    { blockNameRegistered } from @codegen/gen_ir
+    { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -384,6 +384,7 @@ test fn testGenerateMatchExprCreatesBlocks() {
             assertMsg(blockNameRegistered(g, "match_arm_0_body"), "first arm body block")
             assertMsg(blockNameRegistered(g, "match_arm_0_next"), "guarded arm fail block")
             assertMsg(blockNameRegistered(g, "match_arm_1_next"), "second arm next block")
+            assertMsg(matchPhiIncomingCount(g) == 3, "arm values plus fallthrough phi incomings")
         }
     }
 }

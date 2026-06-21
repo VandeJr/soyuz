@@ -1,5 +1,6 @@
 import (
     { Generator } from @codegen/generator
+    { PhiIncoming } from @codegen/types
     { LlvmBasicBlock, LlvmType, LlvmValue } from @codegen/llvm_types
 )
 
@@ -57,6 +58,25 @@ pub fn emitCondBrStub(g: Generator, thenBlockName: String, nextBlockName: String
     newBlock(g, nextBlockName)
     setCurrentBlock(g, newBlock(g, thenBlockName))
     return true
+}
+
+pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
+    newBlock(g, targetBlockName)
+    return true
+}
+
+pub fn clearMatchPhiIncomings(g: Generator) {
+    g.matchPhiIncomings = []
+}
+
+pub fn matchPhiIncomingCount(g: Generator) -> Int {
+    return g.matchPhiIncomings.size()
+}
+
+pub fn recordMatchPhiIncoming(g: Generator, value: LlvmValue, block: LlvmBasicBlock) {
+    var incomings = g.matchPhiIncomings
+    incomings.append(PhiIncoming { value: value, block: block })
+    g.matchPhiIncomings = incomings
 }
 
 pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {

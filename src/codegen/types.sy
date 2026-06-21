@@ -54,3 +54,8 @@ pub record SyncGuardEntry {
     name: String,
     unlockFn: String
 }
+
+pub record PhiIncoming {
+    value: LlvmValue,
+    block: LlvmBasicBlock
+}

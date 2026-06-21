@@ -2,7 +2,7 @@ import (
     { Node, FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData } from @ast/ast
     { CheckResult, Type, FuncType } from @checker/types
     { LlvmModule, LlvmBasicBlock, LlvmValue, LlvmType, LlvmFunc } from @codegen/llvm_types
-    { LoopCtx, StructInfo, EnumInfo, ClassInfo, PendingExtendMethodBody, PendingClassMethodBody, SyncGuardEntry } from @codegen/types
+    { LoopCtx, StructInfo, EnumInfo, ClassInfo, PendingExtendMethodBody, PendingClassMethodBody, SyncGuardEntry, PhiIncoming } from @codegen/types
 )
 
 pub class Generator {
@@ -53,6 +53,7 @@ pub class Generator {
     pub var soyuzStringPtrType: Option[LlvmType] = None
     pub var currentReturnType: Type = Type.Basic("Unit")
     pub var topLevelClosureCache: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    pub var matchPhiIncomings: List[PhiIncoming] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

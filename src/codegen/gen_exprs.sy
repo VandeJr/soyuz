@@ -6,7 +6,7 @@ import (
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock, snapshotVars, restoreVars, emitCondBrStub } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount } from @codegen/gen_ir
 )
 
 pub enum ConstValue {
@@ -279,6 +279,39 @@ fn advanceMatchArmAfterPattern(g: Generator, plan: MatchArmPlan) -> Bool = match
     }
 }
 
+fn isUnitCheckerType(t: Type) -> Bool = match t {
+    Basic(name) => name == "Unit"
+    _ => false
+}
+
+fn recordMatchArmPhiIncoming(g: Generator, bodyNode: Node) -> Bool {
+    return match checkerTypeForNode(g, nodeId(bodyNode)) {
+        None => true
+        Some(t) => {
+            if isUnitCheckerType(t) { return true }
+            return match g.current {
+                None => false
+                Some(block) => {
+                    recordMatchPhiIncoming(g, newAlloca(g, mapTypeToLLVM(g, t)), block)
+                    true
+                }
+            }
+        }
+    }
+}
+
+fn appendMatchFallthroughPhiIncoming(g: Generator, resultType: Type) -> Bool {
+    if matchPhiIncomingCount(g) == 0 { return true }
+    if isUnitCheckerType(resultType) { return true }
+    return match g.current {
+        None => false
+        Some(block) => {
+            recordMatchPhiIncoming(g, newAlloca(g, mapTypeToLLVM(g, resultType)), block)
+            true
+        }
+    }
+}
+
 fn generateMatchArmBlocks(g: Generator, plan: MatchArmPlan) -> Bool {
     newBlock(g, plan.nextBlockName)
     newBlock(g, plan.bodyBlockName)
@@ -286,7 +319,7 @@ fn generateMatchArmBlocks(g: Generator, plan: MatchArmPlan) -> Bool {
     return true
 }
 
-fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: Int) -> Bool {
+fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, mergeBlockName: String, index: Int) -> Bool {
     val plans = buildMatchArmPlans(data)
     if index >= plans.size() { return true }
     val plan = plans.get(index)
@@ -302,9 +335,11 @@ fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: I
     match generateExprNode(g, plan.matchArm.body) {
         None => false
         Some(_) => {
+            if !recordMatchArmPhiIncoming(g, plan.matchArm.body) { return false }
+            if !emitBrStub(g, mergeBlockName) { return false }
             restoreVars(g, savedVars)
             setCurrentBlock(g, newBlock(g, plan.nextBlockName))
-            generateMatchArmsLoop(g, node, data, index + 1)
+            generateMatchArmsLoop(g, node, data, mergeBlockName, index + 1)
         }
     }
 }
@@ -313,10 +348,18 @@ fn generateMatchExprResult(g: Generator, node: Node, data: MatchExprData) -> Opt
     return match generateExprNode(g, data.subject) {
         None => None
         Some(_) => {
-            val merge = newBlock(g, matchMergeBlockName())
-            if !generateMatchArmsLoop(g, node, data, 0) { return None }
-            setCurrentBlock(g, merge)
-            exprResultFromNode(g, node, NoConst)
+            clearMatchPhiIncomings(g)
+            val mergeName = matchMergeBlockName()
+            val merge = newBlock(g, mergeName)
+            if !generateMatchArmsLoop(g, node, data, mergeName, 0) { return None }
+            return match checkerTypeForNode(g, nodeId(node)) {
+                None => None
+                Some(resultType) => {
+                    if !appendMatchFallthroughPhiIncoming(g, resultType) { return None }
+                    setCurrentBlock(g, merge)
+                    exprResultFromNode(g, node, NoConst)
+                }
+            }
         }
     }
 }
