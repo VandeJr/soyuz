@@ -1,0 +1,76 @@
+import (
+    { Generator } from @codegen/generator
+    { StructInfo } from @codegen/types
+    { LlvmType, LlvmValue, llvmI64, llvmI8Ptr, llvmPointerType, llvmStructType } from @codegen/llvm_types
+    { structInfoRegistered } from @codegen/gen_structs
+    { stubLlvmValue } from @codegen/gen_ir
+)
+
+pub fn forListCondBlockName() -> String {
+    return "forl_cond"
+}
+
+pub fn forListBodyBlockName() -> String {
+    return "forl_body"
+}
+
+pub fn forListIncrBlockName() -> String {
+    return "forl_incr"
+}
+
+pub fn forListAfterBlockName() -> String {
+    return "forl_after"
+}
+
+pub fn iterNextHasBlockName() -> String {
+    return "iter_next_has"
+}
+
+pub fn iterNextDoneBlockName() -> String {
+    return "iter_next_done"
+}
+
+pub fn iterNextMergeBlockName() -> String {
+    return "iter_next_merge"
+}
+
+pub fn ensureRuntimeCollectionStructs(g: Generator) {
+    if !structInfoRegistered(g, "SoyuzList") {
+        var listFields: Map[String, Int] = Map[String, Int]{}
+        listFields.set("size", 0)
+        listFields.set("capacity", 1)
+        listFields.set("data", 2)
+        val listTy = llvmStructType("SoyuzList", [llvmI64(), llvmI64(), llvmPointerType(llvmI8Ptr())])
+        g.structs.set("SoyuzList", StructInfo { typ: listTy, fieldIndices: listFields })
+    }
+    if !structInfoRegistered(g, "SoyuzMap") {
+        var mapFields: Map[String, Int] = Map[String, Int]{}
+        mapFields.set("size", 0)
+        mapFields.set("capacity", 1)
+        mapFields.set("entries", 2)
+        mapFields.set("is_string_key", 3)
+        val mapTy = llvmStructType("SoyuzMap", [llvmI64(), llvmI64(), llvmI8Ptr(), llvmI64()])
+        g.structs.set("SoyuzMap", StructInfo { typ: mapTy, fieldIndices: mapFields })
+    }
+    if !structInfoRegistered(g, "SoyuzIterator") {
+        var iterFields: Map[String, Int] = Map[String, Int]{}
+        iterFields.set("list", 0)
+        iterFields.set("index", 1)
+        val iterTy = llvmStructType("SoyuzIterator", [llvmI8Ptr(), llvmI64()])
+        g.structs.set("SoyuzIterator", StructInfo { typ: iterTy, fieldIndices: iterFields })
+    }
+}
+
+pub fn iteratorStructType(g: Generator) -> LlvmType {
+    ensureRuntimeCollectionStructs(g)
+    return g.structs.get("SoyuzIterator").typ
+}
+
+pub fn generateListIterStub(g: Generator, listVal: LlvmValue) -> Option[LlvmValue] {
+    ensureRuntimeCollectionStructs(g)
+    g.listIterListStoreStub = Some(listVal)
+    g.listIterIndexInitStub = Some(stubLlvmValue(g))
+    val iterPtr = stubLlvmValue(g)
+    g.listIterAllocStub = Some(iterPtr)
+    return Some(iterPtr)
+}

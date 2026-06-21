@@ -1,0 +1,63 @@
+import (
+    { Node, FuncDeclData } from @ast/ast
+    { CheckResult, FuncType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { structInfoRegistered } from @codegen/gen_structs
+    { ensureRuntimeCollectionStructs, iteratorStructType, generateListIterStub, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, iterNextHasBlockName, iterNextDoneBlockName, iterNextMergeBlockName } from @codegen/gen_iter
+    { stubLlvmValue } from @codegen/gen_ir
+    { llvmStructType, llvmI8Ptr, llvmI64, llvmTypesEqual } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn iterEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testIterBlockNames() {
+    assertMsg(forListCondBlockName() == "forl_cond", "for-list cond block")
+    assertMsg(forListBodyBlockName() == "forl_body", "for-list body block")
+    assertMsg(forListIncrBlockName() == "forl_incr", "for-list incr block")
+    assertMsg(forListAfterBlockName() == "forl_after", "for-list after block")
+    assertMsg(iterNextHasBlockName() == "iter_next_has", "iter next has block")
+    assertMsg(iterNextDoneBlockName() == "iter_next_done", "iter next done block")
+    assertMsg(iterNextMergeBlockName() == "iter_next_merge", "iter next merge block")
+}
+
+test fn testEnsureRuntimeCollectionStructs() {
+    val g = newGenerator(iterEmptyCheckResult())
+    ensureRuntimeCollectionStructs(g)
+    assertMsg(structInfoRegistered(g, "SoyuzList"), "SoyuzList registered")
+    assertMsg(structInfoRegistered(g, "SoyuzMap"), "SoyuzMap registered")
+    assertMsg(structInfoRegistered(g, "SoyuzIterator"), "SoyuzIterator registered")
+    val expectedIter = llvmStructType("SoyuzIterator", [llvmI8Ptr(), llvmI64()])
+    assertMsg(llvmTypesEqual(iteratorStructType(g), expectedIter), "iterator struct layout")
+}
+
+test fn testGenerateListIterStub() {
+    val g = newGenerator(iterEmptyCheckResult())
+    val listVal = stubLlvmValue(g)
+    match generateListIterStub(g, listVal) {
+        None => assertMsg(false, "expected list iter stub")
+        Some(iterPtr) => {
+            assertMsg(iterPtr.handle > listVal.handle, "iter ptr handle after list val")
+            match g.listIterAllocStub {
+                None => assertMsg(false, "iter alloc stub recorded")
+                Some(v) => assertMsg(v.handle == iterPtr.handle, "alloc stub matches return")
+            }
+            match g.listIterListStoreStub {
+                None => assertMsg(false, "list field store stub recorded")
+                Some(v) => assertMsg(v.handle == listVal.handle, "list store uses input list")
+            }
+            assertMsg(g.listIterIndexInitStub != None, "index init stub recorded")
+        }
+    }
+}

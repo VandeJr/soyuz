@@ -13,5 +13,7 @@ import @codegen/gen_patterns
 import @codegen/gen_patterns_test
 import @codegen/gen_collections
 import @codegen/gen_collections_test
+import @codegen/gen_iter
+import @codegen/gen_iter_test
 import @codegen/gen_ir
 import @codegen/gen_ir_test
