@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType, typeToString } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl, generateRecordDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, resolveEnumPayloadTypeWithChecker, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, tuplePatternElemSlotType, constructorPatternArgSubjectType, constructorPatternArgSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, literalPatternCmpBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, resolveEnumPayloadTypeWithChecker, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, tuplePatternElemSlotType, constructorPatternArgSubjectType, constructorPatternArgSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, constructorPatternTagCmpBlockName, rangePatternGeBlockName, literalPatternCmpBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
     { mapTypeToLLVM } from @codegen/gen_types
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
@@ -240,6 +240,7 @@ test fn testMatchPatternSupportedForSubjectCor() {
 
 test fn testPatternMatchBlockNames() {
     assertMsg(constructorPatternMatchOkBlockName("Verde") == "match_Verde_ok", "constructor match ok block")
+    assertMsg(constructorPatternTagCmpBlockName("Verde") == "match_Verde_tag_cmp", "constructor tag cmp block")
     assertMsg(rangePatternGeBlockName() == "range_ge", "range ge block")
     assertMsg(literalPatternCmpBlockName() == "literal_match_cmp", "literal cmp block")
     assertMsg(enumFieldPatternOkBlockName("Some", 0) == "enum_Some_field_0_ok", "enum field ok block")
@@ -406,7 +407,9 @@ test fn testMatchPatternDispatchConstructor() {
         generics: []
     })
     assertMsg(matchPatternDispatchWithSubject(g, pat, corType, "match_arm_0_pattern_ok", "match_arm_0_next"), "constructor dispatch")
+    assertMsg(blockNameRegistered(g, "match_Verde_tag_cmp"), "constructor tag cmp block")
     assertMsg(blockNameRegistered(g, "match_Verde_ok"), "constructor ok block registered")
+    assertMsg(blockNameRegistered(g, "match_arm_0_next"), "constructor fail block registered")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
 }
 

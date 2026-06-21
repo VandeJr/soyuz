@@ -186,6 +186,10 @@ pub fn constructorPatternMatchOkBlockName(variantName: String) -> String {
     return "match_$(variantName)_ok"
 }
 
+pub fn constructorPatternTagCmpBlockName(variantName: String) -> String {
+    return "match_$(variantName)_tag_cmp"
+}
+
 pub fn rangePatternGeBlockName() -> String {
     return "range_ge"
 }
@@ -500,25 +504,24 @@ fn matchPatternLiteralDispatch(g: Generator, value: LiteralPatternValue, thenBlo
     return emitCondBrStub(g, thenBlockName, nextBlockName)
 }
 
+fn matchPatternConstructorDispatchBody(g: Generator, name: String, vi: VariantInfo, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
+    if !constructorPatternArgsOk(args, vi) { return false }
+    setCurrentBlock(g, newBlock(g, constructorPatternTagCmpBlockName(name)))
+    if !emitCondBrStub(g, constructorPatternMatchOkBlockName(name), nextBlockName) { return false }
+    return matchPatternConstructorArgsDispatch(g, name, vi, args, thenBlockName, nextBlockName, hasSubject, subjectType)
+}
+
 fn matchPatternConstructorDispatch(g: Generator, name: String, args: List[Pattern], subjectType: Type, thenBlockName: String, nextBlockName: String) -> Bool {
     return match enumVariantForPattern(g, name, Some(subjectType)) {
         None => false
-        Some(lookup) => {
-            if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
-            setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
-            matchPatternConstructorArgsDispatch(g, name, lookup.variantInfo, args, thenBlockName, nextBlockName, true, subjectType)
-        }
+        Some(lookup) => matchPatternConstructorDispatchBody(g, name, lookup.variantInfo, args, thenBlockName, nextBlockName, true, subjectType)
     }
 }
 
 fn matchPatternConstructorDispatchNoSubject(g: Generator, name: String, args: List[Pattern], thenBlockName: String, nextBlockName: String) -> Bool {
     return match enumVariantForPattern(g, name, None) {
         None => false
-        Some(lookup) => {
-            if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
-            setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
-            matchPatternConstructorArgsDispatch(g, name, lookup.variantInfo, args, thenBlockName, nextBlockName, false, Type.Basic("Unknown"))
-        }
+        Some(lookup) => matchPatternConstructorDispatchBody(g, name, lookup.variantInfo, args, thenBlockName, nextBlockName, false, Type.Basic("Unknown"))
     }
 }
 
