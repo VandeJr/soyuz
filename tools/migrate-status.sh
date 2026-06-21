@@ -93,6 +93,13 @@ else
   echo "  tools/codegen-channel-check.sh ausente"
 fi
 
+hr "Codegen select check (bootstrap, S7)"
+if [[ -x tools/codegen-select-check.sh ]]; then
+  bash tools/codegen-select-check.sh 2>&1 || echo "→ codegen select check FALHOU"
+else
+  echo "  tools/codegen-select-check.sh ausente"
+fi
+
 hr "Codegen sync check (bootstrap, S7)"
 if [[ -x tools/codegen-sync-check.sh ]]; then
   bash tools/codegen-sync-check.sh 2>&1 || echo "→ codegen sync check FALHOU"

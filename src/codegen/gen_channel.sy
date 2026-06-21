@@ -1,10 +1,10 @@
 import (
-    { Node } from @ast/ast
+    { Node, SelectArm } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue, llvmI64 } from @codegen/llvm_types
-    { stubLlvmValue, newBlock, setCurrentBlock, newAlloca, emitLoadStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
+    { stubLlvmValue, newBlock, setCurrentBlock, newAlloca, emitLoadStub, emitCondBrToBlockStub, emitBrToBlockStub, blockNameRegistered } from @codegen/gen_ir
 )
 
 pub fn channelRuntimeNew() -> String {
@@ -191,4 +191,105 @@ pub fn generateChannelIsClosedStub(g: Generator) -> Option[LlvmValue] {
     val stub = stubLlvmValue(g)
     g.channelIsClosedStub = Some(stub)
     return Some(stub)
+}
+
+pub fn channelRuntimeSelect() -> String {
+    return "srt_select"
+}
+
+pub fn channelRuntimeSelectTry() -> String {
+    return "srt_select_try"
+}
+
+pub fn selectMergeBlockName() -> String {
+    return "sel_merge"
+}
+
+pub fn selectArmBlockName(index: Int) -> String {
+    return "sel_arm$(index)"
+}
+
+pub fn selectDefaultBlockName() -> String {
+    return "sel_default"
+}
+
+pub fn selectDispatchBlockName() -> String {
+    return "sel_dispatch"
+}
+
+pub fn selectRecvArmCount(arms: List[SelectArm]) -> Int {
+    var count = 0
+    for arm in arms {
+        if !arm.isDefault { count = count + 1 }
+    }
+    return count
+}
+
+pub fn selectHasDefaultArm(arms: List[SelectArm]) -> Bool {
+    for arm in arms {
+        if arm.isDefault { return true }
+    }
+    return false
+}
+
+pub fn extractChannelFromRecvCall(node: Node) -> Option[Node] = match node {
+    CallExpr(_, _, callData) => match callData.callee {
+        MemberExpr(_, _, memberData) => {
+            if memberData.property == "recv" { return Some(memberData.object) }
+            if memberData.property == "tryRecv" { return Some(memberData.object) }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+fn emitSelectArmBlocks(g: Generator, recvArmCount: Int, hasDefault: Bool) -> Bool {
+    var i = 0
+    loop {
+        if i >= recvArmCount { break }
+        newBlock(g, selectArmBlockName(i))
+        i = i + 1
+    }
+    if hasDefault {
+        newBlock(g, selectDefaultBlockName())
+        if recvArmCount > 0 {
+            newBlock(g, selectDispatchBlockName())
+        }
+    }
+    newBlock(g, selectMergeBlockName())
+    return true
+}
+
+pub fn generateSelectStub(g: Generator, recvArmCount: Int, hasDefault: Bool) -> Option[LlvmValue] {
+    if recvArmCount > 0 {
+        if hasDefault {
+            registerChannelRuntimeSymbol(g, channelRuntimeSelectTry())
+        } else {
+            registerChannelRuntimeSymbol(g, channelRuntimeSelect())
+        }
+    }
+    if !emitSelectArmBlocks(g, recvArmCount, hasDefault) { return None }
+    g.selectRecvArmCount = recvArmCount
+    g.selectHasDefault = hasDefault
+    val stub = stubLlvmValue(g)
+    g.selectStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn selectBlockNamesRegistered(g: Generator, recvArmCount: Int, hasDefault: Bool) -> Bool {
+    if !blockNameRegistered(g, selectMergeBlockName()) { return false }
+    var i = 0
+    loop {
+        if i >= recvArmCount { break }
+        if !blockNameRegistered(g, selectArmBlockName(i)) { return false }
+        i = i + 1
+    }
+    if hasDefault {
+        if !blockNameRegistered(g, selectDefaultBlockName()) { return false }
+        if recvArmCount > 0 {
+            if !blockNameRegistered(g, selectDispatchBlockName()) { return false }
+        }
+    }
+    return true
 }

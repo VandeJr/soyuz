@@ -1,12 +1,12 @@
 import (
-    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData, RecordLiteralData, RecordLiteralField, TaskExprData } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData, RecordLiteralData, RecordLiteralField, TaskExprData, SelectExprData, SelectArm } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
     { VariantInfo } from @codegen/types
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub } from @codegen/gen_channel
+    { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, extractChannelFromRecvCall, selectRecvArmCount, selectHasDefaultArm, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, generateSelectStub } from @codegen/gen_channel
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
@@ -841,6 +841,56 @@ fn generateTaskExprResult(g: Generator, node: Node, data: TaskExprData) -> Optio
     return None
 }
 
+fn generateSelectRecvArm(g: Generator, arm: SelectArm) -> Bool {
+    match arm.chanExpr {
+        None => return false
+        Some(chanExpr) => match extractChannelFromRecvCall(chanExpr) {
+            None => return false
+            Some(chObj) => {
+                if generateExprNode(g, chObj) == None { return false }
+                if generateExprNode(g, arm.body) == None { return false }
+                return true
+            }
+        }
+    }
+}
+
+fn generateSelectRecvArms(g: Generator, arms: List[SelectArm]) -> Bool {
+    for arm in arms {
+        if !arm.isDefault {
+            if !generateSelectRecvArm(g, arm) { return false }
+        }
+    }
+    return true
+}
+
+fn generateSelectDefaultArm(g: Generator, arms: List[SelectArm]) -> Bool {
+    for arm in arms {
+        if arm.isDefault {
+            return match generateExprNode(g, arm.body) {
+                None => false
+                Some(_) => true
+            }
+        }
+    }
+    return true
+}
+
+fn generateSelectExprResult(g: Generator, node: Node, data: SelectExprData) -> Option[ExprResult] {
+    val recvCount = selectRecvArmCount(data.arms)
+    val hasDefault = selectHasDefaultArm(data.arms)
+    if recvCount > 0 {
+        if !generateSelectRecvArms(g, data.arms) { return None }
+    }
+    if hasDefault {
+        if !generateSelectDefaultArm(g, data.arms) { return None }
+    }
+    return match generateSelectStub(g, recvCount, hasDefault) {
+        None => None
+        Some(_) => exprResultFromNode(g, node, NoConst)
+    }
+}
+
 pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match node {
     IntLiteral(_, _, _) => generateLiteralExprResult(g, node)
     FloatLiteral(_, _, _) => generateLiteralExprResult(g, node)
@@ -858,6 +908,7 @@ pub fn generateExprNode(g: Generator, node: Node) -> Option[ExprResult] = match 
     RecordLiteral(_, _, data) => generateRecordLiteralResult(g, node, data)
     MatchExpr(_, _, data) => generateMatchExprResult(g, node, data)
     TaskExpr(_, _, data) => generateTaskExprResult(g, node, data)
+    SelectExpr(_, _, data) => generateSelectExprResult(g, node, data)
     _ => None
 }
 

@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, IdentifierData, MemberExprData } from @ast/ast
+    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, SelectArm, IntLiteralData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSelect, channelRuntimeSelectTry, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, selectRecvArmCount, selectHasDefaultArm, extractChannelFromRecvCall, generateSelectStub, selectBlockNamesRegistered, selectArmBlockName, selectDefaultBlockName, selectMergeBlockName, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { blockNameRegistered } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -214,4 +214,53 @@ test fn testGenerateChannelNewStub() {
         Some(_) => assertMsg(g.channelNewStub != None, "stub stored on generator")
     }
     assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+}
+
+test fn testSelectRecvArmCount() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    var arms: List[SelectArm] = []
+    arms.append(SelectArm { span: span, binding: "msg", chanExpr: None, isDefault: false, body: Node.IntLiteral(1, span, IntLiteralData { value: "0" }) })
+    arms.append(SelectArm { span: span, binding: "", chanExpr: None, isDefault: true, body: Node.IntLiteral(2, span, IntLiteralData { value: "1" }) })
+    assertMsg(selectRecvArmCount(arms) == 1, "one recv arm")
+    assertMsg(selectHasDefaultArm(arms), "has default arm")
+}
+
+test fn testExtractChannelFromRecvCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val recvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    var args: List[Node] = []
+    val recvCall = Node.CallExpr(3, span, CallExprData { callee: recvMember, args: args })
+    match extractChannelFromRecvCall(recvCall) {
+        None => assertMsg(false, "recv call extracts channel")
+        Some(obj) => assertMsg(match obj { Identifier(_, _, idData) => idData.name == "ch", _ => false }, "channel identifier")
+    }
+}
+
+test fn testGenerateSelectStubBlocking() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateSelectStub(g, 2, false) {
+        None => assertMsg(false, "select stub blocking")
+        Some(_) => {
+            assertMsg(g.selectStub != None, "select stub stored")
+            assertMsg(g.selectRecvArmCount == 2, "recv arm count stored")
+            assertMsg(!g.selectHasDefault, "no default flag")
+        }
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeSelect()), "srt_select registered")
+    assertMsg(selectBlockNamesRegistered(g, 2, false), "select arm blocks registered")
+    assertMsg(blockNameRegistered(g, selectArmBlockName(0)), "sel_arm0 block")
+    assertMsg(blockNameRegistered(g, selectArmBlockName(1)), "sel_arm1 block")
+    assertMsg(blockNameRegistered(g, selectMergeBlockName()), "sel_merge block")
+}
+
+test fn testGenerateSelectStubWithDefault() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateSelectStub(g, 1, true) {
+        None => assertMsg(false, "select stub with default")
+        Some(_) => assertMsg(g.selectHasDefault, "default flag stored")
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeSelectTry()), "srt_select_try registered")
+    assertMsg(selectBlockNamesRegistered(g, 1, true), "select default blocks registered")
+    assertMsg(blockNameRegistered(g, selectDefaultBlockName()), "sel_default block")
 }
