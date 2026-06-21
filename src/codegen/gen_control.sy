@@ -6,7 +6,7 @@ import (
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { LlvmType, LlvmBasicBlock, llvmVoid } from @codegen/llvm_types
+    { LlvmType, LlvmBasicBlock, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
 pub enum TerminatorKind {
@@ -132,13 +132,23 @@ fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[
     return stmtResultFromNode(g, node, ReturnTerm)
 }
 
+fn currentLoopNeedsBreakValue(g: Generator) -> Bool {
+    match currentLoop(g) {
+        None => false
+        Some(ctx) => loopCtxHasResult(ctx)
+    }
+}
+
 fn generateBreakStmt(g: Generator, node: Node, data: BreakStmtData) -> Option[StmtResult] {
     if !hasCurrentLoop(g) { return None }
+    val needsValue = currentLoopNeedsBreakValue(g)
     match data.value {
+        None => {
+            if needsValue { return None }
+        }
         Some(v) => {
             if !exprGeneratesOk(g, v) { return None }
         }
-        None => {}
     }
     return stmtResultFromNode(g, node, BreakTerm)
 }
@@ -173,6 +183,10 @@ pub fn hasTerminator(result: StmtResult) -> Bool = match result.terminator {
     ReturnTerm => true
     BreakTerm => true
     ContinueTerm => true
+}
+
+pub fn loopCtxHasResult(ctx: LoopCtx) -> Bool {
+    return !llvmTypesEqual(ctx.resultLlvm, llvmVoid())
 }
 
 pub fn loopNeedsResultAlloca(loopType: Type) -> Bool {

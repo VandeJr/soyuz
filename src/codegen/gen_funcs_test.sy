@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, generateFuncDeclNode } from @codegen/gen_funcs
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, generateFuncDeclNode, generateProgramBody } from @codegen/gen_funcs
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -97,5 +97,32 @@ test fn testGenerateFuncDeclNode() {
             assertMsg(r.hasBody, "has body")
             assertMsg(llvmTypesEqual(r.returnLlvm, llvmI64()), "returns i64")
         }
+    }
+}
+
+test fn testGenerateProgramBody() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(4, span, ReturnStmtData { value: None })
+    val ft = FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "main",
+        generics: [],
+        params: [],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val funcNode = Node.FuncDecl(1, span, fd)
+    var cr = funcCheckerWithNodeType(1, Type.Func(ft))
+    cr.nodeTypes.append(Some(UnitType))
+    val g = newGenerator(cr)
+    match generateProgramBody(g, [funcNode]) {
+        None => assertMsg(false, "expected program result")
+        Some(r) => assertMsg(r.funcCount == 1, "one func generated")
     }
 }

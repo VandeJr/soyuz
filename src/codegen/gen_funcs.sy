@@ -74,3 +74,25 @@ pub fn funcVariantDispatchPriority(v: FuncDeclData) -> Int {
 pub fn isWhenGuardVariant(v: FuncDeclData) -> Bool {
     return v.whenGuard != None
 }
+
+pub record ProgramResult {
+    funcCount: Int
+}
+
+pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResult] {
+    var count = 0
+    for decl in body {
+        val ok = match decl {
+            FuncDecl(_, _, data) => match generateFuncDeclNode(g, decl, data) {
+                None => false
+                Some(_) => {
+                    count = count + 1
+                    true
+                }
+            }
+            _ => true
+        }
+        if !ok { return None }
+    }
+    return Some(ProgramResult { funcCount: count })
+}
