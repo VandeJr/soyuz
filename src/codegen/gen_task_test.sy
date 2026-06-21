@@ -4,7 +4,8 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -209,6 +210,35 @@ test fn testGenerateTaskFanStub() {
     assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
     assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
     assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+}
+
+test fn testIsTaskPipelineCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val pipeMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "pipe" })
+    assertMsg(isTaskStaticPipeline("Task", "pipe"), "Task.pipe static")
+    assertMsg(isTaskPipelineCall(pipeMember), "Task.pipe call")
+    assertMsg(!isTaskPipelineCall(Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "fan" })), "Task.fan not pipeline")
+}
+
+test fn testGenerateTaskPipelineStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskPipelineStub(g, 2) {
+        None => assertMsg(false, "task pipeline stub")
+        Some(_) => {
+            assertMsg(g.taskPipelineStub != None, "pipeline stub stored")
+            assertMsg(g.taskPipelineStageCount == 2, "stage count stored")
+            assertMsg(g.taskLastWrapperName != None, "stage wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeRecv()), "srt_chan_recv registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeClose()), "srt_chan_close registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    assertMsg(taskPipelineBlockNamesRegistered(g), "pipe loop blocks registered")
 }
 
 test fn testEmitTaskDrops() {

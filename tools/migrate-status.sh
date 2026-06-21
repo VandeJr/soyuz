@@ -142,6 +142,13 @@ else
   echo "  tools/codegen-task-fan-check.sh ausente"
 fi
 
+hr "Codegen task-pipeline check (bootstrap, S7)"
+if [[ -x tools/codegen-task-pipeline-check.sh ]]; then
+  bash tools/codegen-task-pipeline-check.sh 2>&1 || echo "→ codegen task-pipeline check FALHOU"
+else
+  echo "  tools/codegen-task-pipeline-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

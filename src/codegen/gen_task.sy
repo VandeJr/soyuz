@@ -4,7 +4,8 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue } from @codegen/gen_ir
+    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered } from @codegen/gen_ir
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
 )
 
@@ -55,6 +56,30 @@ pub fn isTaskFanCall(callee: Node) -> Bool = match callee {
         _ => false
     }
     _ => false
+}
+
+pub fn isTaskStaticPipeline(typeName: String, methodName: String) -> Bool {
+    return typeName == "Task" && methodName == "pipe"
+}
+
+pub fn isTaskPipelineCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isTaskStaticPipeline(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn taskPipelineLoopBlockName() -> String {
+    return "pipe_loop"
+}
+
+pub fn taskPipelineBodyBlockName() -> String {
+    return "pipe_body"
+}
+
+pub fn taskPipelineDoneBlockName() -> String {
+    return "pipe_done"
 }
 
 pub fn isTaskFanFnArg(arg: Node) -> Bool = match arg {
@@ -193,6 +218,43 @@ pub fn generateTaskFanStub(g: Generator, fnCount: Int) -> Option[LlvmValue] {
     val stub = stubLlvmValue(g)
     g.taskFanStub = Some(stub)
     return Some(stub)
+}
+
+fn emitPipelineStageLoopStubs(g: Generator) -> Bool {
+    val loopBlock = newBlock(g, taskPipelineLoopBlockName())
+    val bodyBlock = newBlock(g, taskPipelineBodyBlockName())
+    val doneBlock = newBlock(g, taskPipelineDoneBlockName())
+    setCurrentBlock(g, loopBlock)
+    setCurrentBlock(g, bodyBlock)
+    setCurrentBlock(g, doneBlock)
+    return true
+}
+
+pub fn generateTaskPipelineStub(g: Generator, stageCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeDetach())
+    registerTaskRuntimeSymbol(g, channelRuntimeNew())
+    registerTaskRuntimeSymbol(g, channelRuntimeSend())
+    registerTaskRuntimeSymbol(g, channelRuntimeRecv())
+    registerTaskRuntimeSymbol(g, channelRuntimeClose())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    if !emitPipelineStageLoopStubs(g) { return None }
+    var i = 0
+    loop {
+        if i >= stageCount { break }
+        g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+        i = i + 1
+    }
+    g.taskPipelineStageCount = stageCount
+    val stub = stubLlvmValue(g)
+    g.taskPipelineStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn taskPipelineBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, taskPipelineLoopBlockName()) { return false }
+    if !blockNameRegistered(g, taskPipelineBodyBlockName()) { return false }
+    return blockNameRegistered(g, taskPipelineDoneBlockName())
 }
 
 pub fn emitTaskDrops(g: Generator, names: List[String]) -> Bool {
