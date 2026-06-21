@@ -194,6 +194,11 @@ pub fn rangePatternGeBlockName() -> String {
     return "range_ge"
 }
 
+pub fn rangePatternUpperCmpBlockName(inclusive: Bool) -> String {
+    if inclusive { return "range_le" }
+    return "range_lt"
+}
+
 pub fn literalPatternCmpBlockName() -> String {
     return "literal_match_cmp"
 }
@@ -504,6 +509,20 @@ fn matchPatternLiteralDispatch(g: Generator, value: LiteralPatternValue, thenBlo
     return emitCondBrStub(g, thenBlockName, nextBlockName)
 }
 
+fn rangePatternBoundsOk(from: LiteralPatternValue, to: Pattern) -> Bool {
+    if !literalPatternDispatchOk(from) { return false }
+    return match to {
+        Literal(_, _, toVal) => literalPatternDispatchOk(toVal)
+        _ => false
+    }
+}
+
+fn matchPatternRangeDispatch(g: Generator, from: LiteralPatternValue, to: Pattern, inclusive: Bool, thenBlockName: String, nextBlockName: String) -> Bool {
+    if !rangePatternBoundsOk(from, to) { return false }
+    if !emitCondBrStub(g, rangePatternGeBlockName(), nextBlockName) { return false }
+    return emitCondBrStub(g, thenBlockName, nextBlockName)
+}
+
 fn matchPatternConstructorDispatchBody(g: Generator, name: String, vi: VariantInfo, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
     if !constructorPatternArgsOk(args, vi) { return false }
     setCurrentBlock(g, newBlock(g, constructorPatternTagCmpBlockName(name)))
@@ -686,10 +705,7 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
     }
     Record(_, _, recordName, fields) => matchPatternRecordDispatch(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType)
     Tuple(_, _, elements) => matchPatternTupleDispatch(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType)
-    Range(_, _, _, _, _) => {
-        setCurrentBlock(g, newBlock(g, rangePatternGeBlockName()))
-        emitCondBrStub(g, thenBlockName, nextBlockName)
-    }
+    Range(_, _, from, to, inclusive) => matchPatternRangeDispatch(g, from, to, inclusive, thenBlockName, nextBlockName)
 }
 
 pub fn matchPatternDispatchNoSubject(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String) -> Bool {
