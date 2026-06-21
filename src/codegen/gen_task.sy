@@ -16,6 +16,18 @@ pub fn taskRuntimeSetResult() -> String {
     return "srt_set_task_result"
 }
 
+pub fn taskMallocBuiltin() -> String {
+    return "malloc"
+}
+
+pub fn taskFreeBuiltin() -> String {
+    return "free"
+}
+
+pub fn taskDropHandleRuntime() -> String {
+    return "srt_drop_task_handle"
+}
+
 fn taskCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
     if id >= g.check.nodeTypes.size() { return None }
     return g.check.nodeTypes.get(id)
@@ -45,6 +57,16 @@ pub fn isTaskCallInner(inner: Node) -> Bool = match inner {
     _ => false
 }
 
+pub fn isTaskPipeInner(inner: Node) -> Bool = match inner {
+    CallExpr(_, _, _) => false
+    PipeExpr(_, _, _) => true
+    PipeQuestExpr(_, _, _) => true
+    AsyncPipeExpr(_, _, _) => true
+    Identifier(_, _, _) => true
+    IntLiteral(_, _, _) => true
+    _ => false
+}
+
 fn registerTaskRuntimeSymbol(g: Generator, symbol: String) {
     var found = false
     for s in g.taskRuntimeSymbols {
@@ -70,6 +92,19 @@ pub fn generateTaskEnqueueStub(g: Generator) -> Option[LlvmValue] {
     g.taskLastWrapperName = Some(nextTaskWrapperName(g))
     val stub = stubLlvmValue(g)
     g.taskEnqueueStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskPipeEnqueueStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.taskPipeMode = true
+    g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+    g.taskPipeCaptureStub = Some(stubLlvmValue(g))
+    val stub = stubLlvmValue(g)
+    g.taskEnqueueStub = Some(stub)
+    g.taskPipeInnerStub = Some(stub)
     return Some(stub)
 }
 

@@ -1,10 +1,10 @@
 import (
-    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, TaskExprData, IntLiteralData } from @ast/ast
+    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, TaskExprData, IntLiteralData, PipeExprData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, generateTaskEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -42,6 +42,34 @@ test fn testIsTaskCallInner() {
     assertMsg(isTaskCallInner(call), "CallExpr is task call inner")
     val taskInner = Node.TaskExpr(4, span, TaskExprData { inner: call })
     assertMsg(!isTaskCallInner(taskInner), "TaskExpr not direct call inner")
+}
+
+test fn testIsTaskPipeInner() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fnId = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
+    assertMsg(isTaskPipeInner(pipe), "PipeExpr is task pipe inner")
+    val callee = Node.Identifier(4, span, IdentifierData { name: "double" })
+    var args: List[Node] = []
+    args.append(nId)
+    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    assertMsg(!isTaskPipeInner(call), "CallExpr not pipe inner")
+}
+
+test fn testGenerateTaskPipeEnqueueStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskPipeEnqueueStub(g) {
+        None => assertMsg(false, "task pipe enqueue stub")
+        Some(_) => {
+            assertMsg(g.taskPipeMode, "pipe mode flag set")
+            assertMsg(g.taskEnqueueStub != None, "enqueue stub stored")
+            assertMsg(g.taskPipeInnerStub != None, "pipe inner stub stored")
+            assertMsg(g.taskPipeCaptureStub != None, "pipe capture stub stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
 }
 
 test fn testIsTaskAwaitCall() {
