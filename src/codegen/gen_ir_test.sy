@@ -2,7 +2,8 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle } from @codegen/gen_ir
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca } from @codegen/gen_ir
+    { llvmI64 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -40,4 +41,11 @@ test fn testSetCurrentBlock() {
         None => assertMsg(false, "expected current block handle")
         Some(handle) => assertMsg(handle == block.handle, "current block handle")
     }
+}
+
+test fn testNewAllocaAssignsUniqueHandles() {
+    val g = newGenerator(irTestCheckResult())
+    val first = newAlloca(g, llvmI64())
+    val second = newAlloca(g, llvmI64())
+    assertMsg(first.handle != second.handle, "alloca handles are unique")
 }

@@ -4,7 +4,7 @@ import (
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca } from @codegen/gen_ir
     { LlvmType, llvmI64, llvmI8Ptr, llvmStructType } from @codegen/llvm_types
 )
 
@@ -376,6 +376,16 @@ fn matchPatternAdvance(g: Generator, thenBlockName: String) -> Bool {
     return true
 }
 
+pub fn registerPatternBinding(g: Generator, name: String, slotType: LlvmType) -> Bool {
+    g.vars.set(name, newAlloca(g, slotType))
+    return true
+}
+
+fn matchPatternBindingDispatch(g: Generator, name: String, thenBlockName: String) -> Bool {
+    if !registerPatternBinding(g, name, llvmI64()) { return false }
+    return matchPatternAdvance(g, thenBlockName)
+}
+
 fn literalPatternDispatchOk(v: LiteralPatternValue) -> Bool = match v {
     Int(s) => s != ""
     Float(_) => true
@@ -429,7 +439,7 @@ fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, args: 
 
 fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
     Wildcard(_, _) => matchPatternAdvance(g, thenBlockName)
-    Binding(_, _, _) => matchPatternAdvance(g, thenBlockName)
+    Binding(_, _, name) => matchPatternBindingDispatch(g, name, thenBlockName)
     Literal(_, _, value) => {
         if !literalPatternDispatchOk(value) { return false }
         return matchPatternAdvance(g, thenBlockName)

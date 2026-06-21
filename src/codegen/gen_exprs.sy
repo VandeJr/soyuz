@@ -298,7 +298,10 @@ fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: I
     setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
     match generateExprNode(g, plan.matchArm.body) {
         None => false
-        Some(_) => generateMatchArmsLoop(g, node, data, index + 1)
+        Some(_) => {
+            setCurrentBlock(g, newBlock(g, plan.nextBlockName))
+            generateMatchArmsLoop(g, node, data, index + 1)
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 import (
     { Generator } from @codegen/generator
-    { LlvmBasicBlock } from @codegen/llvm_types
+    { LlvmBasicBlock, LlvmType, LlvmValue } from @codegen/llvm_types
 )
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
@@ -45,4 +45,10 @@ pub fn blockNameRegistered(g: Generator, name: String) -> Bool {
         if k == name { return true }
     }
     return false
+}
+
+pub fn newAlloca(g: Generator, ty: LlvmType) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
 }
