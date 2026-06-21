@@ -5,7 +5,7 @@ import (
     { Generator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
-    { isListType, listElemType } from @codegen/gen_collections
+    { isListType, listElemType, isMapType, mapKeyType, generateMapKeysStub } from @codegen/gen_collections
     { ensureRuntimeCollectionStructs, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName } from @codegen/gen_iter
     { mapTypeToLLVM } from @codegen/gen_types
     { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
@@ -262,6 +262,7 @@ fn clearForListStubs(g: Generator) {
     g.forListIncrLoad = None
     g.forListIncrStore = None
     g.forListCondLoad = None
+    g.forMapKeysStub = None
 }
 
 fn emitForListCondStub(g: Generator, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
@@ -290,9 +291,7 @@ fn emitForListIncrStub(g: Generator) -> Bool {
     }
 }
 
-fn generateForListStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
-    clearForListStubs(g)
-    if !exprGeneratesOk(g, data.iterable) { return None }
+fn runForListInLoop(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
     ensureRuntimeCollectionStructs(g)
     val savedVars = snapshotVars(g)
     val indexAlloca = newAlloca(g, mapTypeToLLVM(g, IntType))
@@ -322,6 +321,21 @@ fn generateForListStmt(g: Generator, node: Node, data: ForStmtData, elemType: Ty
     return stmtResultFromNode(g, node, NoTerminator)
 }
 
+fn generateForListStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
+    clearForListStubs(g)
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    return runForListInLoop(g, node, data, elemType)
+}
+
+fn generateForMapStmt(g: Generator, node: Node, data: ForStmtData, mapType: Type, keyType: Type) -> Option[StmtResult] {
+    clearForListStubs(g)
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    match generateMapKeysStub(g, stubLlvmValue(g), mapType) {
+        None => None
+        Some(_keysList) => runForListInLoop(g, node, data, keyType)
+    }
+}
+
 fn generateForStmtGeneric(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
     if !exprGeneratesOk(g, data.iterable) { return None }
     val bodyBlock = newBlock(g, "for_body")
@@ -343,6 +357,12 @@ fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtRe
                 return match listElemType(t) {
                     None => generateForStmtGeneric(g, node, data)
                     Some(elemType) => generateForListStmt(g, node, data, elemType)
+                }
+            }
+            if isMapType(t) {
+                return match mapKeyType(t) {
+                    None => generateForStmtGeneric(g, node, data)
+                    Some(keyType) => generateForMapStmt(g, node, data, t, keyType)
                 }
             }
             generateForStmtGeneric(g, node, data)

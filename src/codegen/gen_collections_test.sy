@@ -2,7 +2,7 @@ import (
     { Node, FuncDeclData } from @ast/ast
     { CheckResult, Type, FuncType, ClassType, IntType, CharType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { collectionElemKind, isListOrMapType, isListType, listElemType, mapKeyIsStringKind, emitCollectionToStringStub } from @codegen/gen_collections
+    { collectionElemKind, isListOrMapType, isListType, listElemType, isMapType, mapKeyType, mapKeyIsStringKind, generateMapKeysStub, emitCollectionToStringStub } from @codegen/gen_collections
     { stubLlvmValue } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -66,6 +66,34 @@ test fn testIsListType() {
         None => assertMsg(false, "List[Int] elem type")
         Some(t) => assertMsg(t == IntType, "elem is Int")
     }
+}
+
+test fn testIsMapType() {
+    val mapClass = collectionsEmptyClass("Map")
+    val listClass = collectionsEmptyClass("List")
+    val mapStrInt = Type.Specialized(Type.Class(mapClass), [StringType, IntType])
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    assertMsg(isMapType(mapStrInt), "Map[String,Int] is map")
+    assertMsg(!isMapType(listInt), "List not map")
+    match mapKeyType(mapStrInt) {
+        None => assertMsg(false, "Map key type")
+        Some(t) => assertMsg(t == StringType, "key is String")
+    }
+}
+
+test fn testGenerateMapKeysStub() {
+    val g = newGenerator(collectionsEmptyCheckResult())
+    val mapClass = collectionsEmptyClass("Map")
+    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
+    val mapVal = stubLlvmValue(g)
+    match generateMapKeysStub(g, mapVal, mapIntInt) {
+        None => assertMsg(false, "expected map keys stub")
+        Some(keys) => {
+            assertMsg(keys.handle > mapVal.handle, "keys list handle")
+            assertMsg(g.forMapKeysStub != None, "map_keys call stub recorded")
+        }
+    }
+    assertMsg(generateMapKeysStub(g, mapVal, IntType) == None, "Int rejects map keys stub")
 }
 
 test fn testEmitCollectionToStringStub() {

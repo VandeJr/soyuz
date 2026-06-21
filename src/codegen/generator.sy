@@ -102,6 +102,7 @@ pub class Generator {
     pub var iterNextNoneResult: Option[LlvmValue] = None
     pub var iterNextPhiResult: Option[LlvmValue] = None
     pub var iterIsEmptyResult: Option[LlvmValue] = None
+    pub var forMapKeysStub: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

@@ -1,7 +1,7 @@
 import (
     { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData, IdentifierData } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, UnitType, BoolType, ClassType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, UnitType, BoolType, ClassType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
@@ -233,6 +233,44 @@ test fn testGenerateForListStmt() {
                 if k == "n" { hasN = true }
             }
             assertMsg(!hasN, "binding n not leaked after for-in list")
+        }
+    }
+}
+
+test fn testGenerateForMapStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
+    val iterable = Node.Identifier(1, span, IdentifierData { name: "m" })
+    val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "k", iterable: iterable, body: body })
+    val mapClass = ClassType {
+        name: "Map",
+        fields: Map[String, Type]{},
+        fieldPub: Map[String, Bool]{},
+        fieldInit: Map[String, Node]{},
+        methods: Map[String, List[FuncType]]{},
+        methodPub: Map[String, Bool]{},
+        implements: [],
+        generics: ["K", "V"]
+    }
+    val mapStrInt = Type.Specialized(Type.Class(mapClass), [StringType, IntType])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, mapStrInt)
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, forNode) {
+        None => assertMsg(false, "expected for-in map stmt result")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "for-in map completes without terminator")
+            assertMsg(g.forMapKeysStub != None, "map_keys stub before key loop")
+            assertMsg(blockNameRegistered(g, "forl_cond"), "for-list cond over map keys")
+            assertMsg(blockNameRegistered(g, "forl_body"), "for-list body over map keys")
+            assertMsg(g.forListGetStub != None, "list_get over keys stub")
+            var hasK = false
+            for key in g.vars.keys() {
+                if key == "k" { hasK = true }
+            }
+            assertMsg(!hasK, "binding k not leaked after for-in map")
         }
     }
 }
