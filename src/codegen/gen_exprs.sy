@@ -5,8 +5,8 @@ import (
     { Generator } from @codegen/generator
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock } from @codegen/gen_ir
+    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchArmGuardPassBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject } from @codegen/gen_patterns
+    { newBlock, setCurrentBlock, snapshotVars, restoreVars } from @codegen/gen_ir
 )
 
 pub enum ConstValue {
@@ -268,11 +268,18 @@ fn generateAssignExprResult(g: Generator, node: Node, data: AssignExprData) -> O
     }
 }
 
-fn generateMatchGuardFromArm(g: Generator, matchArm: MatchArm) -> Bool = match matchArm.guard {
-    None => true
+fn advanceMatchArmAfterPattern(g: Generator, plan: MatchArmPlan) -> Bool = match plan.matchArm.guard {
+    None => {
+        setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
+        true
+    }
     Some(expr) => match generateExprNode(g, expr) {
         None => false
-        Some(_) => true
+        Some(_) => {
+            newBlock(g, matchArmGuardPassBlockName(plan.index))
+            setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
+            true
+        }
     }
 }
 
@@ -287,6 +294,7 @@ fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: I
     val plans = buildMatchArmPlans(data)
     if index >= plans.size() { return true }
     val plan = plans.get(index)
+    val savedVars = snapshotVars(g)
     if !generateMatchArmBlocks(g, plan) { return false }
     val subjectId = nodeId(data.subject)
     val dispatched = match checkerTypeForNode(g, subjectId) {
@@ -294,11 +302,11 @@ fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: I
         Some(st) => matchPatternDispatchWithSubject(g, plan.matchArm.pattern, st, plan.patternOkBlockName, plan.nextBlockName)
     }
     if !dispatched { return false }
-    if !generateMatchGuardFromArm(g, plan.matchArm) { return false }
-    setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
+    if !advanceMatchArmAfterPattern(g, plan) { return false }
     match generateExprNode(g, plan.matchArm.body) {
         None => false
         Some(_) => {
+            restoreVars(g, savedVars)
             setCurrentBlock(g, newBlock(g, plan.nextBlockName))
             generateMatchArmsLoop(g, node, data, index + 1)
         }

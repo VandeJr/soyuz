@@ -2,7 +2,7 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca } from @codegen/gen_ir
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars } from @codegen/gen_ir
     { llvmI64 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -48,4 +48,20 @@ test fn testNewAllocaAssignsUniqueHandles() {
     val first = newAlloca(g, llvmI64())
     val second = newAlloca(g, llvmI64())
     assertMsg(first.handle != second.handle, "alloca handles are unique")
+}
+
+test fn testSnapshotRestoreVars() {
+    val g = newGenerator(irTestCheckResult())
+    g.vars.set("x", newAlloca(g, llvmI64()))
+    val saved = snapshotVars(g)
+    g.vars.set("y", newAlloca(g, llvmI64()))
+    restoreVars(g, saved)
+    var hasX = false
+    var hasY = false
+    for k in g.vars.keys() {
+        if k == "x" { hasX = true }
+        if k == "y" { hasY = true }
+    }
+    assertMsg(hasX, "x restored")
+    assertMsg(!hasY, "y removed after restore")
 }

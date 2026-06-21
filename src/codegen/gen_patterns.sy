@@ -234,6 +234,10 @@ pub fn matchArmNextBlockName(index: Int) -> String {
     return "match_arm_$(index)_next"
 }
 
+pub fn matchArmGuardPassBlockName(index: Int) -> String {
+    return "match_arm_$(index)_guard_pass"
+}
+
 pub fn matchMergeBlockName() -> String {
     return "match_merge"
 }

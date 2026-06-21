@@ -52,3 +52,15 @@ pub fn newAlloca(g: Generator, ty: LlvmType) -> LlvmValue {
     g.valueHandleCounter = g.valueHandleCounter + 1
     return value
 }
+
+pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {
+    var copy: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    for k in g.vars.keys() {
+        copy.set(k, g.vars.get(k))
+    }
+    return copy
+}
+
+pub fn restoreVars(g: Generator, saved: Map[String, LlvmValue]) {
+    g.vars = saved
+}
