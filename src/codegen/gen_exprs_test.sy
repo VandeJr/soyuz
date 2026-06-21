@@ -1,11 +1,11 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk, constFromLiteralPatternValue } from @codegen/gen_exprs
     { generateLiteralPatternValue } from @codegen/gen_patterns
-    { generateEnumDecl, enumVariantTag } from @codegen/gen_structs
+    { generateEnumDecl, enumVariantTag, generateRecordDecl } from @codegen/gen_structs
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
@@ -702,6 +702,40 @@ test fn testM6TwoEnumsSameVariantNameCodegen() {
                 None => assertMsg(false, "Resultado.Ok tag")
                 Some(tag) => assertMsg(tag == 0, "Resultado.Ok tag is 0")
             }
+        }
+    }
+}
+
+// Port of soyuz-go gen_structs.go generateRecordLiteral (Point{x: 1, y: 2} stub).
+test fn testGenerateRecordLiteralCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val xVal = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val yVal = Node.IntLiteral(11, span, IntLiteralData { value: "2" })
+    var litFields: List[RecordLiteralField] = []
+    litFields.append(RecordLiteralField { span: span, name: "x", value: xVal })
+    litFields.append(RecordLiteralField { span: span, name: "y", value: yVal })
+    val node = Node.RecordLiteral(5, span, RecordLiteralData { name: "Point", typeArgs: [], fields: litFields })
+    var recordFields: Map[String, Type] = Map[String, Type]{}
+    recordFields.set("x", IntType)
+    recordFields.set("y", IntType)
+    val pointType = Type.Record("Point", recordFields, [])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(5, pointType)
+    types.set(10, IntType)
+    types.set(11, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val xField = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yField = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xField, yField] }), "register Point")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected Point record literal codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, pointType)), "record literal returns Point")
+            match g.recordLiteralAlloc {
+                None => assertMsg(false, "record literal alloc stub")
+                Some(v) => assertMsg(v.handle > 0, "alloc handle")
+            }
+            assertMsg(g.recordLiteralFieldStores.size() == 2, "field store per literal field")
         }
     }
 }

@@ -81,6 +81,8 @@ pub class Generator {
     pub var whileCondValue: Option[LlvmValue] = None
     pub var matchGuardCondValue: Option[LlvmValue] = None
     pub var funcVariantGuardCondValue: Option[LlvmValue] = None
+    pub var recordLiteralAlloc: Option[LlvmValue] = None
+    pub var recordLiteralFieldStores: List[LlvmValue] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {
