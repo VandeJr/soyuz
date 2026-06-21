@@ -1,5 +1,5 @@
 import (
-    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData, IdentifierData, VarDeclData, CallExprData, TaskExprData, VarKind } from @ast/ast
+    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData, IdentifierData, MemberExprData, VarDeclData, CallExprData, TaskExprData, VarKind } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, UnitType, BoolType, ClassType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -7,6 +7,7 @@ import (
     { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
     { blockNameRegistered, emitBrToBlockStub, currentBlockHandle } from @codegen/gen_ir
     { taskDropHandleRuntime, taskRuntimeSymbolRegistered } from @codegen/gen_task
+    { arcRuntimeRelease, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -628,6 +629,57 @@ test fn testBlockEmitsTaskDropOnScopeExit() {
         Some(_) => {
             assertMsg(g.taskDropStub != None, "task drop stub stored at block exit")
             assertMsg(taskRuntimeSymbolRegistered(g, taskDropHandleRuntime()), "srt_drop_task_handle registered")
+        }
+    }
+}
+
+fn controlArcClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+// Port of m_arc_test.go TestArcReleaseEmittedOnScopeExit — block scope emits srt_arc_release stub.
+test fn testBlockEmitsArcReleaseOnScopeExit() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = controlArcClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcId = Node.Identifier(1, span, IdentifierData { name: "Arc" })
+    val newMember = Node.MemberExpr(2, span, MemberExprData { object: arcId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "7" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val arcNewCall = Node.CallExpr(4, span, CallExprData { callee: newMember, args: args })
+    val varDecl = Node.VarDecl(5, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Val,
+        name: "a",
+        pattern: None,
+        typeExpr: None,
+        init: Some(arcNewCall)
+    })
+    var stmts: List[Node] = []
+    stmts.append(varDecl)
+    val block = Node.BlockStmt(6, span, BlockStmtData { statements: stmts })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(arcClass))
+    types.set(2, Type.Class(arcClass))
+    types.set(3, IntType)
+    types.set(4, arcInt)
+    types.set(5, arcInt)
+    types.set(6, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, block) {
+        None => assertMsg(false, "expected block with arc var codegen")
+        Some(_) => {
+            assertMsg(g.arcReleaseStub != None, "arc release stub stored at block exit")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeRelease()), "srt_arc_release registered")
         }
     }
 }

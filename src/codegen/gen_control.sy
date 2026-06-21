@@ -8,6 +8,7 @@ import (
     { isListType, listElemType, isMapType, mapKeyType, isIteratorType, iteratorElemType, generateMapKeysStub } from @codegen/gen_collections
     { ensureRuntimeCollectionStructs, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, forIteratorCondBlockName, forIteratorBodyBlockName, forIteratorIncrBlockName, forIteratorAfterBlockName } from @codegen/gen_iter
     { pushTaskScope, popTaskScope, emitTaskDrops } from @codegen/gen_task
+    { pushArcScope, popArcScope, emitArcDrops } from @codegen/gen_arc
     { mapTypeToLLVM } from @codegen/gen_types
     { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
@@ -69,20 +70,26 @@ fn generateBlockStmts(g: Generator, stmts: List[Node], index: Int) -> BlockStep 
 
 fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[StmtResult] {
     pushTaskScope(g)
+    pushArcScope(g)
     return match generateBlockStmts(g, data.statements, 0) {
         Failed => {
             popTaskScope(g)
+            popArcScope(g)
             None
         }
         Continue => {
-            val owned = popTaskScope(g)
-            if !emitTaskDrops(g, owned) { return None }
+            val taskOwned = popTaskScope(g)
+            val arcOwned = popArcScope(g)
+            if !emitTaskDrops(g, taskOwned) { return None }
+            if !emitArcDrops(g, arcOwned) { return None }
             stmtResultFromNode(g, node, NoTerminator)
         }
         Done(r) => {
-            val owned = popTaskScope(g)
+            val taskOwned = popTaskScope(g)
+            val arcOwned = popArcScope(g)
             if !hasTerminator(r) {
-                if !emitTaskDrops(g, owned) { return None }
+                if !emitTaskDrops(g, taskOwned) { return None }
+                if !emitArcDrops(g, arcOwned) { return None }
             }
             Some(r)
         }
