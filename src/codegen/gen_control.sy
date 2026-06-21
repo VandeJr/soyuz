@@ -76,20 +76,37 @@ fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[St
     }
 }
 
-fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResult] {
-    return match generateExprNode(g, data.condition) {
-        None => None
-        Some(_) => {
-            match generateStmtNode(g, data.consequent) {
-                None => None
-                Some(_) => match data.alternate {
-                    None => stmtResultFromNode(g, node, NoTerminator)
-                    Some(alt) => match generateStmtNode(g, alt) {
-                        None => None
-                        Some(_) => stmtResultFromNode(g, node, NoTerminator)
-                    }
-                }
+fn finishIfBranchFromNode(g: Generator, mergeBlock: LlvmBasicBlock, branch: Node) -> Bool {
+    return match generateStmtNode(g, branch) {
+        None => false
+        Some(r) => {
+            if !hasTerminator(r) {
+                emitBrToBlockStub(g, mergeBlock)
             }
+            true
+        }
+    }
+}
+
+fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResult] {
+    if !exprGeneratesOk(g, data.condition) { return None }
+    val thenBlock = newBlock(g, "then")
+    val elseBlock = newBlock(g, "else")
+    val mergeBlock = newBlock(g, "if_merge")
+    if !emitCondBrToBlockStub(g, thenBlock, elseBlock) { return None }
+    setCurrentBlock(g, thenBlock)
+    if !finishIfBranchFromNode(g, mergeBlock, data.consequent) { return None }
+    setCurrentBlock(g, elseBlock)
+    return match data.alternate {
+        None => {
+            emitBrToBlockStub(g, mergeBlock)
+            setCurrentBlock(g, mergeBlock)
+            stmtResultFromNode(g, node, NoTerminator)
+        }
+        Some(alt) => {
+            if !finishIfBranchFromNode(g, mergeBlock, alt) { return None }
+            setCurrentBlock(g, mergeBlock)
+            stmtResultFromNode(g, node, NoTerminator)
         }
     }
 }

@@ -90,6 +90,9 @@ test fn testGenerateIfStmt() {
         None => assertMsg(false, "expected if stmt result")
         Some(r) => {
             assertMsg(!hasTerminator(r), "if without return in branch still NoTerminator at if level")
+            assertMsg(blockNameRegistered(g, "then"), "if then block registered")
+            assertMsg(blockNameRegistered(g, "else"), "if else block registered")
+            assertMsg(blockNameRegistered(g, "if_merge"), "if merge block registered")
         }
     }
 }
@@ -257,7 +260,12 @@ test fn testGenerateIfElseBothBranches() {
     val g = newGenerator(controlCheckerWithNodeTypes(types))
     match generateStmtNode(g, ifNode) {
         None => assertMsg(false, "expected if-else stmt result")
-        Some(r) => assertMsg(!hasTerminator(r), "if stmt itself does not terminate")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "if stmt itself does not terminate")
+            assertMsg(blockNameRegistered(g, "then"), "if-else then block registered")
+            assertMsg(blockNameRegistered(g, "else"), "if-else else block registered")
+            assertMsg(blockNameRegistered(g, "if_merge"), "if-else merge block registered")
+        }
     }
 }
 
