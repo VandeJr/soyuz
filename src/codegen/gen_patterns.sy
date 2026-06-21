@@ -586,6 +586,7 @@ fn clearConstructorPayloadStubs(g: Generator) {
     g.constructorPayloadPtr = None
     g.constructorArgLoads = []
     g.constructorArgStores = []
+    g.literalPatternSubjectValue = None
 }
 
 fn emitConstructorTagPayloadStubs(g: Generator, hasSubject: Bool) -> Bool {
@@ -726,6 +727,15 @@ fn registerConstructorBindingFromLoad(g: Generator, name: String, loaded: LlvmVa
 }
 
 fn matchPatternConstructorArgDispatch(g: Generator, variantName: String, vi: VariantInfo, pat: Pattern, argThen: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, argIndex: Int) -> Bool = match pat {
+    Literal(_, _, value) => {
+        if hasSubject {
+            if argIndex >= g.constructorArgLoads.size() { return false }
+            val loaded = g.constructorArgLoads.get(argIndex)
+            return matchPatternLiteralDispatchWithSubject(g, value, loaded, argThen, nextBlockName)
+        }
+        return matchPatternLiteralDispatch(g, value, argThen, nextBlockName)
+    }
+    Wildcard(_, _) => matchPatternAdvance(g, argThen)
     Binding(_, _, name) => {
         val slotType = constructorPatternArgSlotType(g, hasSubject, subjectType, vi, variantName, argIndex)
         if hasSubject {

@@ -480,6 +480,41 @@ test fn testMatchPatternDispatchConstructorSomeWithSubjectPayloadLoads() {
     assertMsg(g.valueHandleCounter > handlesBefore + 3, "subject access stubs allocate handles")
 }
 
+test fn testMatchPatternDispatchConstructorLiteralArgWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val pat = Pattern.Constructor(2, span, "Some", [lit])
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optionType = Type.Enum(EnumType { name: "Option", variants: variants, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+    assertMsg(matchPatternDispatchWithSubject(g, pat, optionType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(42) with subject")
+    assertMsg(g.constructorArgLoads.size() == 1, "payload arg load for literal pattern")
+    assertMsg(g.literalPatternSubjectValue != None, "literal cmp uses preloaded payload arg")
+    assertMsg(g.constructorArgStores.size() == 0, "literal arg does not store binding")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal cmp for constructor arg")
+    assertMsg(blockNameRegistered(g, "match_Some_ok"), "constructor ok block")
+}
+
+test fn testMatchPatternDispatchConstructorLiteralArgNoSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val pat = Pattern.Constructor(2, span, "Some", [lit])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(42) no subject")
+    assertMsg(g.constructorArgLoads.size() == 0, "no payload loads without subject")
+    assertMsg(g.literalPatternSubjectValue == None, "no literal subject without match subject")
+}
+
 test fn testMatchPatternDispatchConstructorWithBindingArg() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
