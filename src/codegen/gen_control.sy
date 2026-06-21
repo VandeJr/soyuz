@@ -1,12 +1,12 @@
 import (
-    { Node, BlockStmtData, IfStmtData, WhileStmtData, LoopStmtData, ForStmtData, ReturnStmtData, BreakStmtData } from @ast/ast
+    { Node, BlockStmtData, IfStmtData, WhileStmtData, LoopStmtData, ForStmtData, ReturnStmtData, BreakStmtData, RangeExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
-    { Type, UnitType, typeToString } from @checker/types
+    { Type, UnitType, IntType, typeToString } from @checker/types
     { Generator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitBreakValueStoreStub } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitBreakValueStoreStub, stubLlvmValue } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -175,7 +175,47 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
     return stmtResultFromNode(g, node, NoTerminator)
 }
 
-fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
+fn clearForRangeStubs(g: Generator) {
+    g.forRangeCounterAlloca = None
+    g.forRangeFromValue = None
+    g.forRangeToValue = None
+}
+
+fn registerForRangeBinding(g: Generator, binding: String, startVal: LlvmValue) -> Bool {
+    val alloca = newAlloca(g, mapTypeToLLVM(g, IntType))
+    emitStoreStub(g, startVal, alloca)
+    g.vars.set(binding, alloca)
+    g.forRangeCounterAlloca = Some(alloca)
+    return true
+}
+
+fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: RangeExprData, body: Node) -> Option[StmtResult] {
+    clearForRangeStubs(g)
+    if !exprGeneratesOk(g, rangeData.from) { return None }
+    if !exprGeneratesOk(g, rangeData.to) { return None }
+    val fromVal = stubLlvmValue(g)
+    val toVal = stubLlvmValue(g)
+    g.forRangeFromValue = Some(fromVal)
+    g.forRangeToValue = Some(toVal)
+    if !registerForRangeBinding(g, binding, fromVal) { return None }
+    val condBlock = newBlock(g, "for_cond")
+    val bodyBlock = newBlock(g, "for_body")
+    val incrBlock = newBlock(g, "for_incr")
+    val afterBlock = newBlock(g, "for_after")
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !emitCondBrToBlockStub(g, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    if !finishLoopBodyFromNode(g, incrBlock, body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, incrBlock)
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, afterBlock)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateForStmtGeneric(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
     if !exprGeneratesOk(g, data.iterable) { return None }
     val bodyBlock = newBlock(g, "for_body")
     val afterBlock = newBlock(g, "for_after")
@@ -185,6 +225,11 @@ fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtRe
     popLoop(g)
     setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] = match data.iterable {
+    RangeExpr(_, _, rangeData) => generateForRangeStmt(g, node, data.binding, rangeData, data.body)
+    _ => generateForStmtGeneric(g, node, data)
 }
 
 fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {

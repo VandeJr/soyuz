@@ -71,6 +71,9 @@ pub class Generator {
     pub var tuplePatternElemStores: List[LlvmValue] = []
     pub var bindingPatternSubjectStore: Option[LlvmValue] = None
     pub var literalPatternSubjectValue: Option[LlvmValue] = None
+    pub var forRangeCounterAlloca: Option[LlvmValue] = None
+    pub var forRangeFromValue: Option[LlvmValue] = None
+    pub var forRangeToValue: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

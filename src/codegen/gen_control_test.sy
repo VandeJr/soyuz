@@ -1,5 +1,5 @@
 import (
-    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData } from @ast/ast
+    { Node, LoopStmtData, BlockStmtData, IfStmtData, WhileStmtData, ForStmtData, ReturnStmtData, BreakStmtData, IntLiteralData, BinaryExprData, FuncDeclData, RangeExprData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, UnitType, BoolType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -148,6 +148,40 @@ test fn testGenerateForStmt() {
             assertMsg(!hasTerminator(r), "for completes without terminator")
             assertMsg(blockNameRegistered(g, "for_body"), "for body block registered")
             assertMsg(blockNameRegistered(g, "for_after"), "for after block registered")
+        }
+    }
+}
+
+test fn testGenerateForRangeStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
+    val from = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
+    val to = Node.IntLiteral(4, span, IntLiteralData { value: "10" })
+    val range = Node.RangeExpr(5, span, RangeExprData { from: from, to: to, inclusive: true })
+    val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "i", iterable: range, body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    types.set(4, IntType)
+    types.set(5, IntType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, forNode) {
+        None => assertMsg(false, "expected for-range stmt result")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "for-range completes without terminator")
+            assertMsg(blockNameRegistered(g, "for_cond"), "for-range cond block registered")
+            assertMsg(blockNameRegistered(g, "for_body"), "for-range body block registered")
+            assertMsg(blockNameRegistered(g, "for_incr"), "for-range incr block registered")
+            assertMsg(blockNameRegistered(g, "for_after"), "for-range after block registered")
+            assertMsg(g.forRangeCounterAlloca != None, "range binding alloca recorded")
+            assertMsg(g.forRangeFromValue != None, "range from bound recorded")
+            assertMsg(g.forRangeToValue != None, "range to bound recorded")
+            var hasI = false
+            for k in g.vars.keys() {
+                if k == "i" { hasI = true }
+            }
+            assertMsg(hasI, "range binding registered in g.vars")
         }
     }
 }
