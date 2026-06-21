@@ -1,5 +1,5 @@
 import (
-    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData } from @ast/ast
+    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData, UnaryExprData, BinaryExprData, IdentifierData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -120,6 +120,39 @@ fn makePickVariant(span: Span, whenGuard: Option[Node]) -> FuncDeclData {
         isTest: false,
         isIgnore: false
     }
+}
+
+fn makeAbsVariant(span: Span, whenGuard: Option[Node]) -> FuncDeclData {
+    return FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "abs",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: whenGuard,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+}
+
+fn makeAbsGuardCond(span: Span) -> Node {
+    val xId = Node.Identifier(10, span, IdentifierData { name: "x" })
+    val zero = Node.IntLiteral(11, span, IntLiteralData { value: "0" })
+    return Node.BinaryExpr(12, span, BinaryExprData { operator: "<", left: xId, right: zero })
+}
+
+fn makeAbsReturnNegX(span: Span) -> Node {
+    val xId = Node.Identifier(30, span, IdentifierData { name: "x" })
+    val negX = Node.UnaryExpr(31, span, UnaryExprData { operator: "-", operand: xId })
+    return Node.ReturnStmt(32, span, ReturnStmtData { value: Some(negX) })
+}
+
+fn makeAbsReturnX(span: Span) -> Node {
+    val xId = Node.Identifier(40, span, IdentifierData { name: "x" })
+    return Node.ReturnStmt(41, span, ReturnStmtData { value: Some(xId) })
 }
 
 test fn testSortFuncVariantsWhenGuardBeforeCatchall() {
@@ -358,6 +391,28 @@ test fn testGenerateFuncVariantsBodyWhenGuardCreatesBlocks() {
     match currentBlockHandle(g) {
         None => assertMsg(false, "current block after variant loop")
         Some(handle) => assertMsg(handle > 0, "current block set after variants")
+    }
+}
+
+// Port of soyuz-go/internal/codegen/when_guard_test.go TestWhenGuardCodegen (abs when x < 0).
+test fn testWhenGuardCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    var guarded = makeAbsVariant(span, Some(makeAbsGuardCond(span)))
+    guarded.body = Some(makeAbsReturnNegX(span))
+    var catchall = makeAbsVariant(span, None)
+    catchall.body = Some(makeAbsReturnX(span))
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("abs", [guarded, catchall])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "abs"), "abs when-guard variant codegen")
+    assertMsg(blockNameRegistered(g, "v0_guard_ok"), "v0_guard_ok block")
+    assertMsg(blockNameRegistered(g, "variant_0_body"), "variant_0_body block")
+    assertMsg(blockNameRegistered(g, "variant_1_body"), "variant_1_body block")
+    match g.funcVariantGuardCondValue {
+        None => assertMsg(false, "func variant guard condition stub")
+        Some(v) => assertMsg(v.handle > 0, "conditional branch guard value stub")
     }
 }
 
