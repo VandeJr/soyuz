@@ -535,6 +535,7 @@ test fn testMatchPatternDispatchRecordShorthandFields() {
     assertMsg(hasX, "x bound from record field")
     assertMsg(hasY, "y bound from record field")
     assertMsg(g.recordPatternFieldLoads.size() == 0, "no field loads without subject")
+    assertMsg(g.recordPatternFieldStores.size() == 0, "no field stores without subject")
 }
 
 test fn testMatchPatternDispatchRecordWithSubjectFieldLoads() {
@@ -554,6 +555,7 @@ test fn testMatchPatternDispatchRecordWithSubjectFieldLoads() {
     assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point with subject")
     assertMsg(g.recordPatternSubject != None, "record subject stub")
     assertMsg(g.recordPatternFieldLoads.size() == 2, "field load per shorthand field")
+    assertMsg(g.recordPatternFieldStores.size() == 2, "field store per shorthand binding")
     assertMsg(g.valueHandleCounter > handlesBefore + 4, "subject plus field gep/load stubs")
 }
 

@@ -736,6 +736,7 @@ fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, vi: Va
 fn clearRecordPatternFieldStubs(g: Generator) {
     g.recordPatternSubject = None
     g.recordPatternFieldLoads = []
+    g.recordPatternFieldStores = []
 }
 
 fn emitRecordPatternSubjectStub(g: Generator, hasSubject: Bool) -> Bool {
@@ -757,19 +758,39 @@ fn emitRecordFieldLoadStub(g: Generator) -> LlvmValue {
     return fieldVal
 }
 
+fn appendRecordPatternFieldStore(g: Generator, fieldVal: LlvmValue) {
+    var stores = g.recordPatternFieldStores
+    stores.append(fieldVal)
+    g.recordPatternFieldStores = stores
+}
+
+fn registerRecordShorthandBindingFromLoad(g: Generator, name: String, loaded: LlvmValue, slotType: LlvmType) -> Bool {
+    val alloca = newAlloca(g, slotType)
+    emitStoreStub(g, loaded, alloca)
+    appendRecordPatternFieldStore(g, loaded)
+    g.vars.set(name, alloca)
+    return true
+}
+
 fn matchPatternRecordFieldsLoop(g: Generator, recordName: String, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= fields.size() { return matchPatternAdvance(g, thenBlockName) }
     val field = fields.get(index)
     val fieldSubjectType = recordPatternFieldSubjectType(hasSubject, subjectType, field.name)
-    if hasSubject {
-        emitRecordFieldLoadStub(g)
-    }
     return match field.pattern {
         None => {
-            if !registerPatternBinding(g, field.name, recordPatternFieldSlotType(g, hasSubject, subjectType, recordName, field.name)) { return false }
+            val slotType = recordPatternFieldSlotType(g, hasSubject, subjectType, recordName, field.name)
+            if hasSubject {
+                val loaded = emitRecordFieldLoadStub(g)
+                if !registerRecordShorthandBindingFromLoad(g, field.name, loaded, slotType) { return false }
+            } else {
+                if !registerPatternBinding(g, field.name, slotType) { return false }
+            }
             matchPatternRecordFieldsLoop(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
         }
         Some(inner) => {
+            if hasSubject {
+                emitRecordFieldLoadStub(g)
+            }
             val fieldThen = recordFieldPatternOkBlockName()
             val dispatched = match hasSubject {
                 true => matchPatternDispatchWithSubject(g, inner, fieldSubjectType, fieldThen, nextBlockName)
