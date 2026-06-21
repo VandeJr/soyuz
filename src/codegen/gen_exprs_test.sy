@@ -12,6 +12,7 @@ import (
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
+    { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
     { assertMsg } from @soyuz/testing
 )
 
@@ -1611,6 +1612,42 @@ test fn testArcRefcountCallExprCodegen() {
         Some(_) => {
             assertMsg(g.arcRefcountStub != None, "arc refcount stub stored")
             assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeRefcount()), "srt_arc_refcount registered")
+        }
+    }
+}
+
+// Port of m26_gather_test.go TestTaskGatherEmitsSrtEnqueue — Task.gather(list, fn) dispatch.
+test fn testTaskGatherCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val listClass = channelTestClass("List")
+    val taskClass = channelTestClass("Task")
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "gather" })
+    val listArg = Node.Identifier(3, span, IdentifierData { name: "nums" })
+    val fnArg = Node.Identifier(4, span, IdentifierData { name: "dobrar" })
+    var args: List[Node] = []
+    args.append(listArg)
+    args.append(fnArg)
+    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(taskClass))
+    types.set(2, Type.Class(taskClass))
+    types.set(3, listInt)
+    types.set(4, Type.Basic("Unit"))
+    types.set(5, listInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Task.gather call codegen")
+        Some(_) => {
+            assertMsg(g.gatherResultStub != None, "gather result stub stored")
+            assertMsg(g.gatherEnqueueStub != None, "gather enqueue stub stored")
+            assertMsg(g.gatherAwaitStub != None, "gather await stub stored")
+            assertMsg(gatherRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(gatherRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+            assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeNew()), "soyuz_list_new registered")
+            assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeAppend()), "soyuz_list_append registered")
+            assertMsg(gatherBlockNamesRegistered(g), "gather loop blocks registered")
         }
     }
 }

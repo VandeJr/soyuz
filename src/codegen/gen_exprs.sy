@@ -9,6 +9,7 @@ import (
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub } from @codegen/gen_channel
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
+    { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -524,6 +525,15 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                 }
             }
             _ => None
+        }
+    }
+    if isTaskGatherCall(data.callee) {
+        if data.args.size() != 2 { return None }
+        if !isTaskGatherFnArg(data.args.get(1)) { return None }
+        if !generateAllCallArgs(g, data.args) { return None }
+        return match generateTaskGatherStub(g) {
+            None => None
+            Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
     if !generateAllCallArgs(g, data.args) { return None }

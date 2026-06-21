@@ -1,0 +1,166 @@
+import (
+    { Node } from @ast/ast
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue, newBlock, setCurrentBlock, emitBrToBlockStub, blockNameRegistered } from @codegen/gen_ir
+)
+
+pub fn taskRuntimeEnqueue() -> String {
+    return "srt_enqueue"
+}
+
+pub fn taskRuntimeAwait() -> String {
+    return "srt_await"
+}
+
+pub fn listRuntimeNew() -> String {
+    return "soyuz_list_new"
+}
+
+pub fn listRuntimeAppend() -> String {
+    return "soyuz_list_append"
+}
+
+pub fn listRuntimeGet() -> String {
+    return "soyuz_list_get"
+}
+
+pub fn gatherSpawnCondBlockName() -> String {
+    return "gather_spawn_cond"
+}
+
+pub fn gatherSpawnBodyBlockName() -> String {
+    return "gather_spawn_body"
+}
+
+pub fn gatherSpawnIncrBlockName() -> String {
+    return "gather_spawn_incr"
+}
+
+pub fn gatherSpawnAfterBlockName() -> String {
+    return "gather_spawn_after"
+}
+
+pub fn gatherAwaitCondBlockName() -> String {
+    return "gather_await_cond"
+}
+
+pub fn gatherAwaitBodyBlockName() -> String {
+    return "gather_await_body"
+}
+
+pub fn gatherAwaitIncrBlockName() -> String {
+    return "gather_await_incr"
+}
+
+pub fn gatherAwaitAfterBlockName() -> String {
+    return "gather_await_after"
+}
+
+pub fn isTaskInstanceType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "Task" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isTaskClassType(t: Type) -> Bool = match t {
+    Class(ct) => ct.name == "Task"
+    _ => false
+}
+
+pub fn isTaskStaticGather(typeName: String, methodName: String) -> Bool {
+    return typeName == "Task" && methodName == "gather"
+}
+
+pub fn isTaskGatherCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isTaskStaticGather(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isTaskGatherFnArg(arg: Node) -> Bool = match arg {
+    Identifier(_, _, _) => true
+    _ => false
+}
+
+pub fn nextTaskWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__task_wrapper_$(g.taskWrapperCounter)"
+}
+
+fn registerGatherRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.gatherRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.gatherRuntimeSymbols
+        syms.append(symbol)
+        g.gatherRuntimeSymbols = syms
+    }
+}
+
+pub fn gatherRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.gatherRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+fn registerGatherRuntimeSymbols(g: Generator) {
+    registerGatherRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerGatherRuntimeSymbol(g, taskRuntimeAwait())
+    registerGatherRuntimeSymbol(g, listRuntimeNew())
+    registerGatherRuntimeSymbol(g, listRuntimeAppend())
+    registerGatherRuntimeSymbol(g, listRuntimeGet())
+}
+
+fn emitGatherSpawnLoopStubs(g: Generator) -> Bool {
+    val spawnCond = newBlock(g, gatherSpawnCondBlockName())
+    val spawnBody = newBlock(g, gatherSpawnBodyBlockName())
+    val spawnIncr = newBlock(g, gatherSpawnIncrBlockName())
+    val spawnAfter = newBlock(g, gatherSpawnAfterBlockName())
+    if !emitBrToBlockStub(g, spawnCond) { return false }
+    setCurrentBlock(g, spawnBody)
+    g.gatherEnqueueStub = Some(stubLlvmValue(g))
+    g.gatherListAppendStub = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, spawnIncr) { return false }
+    setCurrentBlock(g, spawnAfter)
+    return true
+}
+
+fn emitGatherAwaitLoopStubs(g: Generator) -> Bool {
+    val awaitCond = newBlock(g, gatherAwaitCondBlockName())
+    val awaitBody = newBlock(g, gatherAwaitBodyBlockName())
+    val awaitIncr = newBlock(g, gatherAwaitIncrBlockName())
+    val awaitAfter = newBlock(g, gatherAwaitAfterBlockName())
+    if !emitBrToBlockStub(g, awaitCond) { return false }
+    setCurrentBlock(g, awaitBody)
+    g.gatherAwaitStub = Some(stubLlvmValue(g))
+    g.gatherListGetStub = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, awaitIncr) { return false }
+    setCurrentBlock(g, awaitAfter)
+    return true
+}
+
+pub fn generateTaskGatherStub(g: Generator) -> Option[LlvmValue] {
+    registerGatherRuntimeSymbols(g)
+    g.gatherTaskWrapperName = Some(nextTaskWrapperName(g))
+    g.gatherHandlesListStub = Some(stubLlvmValue(g))
+    g.gatherResultsListStub = Some(stubLlvmValue(g))
+    if !emitGatherSpawnLoopStubs(g) { return None }
+    if !emitGatherAwaitLoopStubs(g) { return None }
+    val stub = stubLlvmValue(g)
+    g.gatherResultStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn gatherBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, gatherSpawnCondBlockName()) { return false }
+    return blockNameRegistered(g, gatherAwaitCondBlockName())
+}

@@ -21,5 +21,7 @@ import @codegen/gen_sync
 import @codegen/gen_sync_test
 import @codegen/gen_arc
 import @codegen/gen_arc_test
+import @codegen/gen_gather
+import @codegen/gen_gather_test
 import @codegen/gen_ir
 import @codegen/gen_ir_test

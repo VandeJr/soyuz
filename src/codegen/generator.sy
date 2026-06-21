@@ -145,6 +145,15 @@ pub class Generator {
     pub var arcRefcountStub: Option[LlvmValue] = None
     pub var arcReleaseStub: Option[LlvmValue] = None
     pub var arcRuntimeSymbols: List[String] = []
+    pub var gatherResultStub: Option[LlvmValue] = None
+    pub var gatherEnqueueStub: Option[LlvmValue] = None
+    pub var gatherAwaitStub: Option[LlvmValue] = None
+    pub var gatherHandlesListStub: Option[LlvmValue] = None
+    pub var gatherResultsListStub: Option[LlvmValue] = None
+    pub var gatherListAppendStub: Option[LlvmValue] = None
+    pub var gatherListGetStub: Option[LlvmValue] = None
+    pub var gatherTaskWrapperName: Option[String] = None
+    pub var gatherRuntimeSymbols: List[String] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {
