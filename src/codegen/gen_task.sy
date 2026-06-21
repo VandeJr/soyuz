@@ -37,6 +37,10 @@ pub fn taskHandleCancelledRuntime() -> String {
     return "srt_task_cancelled"
 }
 
+pub fn taskHandleProgressRuntime() -> String {
+    return "srt_task_set_progress"
+}
+
 pub fn taskHandleSomeBlockName() -> String {
     return "task_handle_some"
 }
@@ -184,6 +188,10 @@ pub fn isTaskHandleInstanceMethodCall(callee: Node, g: Generator, methodName: St
 
 pub fn isTaskHandleCancelledMethodCall(callee: Node, g: Generator) -> Bool {
     return isTaskHandleInstanceMethodCall(callee, g, "cancelled")
+}
+
+pub fn isTaskHandleProgressMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskHandleInstanceMethodCall(callee, g, "progress")
 }
 
 pub fn nextTapWrapperName(g: Generator) -> String {
@@ -469,6 +477,13 @@ pub fn generateTaskHandleCancelledStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskHandleCancelledRuntime())
     val stub = stubLlvmValue(g)
     g.taskHandleCancelledStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskHandleProgressStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskHandleProgressRuntime())
+    val stub = stubLlvmValue(g)
+    g.taskHandleProgressStub = Some(stub)
     return Some(stub)
 }
 

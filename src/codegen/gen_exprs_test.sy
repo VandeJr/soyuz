@@ -13,7 +13,7 @@ import (
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
-    { taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
+    { taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -1929,6 +1929,30 @@ test fn testTaskHandleCancelledCallExprCodegen() {
         Some(_) => {
             assertMsg(g.taskHandleCancelledStub != None, "task handle cancelled stub stored")
             assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCancelledRuntime()), "srt_task_cancelled registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskHandleProgressEmitsSrtTaskSetProgress — handle.progress(0.5) dispatch.
+test fn testTaskHandleProgressCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "progress" })
+    val progressArg = Node.FloatLiteral(3, span, FloatLiteralData { value: "0.5" })
+    var args: List[Node] = []
+    args.append(progressArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelTestClass("TaskHandle")))
+    types.set(2, Type.Class(channelTestClass("TaskHandle")))
+    types.set(3, Type.Basic("Float"))
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected TaskHandle.progress call codegen")
+        Some(_) => {
+            assertMsg(g.taskHandleProgressStub != None, "task handle progress stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskHandleProgressRuntime()), "srt_task_set_progress registered")
         }
     }
 }

@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskHandleCurrentCall, isTaskHandleCancelledMethodCall, isTaskHandleInstanceType, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub, asyncChainBlockNamesRegistered, generateTaskHandleCurrentStub, generateTaskHandleCancelledStub, taskHandleCurrentBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskHandleCurrentCall, isTaskHandleCancelledMethodCall, isTaskHandleProgressMethodCall, isTaskHandleInstanceType, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub, asyncChainBlockNamesRegistered, generateTaskHandleCurrentStub, generateTaskHandleCancelledStub, generateTaskHandleProgressStub, taskHandleCurrentBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { newAlloca } from @codegen/gen_ir
     { llvmI8Ptr } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
@@ -520,4 +520,26 @@ test fn testGenerateTaskHandleCancelledStub() {
         Some(_) => assertMsg(g.taskHandleCancelledStub != None, "stub stored")
     }
     assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCancelledRuntime()), "srt_task_cancelled registered")
+}
+
+test fn testIsTaskHandleProgressMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandle = Type.Class(taskEmptyClass("TaskHandle"))
+    val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
+    val progressMember = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "progress" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskHandle))
+    cr.nodeTypes.append(Some(taskHandle))
+    val g = newGenerator(cr)
+    assertMsg(isTaskHandleProgressMethodCall(progressMember, g), "handle.progress call")
+    assertMsg(!isTaskHandleProgressMethodCall(Node.MemberExpr(3, span, MemberExprData { object: handleId, property: "cancelled" }), g), "not progress")
+}
+
+test fn testGenerateTaskHandleProgressStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskHandleProgressStub(g) {
+        None => assertMsg(false, "task handle progress stub")
+        Some(_) => assertMsg(g.taskHandleProgressStub != None, "stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskHandleProgressRuntime()), "srt_task_set_progress registered")
 }
