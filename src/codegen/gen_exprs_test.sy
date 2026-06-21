@@ -5,7 +5,7 @@ import (
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk, constFromLiteralPatternValue } from @codegen/gen_exprs
     { generateLiteralPatternValue } from @codegen/gen_patterns
-    { generateEnumDecl } from @codegen/gen_structs
+    { generateEnumDecl, enumVariantTag } from @codegen/gen_structs
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
@@ -642,6 +642,66 @@ test fn testM6EnumDotSyntaxWithArgsCodegen() {
                 Some(v) => assertMsg(v.handle > 0, "payload ptr handle")
             }
             assertMsg(g.constructorArgLoads.size() == 1, "one constructor arg load stub")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6TwoEnumsSameVariantName — Status.Ok vs Resultado.Ok.
+test fn testM6TwoEnumsSameVariantNameCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val statusId = Node.Identifier(1, span, IdentifierData { name: "Status" })
+    val resultadoId = Node.Identifier(3, span, IdentifierData { name: "Resultado" })
+    val statusOk = Node.MemberExpr(2, span, MemberExprData { object: statusId, property: "Ok" })
+    val resultadoOk = Node.MemberExpr(4, span, MemberExprData { object: resultadoId, property: "Ok" })
+    var statusVariants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    statusVariants.set("Ok", [])
+    statusVariants.set("Erro", [])
+    val statusType = Type.Enum(EnumType {
+        name: "Status",
+        variants: statusVariants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var resultadoVariants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    resultadoVariants.set("Ok", [])
+    resultadoVariants.set("Falha", [])
+    val resultadoType = Type.Enum(EnumType {
+        name: "Resultado",
+        variants: resultadoVariants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, statusType)
+    types.set(2, statusType)
+    types.set(3, resultadoType)
+    types.set(4, resultadoType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val sOk = EnumVariant { span: span, name: "Ok", fields: [] }
+    val sErro = EnumVariant { span: span, name: "Erro", fields: [] }
+    val rOk = EnumVariant { span: span, name: "Ok", fields: [] }
+    val rFalha = EnumVariant { span: span, name: "Falha", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Status", generics: [], variants: [sOk, sErro] }), "register Status")
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Resultado", generics: [], variants: [rOk, rFalha] }), "register Resultado")
+    match generateExprNode(g, statusOk) {
+        None => assertMsg(false, "expected Status.Ok enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, statusType)), "Status.Ok returns Status")
+            match enumVariantTag(g, "Status", "Ok") {
+                None => assertMsg(false, "Status.Ok tag")
+                Some(tag) => assertMsg(tag == 0, "Status.Ok tag is 0")
+            }
+        }
+    }
+    match generateExprNode(g, resultadoOk) {
+        None => assertMsg(false, "expected Resultado.Ok enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, resultadoType)), "Resultado.Ok returns Resultado")
+            assertMsg(!llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, statusType)), "Resultado.Ok is not Status")
+            match enumVariantTag(g, "Resultado", "Ok") {
+                None => assertMsg(false, "Resultado.Ok tag")
+                Some(tag) => assertMsg(tag == 0, "Resultado.Ok tag is 0")
+            }
         }
     }
 }
