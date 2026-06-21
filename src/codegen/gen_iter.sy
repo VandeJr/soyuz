@@ -23,6 +23,22 @@ pub fn forListAfterBlockName() -> String {
     return "forl_after"
 }
 
+pub fn forIteratorCondBlockName() -> String {
+    return "fori_cond"
+}
+
+pub fn forIteratorBodyBlockName() -> String {
+    return "fori_body"
+}
+
+pub fn forIteratorIncrBlockName() -> String {
+    return "fori_incr"
+}
+
+pub fn forIteratorAfterBlockName() -> String {
+    return "fori_after"
+}
+
 pub fn iterNextHasBlockName() -> String {
     return "iter_next_has"
 }

@@ -103,6 +103,13 @@ pub class Generator {
     pub var iterNextPhiResult: Option[LlvmValue] = None
     pub var iterIsEmptyResult: Option[LlvmValue] = None
     pub var forMapKeysStub: Option[LlvmValue] = None
+    pub var forIteratorListLoad: Option[LlvmValue] = None
+    pub var forIteratorIndexLoad: Option[LlvmValue] = None
+    pub var forIteratorSizeLoad: Option[LlvmValue] = None
+    pub var forIteratorGetStub: Option[LlvmValue] = None
+    pub var forIteratorIndexStore: Option[LlvmValue] = None
+    pub var forIteratorCondLoad: Option[LlvmValue] = None
+    pub var forIteratorBindingAlloca: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

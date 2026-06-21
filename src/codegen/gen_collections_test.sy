@@ -2,7 +2,7 @@ import (
     { Node, FuncDeclData } from @ast/ast
     { CheckResult, Type, FuncType, ClassType, IntType, CharType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { collectionElemKind, isListOrMapType, isListType, listElemType, isMapType, mapKeyType, mapKeyIsStringKind, generateMapKeysStub, emitCollectionToStringStub } from @codegen/gen_collections
+    { collectionElemKind, isListOrMapType, isListType, listElemType, isMapType, mapKeyType, isIteratorType, iteratorElemType, mapKeyIsStringKind, generateMapKeysStub, emitCollectionToStringStub } from @codegen/gen_collections
     { stubLlvmValue } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -94,6 +94,19 @@ test fn testGenerateMapKeysStub() {
         }
     }
     assertMsg(generateMapKeysStub(g, mapVal, IntType) == None, "Int rejects map keys stub")
+}
+
+test fn testIsIteratorType() {
+    val iterClass = collectionsEmptyClass("Iterator")
+    val listClass = collectionsEmptyClass("List")
+    val iterInt = Type.Specialized(Type.Class(iterClass), [IntType])
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    assertMsg(isIteratorType(iterInt), "Iterator[Int] is iterator")
+    assertMsg(!isIteratorType(listInt), "List not iterator")
+    match iteratorElemType(iterInt) {
+        None => assertMsg(false, "Iterator elem type")
+        Some(t) => assertMsg(t == IntType, "elem is Int")
+    }
 }
 
 test fn testEmitCollectionToStringStub() {
