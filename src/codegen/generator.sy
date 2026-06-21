@@ -177,6 +177,9 @@ pub class Generator {
     pub var taskPipeInnerStub: Option[LlvmValue] = None
     pub var taskPipeCaptureStub: Option[LlvmValue] = None
     pub var taskRuntimeSymbols: List[String] = []
+    pub var selectListenerStub: Option[LlvmValue] = None
+    pub var selectListenerWrapperName: Option[String] = None
+    pub var selectTaskArmCount: Int = 0
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestSelectEmitsSrtSelect|TestSelectWithDefaultEmitsSrtSelectTry|TestSelectEmitsArmBlocks|TestSelectEmitsMergeBlock|TestSelectDefaultEmitsDefaultBlock' -count=1
+go test ./internal/codegen/ -run 'TestSelectEmitsSrtSelect|TestSelectWithDefaultEmitsSrtSelectTry|TestSelectEmitsArmBlocks|TestSelectEmitsMergeBlock|TestSelectDefaultEmitsDefaultBlock|TestSelectTaskAwaitEmitsSrtEnqueueAndSelect' -count=1
 echo "→ codegen select check (bootstrap) OK"

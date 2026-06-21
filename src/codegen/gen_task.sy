@@ -140,6 +140,19 @@ pub fn nextAlwaysWrapperName(g: Generator) -> String {
     return "__always_wrapper_$(g.taskWrapperCounter)"
 }
 
+pub fn isSelectTaskAwaitCall(node: Node) -> Bool = match node {
+    CallExpr(_, _, callData) => match callData.callee {
+        MemberExpr(_, _, memberData) => memberData.property == "await"
+        _ => false
+    }
+    _ => false
+}
+
+pub fn nextSelectListenerWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__sel_listener_$(g.taskWrapperCounter)"
+}
+
 pub fn isTaskCallInner(inner: Node) -> Bool = match inner {
     CallExpr(_, _, _) => true
     _ => false
@@ -230,6 +243,29 @@ pub fn generateTaskAlwaysStub(g: Generator) -> Option[LlvmValue] {
     val stub = stubLlvmValue(g)
     g.taskAlwaysStub = Some(stub)
     return Some(stub)
+}
+
+pub fn generateSelectListenerStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeDetach())
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    registerTaskRuntimeSymbol(g, channelRuntimeSend())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.selectListenerWrapperName = Some(nextSelectListenerWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.selectListenerStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateSelectTaskBridgeStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, channelRuntimeNew())
+    return match generateSelectListenerStub(g) {
+        None => None
+        Some(_) => {
+            g.selectTaskArmCount = g.selectTaskArmCount + 1
+            Some(stubLlvmValue(g))
+        }
+    }
 }
 
 pub fn generateTaskDropStub(g: Generator) -> Option[LlvmValue] {

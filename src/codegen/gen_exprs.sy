@@ -10,7 +10,7 @@ import (
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
-    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, taskFanFnArgsValid, ownTaskVar, nullifyTaskVarAfterConsume, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub } from @codegen/gen_task
+    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, taskFanFnArgsValid, ownTaskVar, nullifyTaskVarAfterConsume, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectTaskBridgeStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub } from @codegen/gen_task
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -847,15 +847,38 @@ fn generateTaskExprResult(g: Generator, node: Node, data: TaskExprData) -> Optio
     return None
 }
 
+fn generateSelectTaskAwaitArm(g: Generator, arm: SelectArm, awaitCall: Node) -> Bool {
+    match awaitCall {
+        CallExpr(_, _, callData) => match callData.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => return false
+                Some(_) => {
+                    if generateSelectTaskBridgeStub(g) == None { return false }
+                    if !nullifyTaskVarAfterConsume(g, memberData.object) { return false }
+                    if generateExprNode(g, arm.body) == None { return false }
+                    return true
+                }
+            }
+            _ => return false
+        }
+        _ => return false
+    }
+}
+
 fn generateSelectRecvArm(g: Generator, arm: SelectArm) -> Bool {
     match arm.chanExpr {
         None => return false
-        Some(chanExpr) => match extractChannelFromRecvCall(chanExpr) {
-            None => return false
-            Some(chObj) => {
-                if generateExprNode(g, chObj) == None { return false }
-                if generateExprNode(g, arm.body) == None { return false }
-                return true
+        Some(chanExpr) => {
+            if isSelectTaskAwaitCall(chanExpr) {
+                return generateSelectTaskAwaitArm(g, arm, chanExpr)
+            }
+            match extractChannelFromRecvCall(chanExpr) {
+                None => return false
+                Some(chObj) => {
+                    if generateExprNode(g, chObj) == None { return false }
+                    if generateExprNode(g, arm.body) == None { return false }
+                    return true
+                }
             }
         }
     }

@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, nullifyTaskVarAfterConsume, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, nullifyTaskVarAfterConsume, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { newAlloca } from @codegen/gen_ir
     { llvmI8Ptr } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
@@ -245,6 +245,47 @@ test fn testNullifyAfterAlwaysStub() {
         Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "always nulls source handle")
     }
     assertMsg(taskNullStoreRecorded(g, "t"), "always ownership transfer recorded")
+}
+
+test fn testIsSelectTaskAwaitCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    var args: List[Node] = []
+    val awaitCall = Node.CallExpr(3, span, CallExprData { callee: awaitMember, args: args })
+    assertMsg(isSelectTaskAwaitCall(awaitCall), "t.await() is select task arm")
+    val recvMember = Node.MemberExpr(4, span, MemberExprData { object: tId, property: "recv" })
+    val recvCall = Node.CallExpr(5, span, CallExprData { callee: recvMember, args: args })
+    assertMsg(!isSelectTaskAwaitCall(recvCall), "ch.recv() not select task arm")
+}
+
+test fn testGenerateSelectListenerStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateSelectListenerStub(g) {
+        None => assertMsg(false, "select listener stub")
+        Some(_) => {
+            assertMsg(g.selectListenerStub != None, "listener stub stored")
+            assertMsg(g.selectListenerWrapperName != None, "listener wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
+    match g.selectListenerWrapperName {
+        None => assertMsg(false, "listener wrapper name")
+        Some(name) => assertMsg(name == "__sel_listener_1", "listener wrapper counter used")
+    }
+}
+
+test fn testGenerateSelectTaskBridgeStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateSelectTaskBridgeStub(g) {
+        None => assertMsg(false, "select task bridge stub")
+        Some(_) => assertMsg(g.selectTaskArmCount == 1, "task arm count stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered for bridge")
+    assertMsg(g.selectListenerStub != None, "listener stub created for bridge")
 }
 
 test fn testIsTaskAllCombinatorCall() {
