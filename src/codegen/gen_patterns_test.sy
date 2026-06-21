@@ -257,6 +257,7 @@ test fn testMatchPatternDispatchLiteralCondBr() {
     assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal compare stub block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "literal then block")
     assertMsg(blockNameRegistered(g, "match_arm_0_next"), "literal next block")
+    assertMsg(g.literalPatternSubjectValue == None, "no literal subject without match subject")
 }
 
 test fn testMatchPatternDispatchRangeCondBr() {
@@ -616,4 +617,18 @@ test fn testMatchPatternDispatchTupleElements() {
     assertMsg(g2.tuplePatternElemLoads.size() == 2, "elem load per tuple binding")
     assertMsg(g2.tuplePatternElemStores.size() == 2, "elem store per tuple binding")
     assertMsg(g2.valueHandleCounter > handlesBefore + 4, "subject plus elem gep/load stubs")
+}
+
+test fn testMatchPatternDispatchTupleLiteralWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val b = Pattern.Binding(4, span, "b")
+    val pat = Pattern.Tuple(2, span, [lit, b])
+    val tupleType = Type.Tuple([IntType, Type.Basic("Float")])
+    assertMsg(matchPatternDispatchWithSubject(g, pat, tupleType, "match_arm_0_pattern_ok", "match_arm_0_next"), "(42, b) with subject")
+    assertMsg(g.tuplePatternElemLoads.size() == 2, "load per tuple elem")
+    assertMsg(g.literalPatternSubjectValue != None, "literal cmp records loaded elem value")
+    assertMsg(g.tuplePatternElemStores.size() == 1, "only binding elem stored")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal cmp for tuple elem")
 }
