@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind, FuncParam, Pattern, BlockStmtData, InterfaceDeclData, InterfaceMethod } from @ast/ast
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind, FuncParam, Pattern, BlockStmtData, InterfaceDeclData, InterfaceMethod, ExtendDeclData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateInterfaceDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, classHasMethodSymbol, classHasVtableSymbol, classMethodSymbolName, classVtableSlotCount, vtableSymbolName, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
+    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateInterfaceDecl, generateExtendDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, classHasMethodSymbol, classHasVtableSymbol, classMethodSymbolName, classVtableSlotCount, vtableSymbolName, extendHasMethodSymbol, extendMethodSymbolName, extendSelfLLVM, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
     { ensureSoyuzStringLlvmTypes } from @codegen/gen_types
     { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8, llvmPointerType } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -312,4 +312,33 @@ test fn testGenerateClassVtable() {
         if k == "Contavel" { hasVtable = true }
     }
     assertMsg(hasVtable, "Contavel vtable registered")
+}
+
+test fn testGenerateExtendDeclInt() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(100, span, "self"), typeExpr: None, defaultExpr: None })
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: "double",
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: Some(emptyBody),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var methods: List[Node] = []
+    methods.append(Node.FuncDecl(10, span, fd))
+    val decl = ExtendDeclData { typeName: "Int", methods: methods }
+    assertMsg(generateExtendDecl(g, decl), "extend decl ok")
+    assertMsg(extendHasMethodSymbol(g, "Int", extendMethodSymbolName("Int", "double")), "Int_double symbol")
+    assertMsg(llvmTypesEqual(extendSelfLLVM(g, "Int"), llvmI64()), "Int self llvm type")
+    assertMsg(g.pendingExtendBodies.size() == 1, "pending extend body")
+    assertMsg(g.extensionMethods.get("Int").get("double").size() == 1, "extension method registered")
 }

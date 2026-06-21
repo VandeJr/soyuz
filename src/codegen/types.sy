@@ -39,6 +39,7 @@ pub record PendingExtendMethodBody {
     typeName: String,
     selfLlvm: LlvmType,
     fd: FuncDeclData,
+    member: Node,
     llvmFn: LlvmFunc
 }
 

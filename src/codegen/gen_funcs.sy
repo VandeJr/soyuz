@@ -6,11 +6,11 @@ import (
     { Generator } from @codegen/generator
     { generateStmtNode } from @codegen/gen_control
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
-    { generateTopLevelDecl, generateClassDecl } from @codegen/gen_structs
+    { generateTopLevelDecl, generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol, extendSelfLLVM } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, stubLlvmValue, blockNameRegistered } from @codegen/gen_ir
     { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
-    { PendingClassMethodBody, StructInfo } from @codegen/types
+    { PendingClassMethodBody, PendingExtendMethodBody, StructInfo } from @codegen/types
     { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmPointerType } from @codegen/llvm_types
 )
 
@@ -386,6 +386,7 @@ pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResu
         None => None
         Some(result) => {
             if !generatePendingClassBodies(g) { return None }
+            if !generatePendingExtendBodies(g) { return None }
             Some(result)
         }
     }
@@ -567,5 +568,43 @@ pub fn generatePendingClassBodies(g: Generator) -> Bool {
         if !ok { return false }
     }
     g.pendingClassBodies = []
+    return true
+}
+
+fn bindExtendMethodSelf(g: Generator, selfLlvm: LlvmType) -> Bool {
+    g.vars.set("self", newAlloca(g, selfLlvm))
+    return true
+}
+
+fn generateExtendMethodBody(g: Generator, pm: PendingExtendMethodBody) -> Bool {
+    val snap = snapshotClassMethodCodegen(g)
+    resetClassMethodCodegen(g)
+    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setCurrentBlock(g, newBlock(g, "entry"))
+    if !bindExtendMethodSelf(g, pm.selfLlvm) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    if !bindClassMethodParams(g, pm.fd) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    val ok = match pm.fd.body {
+        None => true
+        Some(body) => match generateStmtNode(g, body) {
+            None => false
+            Some(_) => true
+        }
+    }
+    if ok { g.extendMethodBodiesGenerated = g.extendMethodBodiesGenerated + 1 }
+    restoreClassMethodCodegen(g, snap)
+    return ok
+}
+
+pub fn generatePendingExtendBodies(g: Generator) -> Bool {
+    for pm in g.pendingExtendBodies {
+        if !generateExtendMethodBody(g, pm) { return false }
+    }
+    g.pendingExtendBodies = []
     return true
 }

@@ -1,10 +1,10 @@
 import (
-    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData, UnaryExprData, BinaryExprData, IdentifierData, ClassDeclData, BlockStmtData } from @ast/ast
+    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData, UnaryExprData, BinaryExprData, IdentifierData, ClassDeclData, BlockStmtData, ExtendDeclData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, generatePendingClassBodies, shouldSkipFuncVariants } from @codegen/gen_funcs
-    { generateClassDecl } from @codegen/gen_structs
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, generatePendingClassBodies, generatePendingExtendBodies, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol } from @codegen/gen_structs
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -565,4 +565,34 @@ test fn testGeneratePendingClassMethodBody() {
     assertMsg(g.pendingClassBodies.size() == 0, "pending cleared")
     assertMsg(g.classMethodBodiesGenerated == 1, "one body generated")
     assertMsg(blockNameRegistered(g, "entry"), "entry block from method body")
+}
+
+test fn testGeneratePendingExtendMethodBody() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(100, span, "self"), typeExpr: None, defaultExpr: None })
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: "double",
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: Some(emptyBody),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var methods: List[Node] = []
+    methods.append(Node.FuncDecl(10, span, fd))
+    val extendDecl = ExtendDeclData { typeName: "Int", methods: methods }
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(generateExtendDecl(g, extendDecl), "extend decl ok")
+    assertMsg(g.pendingExtendBodies.size() == 1, "pending extend body")
+    assertMsg(generatePendingExtendBodies(g), "generate extend method bodies")
+    assertMsg(g.pendingExtendBodies.size() == 0, "pending extend cleared")
+    assertMsg(g.extendMethodBodiesGenerated == 1, "one extend body generated")
+    assertMsg(extendHasMethodSymbol(g, "Int", extendMethodSymbolName("Int", "double")), "Int_double symbol")
 }

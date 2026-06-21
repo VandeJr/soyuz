@@ -55,7 +55,7 @@ Status: `pending` | `in_progress` | `done`
 | **S3** | Funções e controle | `gen_funcs.go`, `gen_control.go` | `gen_funcs.sy`, `gen_control.sy` — fn decl, if/while/for, return, break/continue | Testes control flow + `loop_value_test.go` passam | `done` |
 | **S4** | Structs, enums, patterns | `gen_structs.go`, `gen_patterns.go` | `gen_structs.sy`, `gen_patterns.sy` — ADTs, match, when guards | Testes `m6_enum_test.go`, `when_guard_test.go`, `when_dispatch_test.go` passam | `done` |
 | **S5** | Collections e iteradores | `gen_collections.go`, `gen_iter.go` | `gen_collections.sy`, `gen_iter.sy` — List, Map, for-in | Testes `m3_collections_test.go`, `m7_for_in_test.go` passam | `done` |
-| **S6** | Classes e interfaces | `gen_structs.go` (classes), `m5_class_test.go` | Extensões em `gen_structs.sy` — classes, vtables, extend | Testes `m5_class_test.go`, `interface_return_test.go` passam | `in_progress` |
+| **S6** | Classes e interfaces | `gen_structs.go` (classes), `m5_class_test.go` | Extensões em `gen_structs.sy` — classes, vtables, extend | Testes `m5_class_test.go`, `interface_return_test.go` passam | `done` |
 | **S7** | Async e concorrência | `gen_channel.go`, `gen_sync.go`, `gen_arc.go`, `gen_gather.go` | Módulos correspondentes em `src/codegen/` | Testes M9–M26 (channel, sync, arc, task, gather) passam | `pending` |
 | **S8** | Module system | `internal/module/*.go` | `src/module/` — `soyuz.toml`, resolver, graph, prelude | Imports `@pkg/path` resolvem; testes `module_test.go` portados | `pending` |
 | **S9** | Runtime e link | `internal/runtime/embed.go`, `src/*.c` | `src/runtime/` — FFI/embed, driver de link (clang) | `soyuz run` executa hello-world mínimo | `pending` |

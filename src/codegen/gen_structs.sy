@@ -1,12 +1,12 @@
 import (
-    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, InterfaceMethod, ClassDeclData, VarDeclData, FuncDeclData, FuncParam, Pattern, TypeExpr } from @ast/ast
+    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, InterfaceMethod, ClassDeclData, VarDeclData, FuncDeclData, FuncParam, Pattern, TypeExpr, ExtendDeclData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
-    { StructInfo, EnumInfo, VariantInfo, ClassInfo, PendingClassMethodBody } from @codegen/types
-    { mapSoyuzTypeToLLVM, mapTypeToLLVM } from @codegen/gen_types
+    { StructInfo, EnumInfo, VariantInfo, ClassInfo, PendingExtendMethodBody, PendingClassMethodBody } from @codegen/types
+    { mapSoyuzTypeToLLVM, mapTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
     { stubLlvmFunc, stubLlvmGlobal } from @codegen/gen_ir
-    { LlvmType, LlvmFunc, LlvmGlobal, llvmI64, llvmI8, llvmVoid, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
+    { LlvmType, LlvmFunc, LlvmGlobal, llvmI64, llvmI8, llvmI32, llvmI1, llvmF64, llvmI8Ptr, llvmVoid, llvmPointerType, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
 fn structsMapHasStruct(m: Map[String, StructInfo], key: String) -> Bool {
@@ -439,7 +439,109 @@ pub fn generateTopLevelDecl(g: Generator, node: Node) -> Bool = match node {
     EnumDecl(_, _, data) => generateEnumDecl(g, data)
     InterfaceDecl(_, _, data) => generateInterfaceDecl(g, data)
     ClassDecl(_, _, data) => generateClassDecl(g, data)
+    ExtendDecl(_, _, data) => generateExtendDecl(g, data)
     _ => true
+}
+
+pub fn extendMethodSymbolName(typeName: String, methodName: String) -> String {
+    return "$(typeName)_$(methodName)"
+}
+
+fn appendExtendMethodSymbol(g: Generator, typeName: String, symbol: String) {
+    var syms: List[String] = []
+    for k in g.extendMethodSymbols.keys() {
+        if k == typeName { syms = g.extendMethodSymbols.get(typeName) }
+    }
+    syms.append(symbol)
+    g.extendMethodSymbols.set(typeName, syms)
+}
+
+fn appendExtensionMethod(g: Generator, typeName: String, methodName: String, llvmFn: LlvmFunc) {
+    var byMethod: Map[String, List[LlvmFunc]] = Map[String, List[LlvmFunc]]{}
+    for k in g.extensionMethods.keys() {
+        if k == typeName { byMethod = g.extensionMethods.get(typeName) }
+    }
+    var fns: List[LlvmFunc] = []
+    for mk in byMethod.keys() {
+        if mk == methodName { fns = byMethod.get(methodName) }
+    }
+    fns.append(llvmFn)
+    byMethod.set(methodName, fns)
+    g.extensionMethods.set(typeName, byMethod)
+}
+
+fn extendSelfLLVMDefault(g: Generator, typeName: String) -> LlvmType {
+    if structsMapHasStruct(g.structs, typeName) {
+        return llvmPointerType(g.structs.get(typeName).typ)
+    }
+    return llvmI8Ptr()
+}
+
+pub fn extendSelfLLVM(g: Generator, typeName: String) -> LlvmType = match typeName {
+    "String" => {
+        ensureSoyuzStringLlvmTypes(g)
+        match g.soyuzStringPtrType {
+            None => llvmI8Ptr()
+            Some(t) => t
+        }
+    }
+    "Int" => llvmI64()
+    "Float" => llvmF64()
+    "Bool" => llvmI1()
+    "Char" => llvmI32()
+    _ => extendSelfLLVMDefault(g, typeName)
+}
+
+fn extendMethodReturnLlvmType(g: Generator, member: Node, fd: FuncDeclData) -> LlvmType = match funcDeclFuncTypeFromNode(g, member) {
+    None => match fd.returnType {
+        Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
+        None => llvmVoid()
+    }
+    Some(ft) => mapTypeToLLVM(g, ft.returnType)
+}
+
+fn declareExtendMethod(g: Generator, typeName: String, member: Node, fd: FuncDeclData) -> LlvmFunc {
+    val _ret = extendMethodReturnLlvmType(g, member, fd)
+    val symbol = extendMethodSymbolName(typeName, fd.name)
+    appendExtendMethodSymbol(g, typeName, symbol)
+    return stubLlvmFunc(g)
+}
+
+pub fn extendHasMethodSymbol(g: Generator, typeName: String, symbol: String) -> Bool {
+    for s in extendMethodSymbolsForType(g, typeName) {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn extendMethodSymbolsForType(g: Generator, typeName: String) -> List[String] {
+    for k in g.extendMethodSymbols.keys() {
+        if k == typeName { return g.extendMethodSymbols.get(typeName) }
+    }
+    return []
+}
+
+pub fn generateExtendDecl(g: Generator, data: ExtendDeclData) -> Bool {
+    val selfLlvm = extendSelfLLVM(g, data.typeName)
+    for member in data.methods {
+        match member {
+            FuncDecl(_, _, fd) => {
+                val llvmFn = declareExtendMethod(g, data.typeName, member, fd)
+                appendExtensionMethod(g, data.typeName, fd.name, llvmFn)
+                if fd.body != None {
+                    g.pendingExtendBodies.append(PendingExtendMethodBody {
+                        typeName: data.typeName,
+                        selfLlvm: selfLlvm,
+                        fd: fd,
+                        member: member,
+                        llvmFn: llvmFn
+                    })
+                }
+            }
+            _ => {}
+        }
+    }
+    return true
 }
 
 pub fn structInfoRegistered(g: Generator, name: String) -> Bool {

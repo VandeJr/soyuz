@@ -118,6 +118,8 @@ pub class Generator {
     pub var classVtableSymbols: Map[String, List[String]] = Map[String, List[String]]{}
     pub var classVtableSlotCounts: Map[String, Int] = Map[String, Int]{}
     pub var classMethodBodiesGenerated: Int = 0
+    pub var extendMethodSymbols: Map[String, List[String]] = Map[String, List[String]]{}
+    pub var extendMethodBodiesGenerated: Int = 0
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {
