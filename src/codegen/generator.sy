@@ -66,6 +66,7 @@ pub class Generator {
     pub var recordPatternFieldLoads: List[LlvmValue] = []
     pub var tuplePatternSubject: Option[LlvmValue] = None
     pub var tuplePatternElemLoads: List[LlvmValue] = []
+    pub var bindingPatternSubjectStore: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

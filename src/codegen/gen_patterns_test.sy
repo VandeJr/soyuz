@@ -324,6 +324,22 @@ test fn testMatchPatternBindingRegistersVar() {
         if k == "n" { hasN = true }
     }
     assertMsg(hasN, "binding n registered in g.vars")
+    assertMsg(g.bindingPatternSubjectStore == None, "no subject store without subject")
+}
+
+test fn testMatchPatternBindingWithSubjectStore() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val pat = Pattern.Binding(0, span, "n")
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g, pat, IntType, "match_arm_0_pattern_ok", "match_arm_0_next"), "binding with subject")
+    assertMsg(g.bindingPatternSubjectStore != None, "subject value stored into binding alloca")
+    assertMsg(g.valueHandleCounter > handlesBefore + 1, "subject store stub allocates value handle")
+    var hasN = false
+    for k in g.vars.keys() {
+        if k == "n" { hasN = true }
+    }
+    assertMsg(hasN, "binding n registered with subject")
 }
 
 test fn testRegisterPatternBinding() {

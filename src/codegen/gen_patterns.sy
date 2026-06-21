@@ -5,7 +5,7 @@ import (
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
     { recordFieldLlvmType } from @codegen/gen_structs
-    { stubLlvmValue, emitGepStub, emitLoadStub, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
+    { stubLlvmValue, emitGepStub, emitLoadStub, emitStoreStub, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
     { LlvmType, LlvmValue, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
@@ -491,7 +491,14 @@ pub fn registerPatternBinding(g: Generator, name: String, slotType: LlvmType) ->
 }
 
 fn matchPatternBindingDispatch(g: Generator, name: String, hasSubject: Bool, subjectType: Type, thenBlockName: String) -> Bool {
-    if !registerPatternBinding(g, name, patternBindingSlotType(g, hasSubject, subjectType)) { return false }
+    val slotType = patternBindingSlotType(g, hasSubject, subjectType)
+    val alloca = newAlloca(g, slotType)
+    if hasSubject {
+        val subjectVal = stubLlvmValue(g)
+        emitStoreStub(g, subjectVal, alloca)
+        g.bindingPatternSubjectStore = Some(subjectVal)
+    }
+    g.vars.set(name, alloca)
     return matchPatternAdvance(g, thenBlockName)
 }
 
