@@ -156,6 +156,13 @@ else
   echo "  tools/codegen-task-tap-check.sh ausente"
 fi
 
+hr "Codegen task-always check (bootstrap, S7)"
+if [[ -x tools/codegen-task-always-check.sh ]]; then
+  bash tools/codegen-task-always-check.sh 2>&1 || echo "→ codegen task-always check FALHOU"
+else
+  echo "  tools/codegen-task-always-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

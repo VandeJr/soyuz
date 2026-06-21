@@ -126,9 +126,18 @@ pub fn isTaskTapMethodCall(callee: Node, g: Generator) -> Bool {
     return isTaskInstanceMethodCall(callee, g, "tap")
 }
 
+pub fn isTaskAlwaysMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "always")
+}
+
 pub fn nextTapWrapperName(g: Generator) -> String {
     g.taskWrapperCounter = g.taskWrapperCounter + 1
     return "__tap_wrapper_$(g.taskWrapperCounter)"
+}
+
+pub fn nextAlwaysWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__always_wrapper_$(g.taskWrapperCounter)"
 }
 
 pub fn isTaskCallInner(inner: Node) -> Bool = match inner {
@@ -209,6 +218,17 @@ pub fn generateTaskTapStub(g: Generator) -> Option[LlvmValue] {
     g.taskTapWrapperName = Some(nextTapWrapperName(g))
     val stub = stubLlvmValue(g)
     g.taskTapStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskAlwaysStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.taskAlwaysWrapperName = Some(nextAlwaysWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskAlwaysStub = Some(stub)
     return Some(stub)
 }
 
