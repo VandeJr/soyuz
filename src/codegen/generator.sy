@@ -121,6 +121,7 @@ pub class Generator {
     pub var extendMethodSymbols: Map[String, List[String]] = Map[String, List[String]]{}
     pub var extendMethodBodiesGenerated: Int = 0
     pub var channelNewStub: Option[LlvmValue] = None
+    pub var channelSendStub: Option[LlvmValue] = None
     pub var channelRuntimeSymbols: List[String] = []
 }
 

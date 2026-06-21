@@ -1,5 +1,6 @@
 import (
     { Node } from @ast/ast
+    { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
@@ -63,6 +64,22 @@ pub fn isChannelNewCall(callee: Node) -> Bool = match callee {
     _ => false
 }
 
+fn checkerNodeType(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
+}
+
+pub fn isChannelSendCall(callee: Node, g: Generator) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != "send" { return false }
+        match checkerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isChannelType(t)
+        }
+    }
+    _ => false
+}
+
 fn registerChannelRuntimeSymbol(g: Generator, symbol: String) {
     var found = false
     for s in g.channelRuntimeSymbols {
@@ -86,5 +103,12 @@ pub fn generateChannelNewStub(g: Generator) -> Option[LlvmValue] {
     registerChannelRuntimeSymbol(g, channelRuntimeNew())
     val stub = stubLlvmValue(g)
     g.channelNewStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateChannelSendStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeSend())
+    val stub = stubLlvmValue(g)
+    g.channelSendStub = Some(stub)
     return Some(stub)
 }

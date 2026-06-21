@@ -9,7 +9,7 @@ import (
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
-    { channelRuntimeNew, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -1207,6 +1207,32 @@ test fn testChannelNewCallExprCodegen() {
         Some(_) => {
             assertMsg(g.channelNewStub != None, "channel new stub stored")
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelSendEmitsSrtChanSend — ch.send(42) call expr dispatch.
+test fn testChannelSendCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "send" })
+    val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
+    var args: List[Node] = []
+    args.append(valArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(3, IntType)
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.send(42) codegen")
+        Some(_) => {
+            assertMsg(g.channelSendStub != None, "channel send stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
         }
     }
 }

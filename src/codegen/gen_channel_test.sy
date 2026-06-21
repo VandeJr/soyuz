@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, channelRuntimeNew, generateChannelNewStub, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, channelRuntimeNew, channelRuntimeSend, generateChannelNewStub, generateChannelSendStub, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -68,6 +68,35 @@ test fn testIsChannelNewCall() {
     val formaId = Node.Identifier(3, span, IdentifierData { name: "Forma" })
     val formaMember = Node.MemberExpr(4, span, MemberExprData { object: formaId, property: "Circulo" })
     assertMsg(!isChannelNewCall(formaMember), "enum constructor not channel new")
+}
+
+test fn testIsChannelSendCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelEmptyClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val sendMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "send" })
+    var cr = channelEmptyCheckResult()
+    cr.nodeTypes.append(Some(channelInt))
+    cr.nodeTypes.append(Some(channelInt))
+    val g = newGenerator(cr)
+    assertMsg(isChannelSendCall(sendMember, g), "ch.send on Channel[Int]")
+    val listClass = channelEmptyClass("List")
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    var cr2 = channelEmptyCheckResult()
+    cr2.nodeTypes.append(Some(listInt))
+    cr2.nodeTypes.append(Some(listInt))
+    val g2 = newGenerator(cr2)
+    assertMsg(!isChannelSendCall(sendMember, g2), "ch.send not on List[Int]")
+}
+
+test fn testGenerateChannelSendStub() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateChannelSendStub(g) {
+        None => assertMsg(false, "channel send stub")
+        Some(_) => assertMsg(g.channelSendStub != None, "stub stored on generator")
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
 }
 
 test fn testGenerateChannelNewStub() {
