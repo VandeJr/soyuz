@@ -1,0 +1,69 @@
+import (
+    { Node, FuncDeclData } from @ast/ast
+    { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { isChannelType, channelInnerType, isChannelStaticNew, channelRuntimeNew, generateChannelNewStub, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { assertMsg } from @soyuz/testing
+)
+
+fn channelEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn channelEmptyClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+test fn testIsChannelType() {
+    val channelClass = channelEmptyClass("Channel")
+    val taskClass = channelEmptyClass("Task")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    assertMsg(isChannelType(channelInt), "Channel[Int] is channel")
+    assertMsg(!isChannelType(taskInt), "Task[Int] not channel")
+    assertMsg(!isChannelType(IntType), "Int not channel")
+}
+
+test fn testChannelInnerType() {
+    val channelClass = channelEmptyClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    match channelInnerType(channelInt) {
+        None => assertMsg(false, "Channel[Int] inner type")
+        Some(t) => assertMsg(match t { Basic(name) => name == "Int", _ => false }, "inner is Int")
+    }
+    match channelInnerType(IntType) {
+        None => assertMsg(true, "Int has no channel inner")
+        Some(_) => assertMsg(false, "Int should not have inner")
+    }
+}
+
+test fn testIsChannelStaticNew() {
+    assertMsg(isChannelStaticNew("Channel", "new"), "Channel.new")
+    assertMsg(!isChannelStaticNew("Channel", "send"), "not Channel.send static")
+    assertMsg(!isChannelStaticNew("List", "new"), "not List.new")
+}
+
+test fn testGenerateChannelNewStub() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateChannelNewStub(g) {
+        None => assertMsg(false, "channel new stub")
+        Some(_) => assertMsg(g.channelNewStub != None, "stub stored on generator")
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+}

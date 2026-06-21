@@ -86,6 +86,13 @@ else
   echo "  tools/codegen-class-check.sh ausente"
 fi
 
+hr "Codegen channel check (bootstrap, S7)"
+if [[ -x tools/codegen-channel-check.sh ]]; then
+  bash tools/codegen-channel-check.sh 2>&1 || echo "→ codegen channel check FALHOU"
+else
+  echo "  tools/codegen-channel-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

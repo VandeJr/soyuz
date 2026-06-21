@@ -1,0 +1,81 @@
+import (
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue } from @codegen/gen_ir
+)
+
+pub fn channelRuntimeNew() -> String {
+    return "srt_chan_new"
+}
+
+pub fn channelRuntimeSend() -> String {
+    return "srt_chan_send"
+}
+
+pub fn channelRuntimeRecv() -> String {
+    return "srt_chan_recv"
+}
+
+pub fn channelRuntimeTryRecv() -> String {
+    return "srt_chan_try_recv"
+}
+
+pub fn channelRuntimeClose() -> String {
+    return "srt_chan_close"
+}
+
+pub fn channelRuntimeIsClosed() -> String {
+    return "srt_chan_is_closed"
+}
+
+pub fn isChannelType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "Channel" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn channelInnerType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "Channel" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn isChannelStaticNew(typeName: String, methodName: String) -> Bool {
+    return typeName == "Channel" && methodName == "new"
+}
+
+fn registerChannelRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.channelRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.channelRuntimeSymbols
+        syms.append(symbol)
+        g.channelRuntimeSymbols = syms
+    }
+}
+
+pub fn channelRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.channelRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn generateChannelNewStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeNew())
+    val stub = stubLlvmValue(g)
+    g.channelNewStub = Some(stub)
+    return Some(stub)
+}
