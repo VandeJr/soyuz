@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { generateRecordDecl, generateEnumDecl, generateTopLevelDecl, structInfoRegistered, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex } from @codegen/gen_structs
+    { generateRecordDecl, generateEnumDecl, generateTopLevelDecl, structInfoRegistered, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
     { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -33,6 +33,10 @@ test fn testGenerateRecordDecl() {
     match recordFieldIndex(g, "Point", "x") {
         None => assertMsg(false, "field x index")
         Some(idx) => assertMsg(idx == 0, "x at index 0")
+    }
+    match recordFieldLlvmType(g, "Point", "x") {
+        None => assertMsg(false, "field x llvm type")
+        Some(t) => assertMsg(llvmTypesEqual(t, llvmI64()), "x field is i64")
     }
     val expected = llvmStructType("Point", [llvmI64(), llvmI64()])
     assertMsg(llvmTypesEqual(g.structs.get("Point").typ, expected), "Point struct type")

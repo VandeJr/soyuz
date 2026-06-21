@@ -4,6 +4,7 @@ import (
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
+    { recordFieldLlvmType } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca } from @codegen/gen_ir
     { LlvmType, llvmI64, llvmI8Ptr, llvmStructType } from @codegen/llvm_types
 )
@@ -387,6 +388,45 @@ pub fn patternBindingSlotType(g: Generator, hasSubject: Bool, subjectType: Type)
     return llvmI64()
 }
 
+fn checkerRecordFieldType(subjectType: Type, fieldName: String) -> Option[Type] {
+    return match subjectType {
+        Record(_, fields, _) => {
+            for k in fields.keys() {
+                if k == fieldName {
+                    return Some(fields.get(fieldName))
+                }
+            }
+            return None
+        }
+        _ => None
+    }
+}
+
+fn recordPatternFieldSubjectType(hasSubject: Bool, subjectType: Type, fieldName: String) -> Type {
+    if !hasSubject { return subjectType }
+    return match checkerRecordFieldType(subjectType, fieldName) {
+        None => subjectType
+        Some(fieldType) => fieldType
+    }
+}
+
+fn recordPatternFieldSlotTypeFallback(g: Generator, hasSubject: Bool, subjectType: Type, recordName: String, fieldName: String) -> LlvmType {
+    return match recordFieldLlvmType(g, recordName, fieldName) {
+        None => patternBindingSlotType(g, hasSubject, subjectType)
+        Some(fieldLlvm) => fieldLlvm
+    }
+}
+
+pub fn recordPatternFieldSlotType(g: Generator, hasSubject: Bool, subjectType: Type, recordName: String, fieldName: String) -> LlvmType {
+    if hasSubject {
+        return match checkerRecordFieldType(subjectType, fieldName) {
+            Some(fieldType) => mapTypeToLLVM(g, fieldType)
+            None => recordPatternFieldSlotTypeFallback(g, hasSubject, subjectType, recordName, fieldName)
+        }
+    }
+    return recordPatternFieldSlotTypeFallback(g, hasSubject, subjectType, recordName, fieldName)
+}
+
 pub fn registerPatternBinding(g: Generator, name: String, slotType: LlvmType) -> Bool {
     g.vars.set(name, newAlloca(g, slotType))
     return true
@@ -448,29 +488,30 @@ fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, args: 
     return matchPatternConstructorArgsLoop(g, variantName, args, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
-fn matchPatternRecordFieldsLoop(g: Generator, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
+fn matchPatternRecordFieldsLoop(g: Generator, recordName: String, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= fields.size() { return matchPatternAdvance(g, thenBlockName) }
     val field = fields.get(index)
+    val fieldSubjectType = recordPatternFieldSubjectType(hasSubject, subjectType, field.name)
     return match field.pattern {
         None => {
-            if !registerPatternBinding(g, field.name, patternBindingSlotType(g, hasSubject, subjectType)) { return false }
-            matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+            if !registerPatternBinding(g, field.name, recordPatternFieldSlotType(g, hasSubject, subjectType, recordName, field.name)) { return false }
+            matchPatternRecordFieldsLoop(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
         }
         Some(inner) => {
             val fieldThen = recordFieldPatternOkBlockName()
             val dispatched = match hasSubject {
-                true => matchPatternDispatchWithSubject(g, inner, subjectType, fieldThen, nextBlockName)
+                true => matchPatternDispatchWithSubject(g, inner, fieldSubjectType, fieldThen, nextBlockName)
                 false => matchPatternDispatchNoSubject(g, inner, fieldThen, nextBlockName)
             }
             if !dispatched { return false }
-            matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+            matchPatternRecordFieldsLoop(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
         }
     }
 }
 
-fn matchPatternRecordDispatch(g: Generator, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
+fn matchPatternRecordDispatch(g: Generator, recordName: String, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
     if fields.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
-    return matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
+    return matchPatternRecordFieldsLoop(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
 fn matchPatternTupleElemThenBlock(index: Int, elemCount: Int, thenBlockName: String) -> String {
@@ -507,7 +548,7 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
         }
         return matchPatternConstructorDispatchNoSubject(g, name, args, thenBlockName, nextBlockName)
     }
-    Record(_, _, _, fields) => matchPatternRecordDispatch(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType)
+    Record(_, _, recordName, fields) => matchPatternRecordDispatch(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType)
     Tuple(_, _, elements) => matchPatternTupleDispatch(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType)
     Range(_, _, _, _, _) => {
         newBlock(g, rangePatternGeBlockName())

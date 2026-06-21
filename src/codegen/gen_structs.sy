@@ -3,7 +3,7 @@ import (
     { Generator } from @codegen/generator
     { StructInfo, EnumInfo, VariantInfo } from @codegen/types
     { mapSoyuzTypeToLLVM } from @codegen/gen_types
-    { LlvmType, llvmI64, llvmI8, llvmArrayType, llvmStructType } from @codegen/llvm_types
+    { LlvmType, llvmI64, llvmI8, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
 fn structsMapHasStruct(m: Map[String, StructInfo], key: String) -> Bool {
@@ -130,4 +130,11 @@ pub fn recordFieldIndex(g: Generator, recordName: String, fieldName: String) -> 
         }
     }
     return None
+}
+
+pub fn recordFieldLlvmType(g: Generator, recordName: String, fieldName: String) -> Option[LlvmType] {
+    return match recordFieldIndex(g, recordName, fieldName) {
+        None => None
+        Some(idx) => llvmStructFieldAt(g.structs.get(recordName).typ, idx)
+    }
 }

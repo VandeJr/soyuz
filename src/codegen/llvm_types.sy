@@ -31,6 +31,14 @@ pub fn llvmStructType(name: String, fields: List[LlvmType]) -> LlvmType = LlvmTy
 
 pub fn llvmArrayType(elem: LlvmType, count: Int) -> LlvmType = LlvmType { kind: LlvmTypeKind.Array(elem, count) }
 
+pub fn llvmStructFieldAt(t: LlvmType, index: Int) -> Option[LlvmType] = match t.kind {
+    Struct(_, fields) => {
+        if index >= fields.size() { return None }
+        return Some(fields.get(index))
+    }
+    _ => None
+}
+
 pub fn llvmTypesEqual(a: LlvmType, b: LlvmType) -> Bool = match (a.kind, b.kind) {
     (Void, Void) => true
     (I1, I1) => true
