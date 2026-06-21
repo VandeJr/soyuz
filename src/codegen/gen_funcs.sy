@@ -1,15 +1,17 @@
 import (
-    { Node, FuncDeclData, Pattern } from @ast/ast
+    { Node, FuncDeclData, Pattern, ClassDeclData, VarDeclData, FuncParam, BlockStmtData, RecordDeclData, RecordField, ReturnStmtData, TypeExpr } from @ast/ast
     { nodeId } from @ast/ast_helpers
-    { FuncType, Type, typeToString } from @checker/types
+    { Span } from @lexer/tokens
+    { FuncType, Type, UnitType, typeToString } from @checker/types
     { Generator } from @codegen/generator
     { generateStmtNode } from @codegen/gen_control
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
-    { generateTopLevelDecl } from @codegen/gen_structs
+    { generateTopLevelDecl, generateClassDecl } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, stubLlvmValue } from @codegen/gen_ir
-    { mapTypeToLLVM } from @codegen/gen_types
-    { LlvmType, LlvmValue, llvmI64 } from @codegen/llvm_types
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, stubLlvmValue, blockNameRegistered } from @codegen/gen_ir
+    { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
+    { PendingClassMethodBody, StructInfo } from @codegen/types
+    { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmPointerType } from @codegen/llvm_types
 )
 
 pub record FuncResult {
@@ -380,5 +382,190 @@ fn generateProgramBodyLoop(g: Generator, body: List[Node], index: Int, processed
 }
 
 pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResult] {
-    return generateProgramBodyLoop(g, body, 0, [], 0)
+    return match generateProgramBodyLoop(g, body, 0, [], 0) {
+        None => None
+        Some(result) => {
+            if !generatePendingClassBodies(g) { return None }
+            Some(result)
+        }
+    }
+}
+
+record ClassMethodCodegenSnapshot {
+    current: Option[LlvmBasicBlock],
+    vars: Map[String, LlvmValue],
+    blockNames: Map[String, Int],
+    currentReturnType: Type,
+    heapVars: Map[String, Bool]
+}
+
+fn snapshotBlockNames(g: Generator) -> Map[String, Int] {
+    var copy: Map[String, Int] = Map[String, Int]{}
+    for k in g.blockNames.keys() {
+        copy.set(k, g.blockNames.get(k))
+    }
+    return copy
+}
+
+fn snapshotHeapVars(g: Generator) -> Map[String, Bool] {
+    var copy: Map[String, Bool] = Map[String, Bool]{}
+    for k in g.heapVars.keys() {
+        copy.set(k, g.heapVars.get(k))
+    }
+    return copy
+}
+
+fn snapshotClassMethodCodegen(g: Generator) -> ClassMethodCodegenSnapshot {
+    return ClassMethodCodegenSnapshot {
+        current: g.current,
+        vars: snapshotVars(g),
+        blockNames: snapshotBlockNames(g),
+        currentReturnType: g.currentReturnType,
+        heapVars: snapshotHeapVars(g)
+    }
+}
+
+fn restoreClassMethodCodegen(g: Generator, snap: ClassMethodCodegenSnapshot) {
+    g.current = snap.current
+    g.vars = snap.vars
+    g.blockNames = snap.blockNames
+    g.currentReturnType = snap.currentReturnType
+    g.heapVars = snap.heapVars
+}
+
+fn resetClassMethodCodegen(g: Generator) {
+    g.vars = Map[String, LlvmValue]{}
+    g.heapVars = Map[String, Bool]{}
+    g.blockNames = Map[String, Int]{}
+}
+
+fn classMethodBodyReturnType(g: Generator, member: Node, fd: FuncDeclData) -> Type = match funcDeclFuncType(g, member) {
+    None => match fd.returnType {
+        None => UnitType
+        Some(_) => UnitType
+    }
+    Some(ft) => ft.returnType
+}
+
+fn bindClassMethodSelf(g: Generator, si: StructInfo) -> Bool {
+    if si.fieldIndices.size() == 0 {
+        ensureSoyuzStringLlvmTypes(g)
+        return match g.soyuzStringPtrType {
+            None => false
+            Some(ptrTy) => {
+                g.vars.set("self", newAlloca(g, ptrTy))
+                true
+            }
+        }
+    }
+    g.vars.set("self", newAlloca(g, llvmPointerType(si.typ)))
+    return true
+}
+
+fn bindClassMethodParams(g: Generator, fd: FuncDeclData) -> Bool {
+    for p in fd.params {
+        match p.pattern {
+            Binding(_, _, name) => {
+                if name != "self" {
+                    val pt = match p.typeExpr {
+                        None => llvmI64()
+                        Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
+                    }
+                    g.vars.set(name, newAlloca(g, pt))
+                }
+            }
+            _ => {}
+        }
+    }
+    return true
+}
+
+fn generateClassMethodBody(g: Generator, pm: PendingClassMethodBody) -> Bool {
+    val snap = snapshotClassMethodCodegen(g)
+    resetClassMethodCodegen(g)
+    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setCurrentBlock(g, newBlock(g, "entry"))
+    if !bindClassMethodSelf(g, pm.si) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    if !bindClassMethodParams(g, pm.fd) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    val ok = match pm.fd.body {
+        None => true
+        Some(body) => match generateStmtNode(g, body) {
+            None => false
+            Some(_) => true
+        }
+    }
+    if ok { g.classMethodBodiesGenerated = g.classMethodBodiesGenerated + 1 }
+    restoreClassMethodCodegen(g, snap)
+    return ok
+}
+
+fn generateClassMethodVariantWhenGuard(g: Generator, v: FuncDeclData, index: Int, snap: ClassMethodCodegenSnapshot) -> Bool = match v.whenGuard {
+    None => true
+    Some(guard) => match generateExprNode(g, guard) {
+        None => {
+            restoreClassMethodCodegen(g, snap)
+            false
+        }
+        Some(_) => {
+            emitCondBrStub(g, variantGuardBlockName(index), variantNextBlockName(index))
+            true
+        }
+    }
+}
+
+fn generateClassMethodVariantBody(g: Generator, v: FuncDeclData, snap: ClassMethodCodegenSnapshot) -> Bool = match v.body {
+    None => true
+    Some(body) => match generateStmtNode(g, body) {
+        None => {
+            restoreClassMethodCodegen(g, snap)
+            false
+        }
+        Some(_) => true
+    }
+}
+
+fn generateClassMethodVariantsBody(g: Generator, pm: PendingClassMethodBody) -> Bool {
+    val snap = snapshotClassMethodCodegen(g)
+    resetClassMethodCodegen(g)
+    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setCurrentBlock(g, newBlock(g, "entry"))
+    if !bindClassMethodSelf(g, pm.si) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    if !bindClassMethodParams(g, pm.fd) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    val sorted = sortFuncVariantsForDispatch(pm.variants)
+    var i = 0
+    for v in sorted {
+        if !generateClassMethodVariantWhenGuard(g, v, i, snap) { return false }
+        setCurrentBlock(g, newBlock(g, variantBodyBlockName(i)))
+        if !generateClassMethodVariantBody(g, v, snap) { return false }
+        i = i + 1
+    }
+    g.classMethodBodiesGenerated = g.classMethodBodiesGenerated + 1
+    restoreClassMethodCodegen(g, snap)
+    return true
+}
+
+pub fn generatePendingClassBodies(g: Generator) -> Bool {
+    for pm in g.pendingClassBodies {
+        var ok = false
+        if pm.variants.size() > 1 {
+            ok = generateClassMethodVariantsBody(g, pm)
+        } else {
+            ok = generateClassMethodBody(g, pm)
+        }
+        if !ok { return false }
+    }
+    g.pendingClassBodies = []
+    return true
 }

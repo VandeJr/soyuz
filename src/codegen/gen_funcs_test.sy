@@ -1,9 +1,10 @@
 import (
-    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData, UnaryExprData, BinaryExprData, IdentifierData } from @ast/ast
+    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData, UnaryExprData, BinaryExprData, IdentifierData, ClassDeclData, BlockStmtData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, generatePendingClassBodies, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { generateClassDecl } from @codegen/gen_structs
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -533,4 +534,35 @@ test fn testGenerateProgramBody() {
         None => assertMsg(false, "expected program result")
         Some(r) => assertMsg(r.funcCount == 1, "one func generated")
     }
+}
+
+test fn testGeneratePendingClassMethodBody() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(100, span, "self"), typeExpr: None, defaultExpr: None })
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: "incrementar",
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: Some(emptyBody),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val methodNode = Node.FuncDecl(10, span, fd)
+    var classBody: List[Node] = []
+    classBody.append(methodNode)
+    val classDecl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: classBody }
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(generateClassDecl(g, classDecl), "class decl ok")
+    assertMsg(g.pendingClassBodies.size() == 1, "pending class body")
+    assertMsg(generatePendingClassBodies(g), "generate class method bodies")
+    assertMsg(g.pendingClassBodies.size() == 0, "pending cleared")
+    assertMsg(g.classMethodBodiesGenerated == 1, "one body generated")
+    assertMsg(blockNameRegistered(g, "entry"), "entry block from method body")
 }

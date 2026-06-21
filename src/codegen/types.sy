@@ -1,5 +1,5 @@
 import (
-    { FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData } from @ast/ast
+    { FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData, Node } from @ast/ast
     { LlvmType, LlvmFunc, LlvmValue, LlvmBasicBlock, LlvmGlobal } from @codegen/llvm_types
     { Type } from @checker/types
 )
@@ -46,8 +46,10 @@ pub record PendingClassMethodBody {
     className: String,
     si: StructInfo,
     fd: FuncDeclData,
+    member: Node,
     llvmFn: LlvmFunc,
-    variants: List[FuncDeclData]
+    variants: List[FuncDeclData],
+    variantMembers: List[Node]
 }
 
 pub record SyncGuardEntry {

@@ -360,8 +360,10 @@ fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: L
                         className: className,
                         si: si,
                         fd: fd,
+                        member: member,
                         llvmFn: llvmFn,
-                        variants: variants
+                        variants: variants,
+                        variantMembers: nodes
                     })
                 }
             }
