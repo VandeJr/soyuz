@@ -1,10 +1,10 @@
 import (
-    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, TaskExprData, IntLiteralData, PipeExprData } from @ast/ast
+    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, TaskExprData, IntLiteralData, PipeExprData, AsyncPipeExprData, AsyncPipeQuestStepData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub, asyncChainBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { newAlloca } from @codegen/gen_ir
     { llvmI8Ptr } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
@@ -408,4 +408,70 @@ test fn testEmitTaskDrops() {
     assertMsg(emitTaskDrops(g, names), "emit task drops")
     assertMsg(g.taskDropStub != None, "drop stub stored")
     assertMsg(taskRuntimeSymbolRegistered(g, taskDropHandleRuntime()), "srt_drop_task_handle registered")
+}
+
+test fn testAsyncPipeFnStepCount() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fId = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val gId = Node.Identifier(3, span, IdentifierData { name: "triple" })
+    var steps: List[Node] = []
+    steps.append(nId)
+    steps.append(fId)
+    assertMsg(asyncPipeFnStepCount(steps) == 1, "single fn step")
+    steps.append(gId)
+    assertMsg(asyncPipeFnStepCount(steps) == 2, "two fn steps")
+}
+
+test fn testAsyncPipeQuestStepCount() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val validate = Node.Identifier(2, span, IdentifierData { name: "validate" })
+    val inc = Node.Identifier(3, span, IdentifierData { name: "inc" })
+    val questInc = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: inc })
+    var steps: List[Node] = []
+    steps.append(nId)
+    steps.append(validate)
+    steps.append(questInc)
+    assertMsg(asyncPipeQuestStepCount(steps) == 1, "one quest step")
+}
+
+test fn testGenerateAsyncPipeStubSingleStep() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateAsyncPipeStub(g, 1, 0) {
+        None => assertMsg(false, "async pipe stub single step")
+        Some(_) => {
+            assertMsg(g.asyncPipeStub != None, "async pipe stub stored")
+            assertMsg(g.asyncPipeStepCount == 1, "step count stored")
+            assertMsg(g.asyncChainWrapperName != None, "chain wrapper name stored")
+            assertMsg(g.taskLastWrapperName != None, "step wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    assertMsg(!taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "single step skips srt_await")
+}
+
+test fn testGenerateAsyncPipeStubMultiStep() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateAsyncPipeStub(g, 3, 0) {
+        None => assertMsg(false, "async pipe stub multi step")
+        Some(_) => {
+            assertMsg(g.asyncPipeStepCount == 3, "three steps stored")
+            assertMsg(g.asyncChainWrapperName != None, "chain wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered for multi step")
+}
+
+test fn testGenerateAsyncPipeStubQuestBlocks() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateAsyncPipeStub(g, 2, 1) {
+        None => assertMsg(false, "async pipe stub quest")
+        Some(_) => {
+            assertMsg(g.asyncPipeQuestStepCount == 1, "quest step count stored")
+            assertMsg(asyncChainBlockNamesRegistered(g), "chain_err/chain_ok blocks registered")
+        }
+    }
 }

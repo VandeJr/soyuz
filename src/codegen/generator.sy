@@ -180,6 +180,10 @@ pub class Generator {
     pub var selectListenerStub: Option[LlvmValue] = None
     pub var selectListenerWrapperName: Option[String] = None
     pub var selectTaskArmCount: Int = 0
+    pub var asyncPipeStub: Option[LlvmValue] = None
+    pub var asyncPipeStepCount: Int = 0
+    pub var asyncPipeQuestStepCount: Int = 0
+    pub var asyncChainWrapperName: Option[String] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

@@ -1,5 +1,5 @@
 import (
-    { Node } from @ast/ast
+    { Node, AsyncPipeQuestStep } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
@@ -82,6 +82,14 @@ pub fn taskPipelineDoneBlockName() -> String {
     return "pipe_done"
 }
 
+pub fn asyncChainErrorBlockName() -> String {
+    return "chain_err"
+}
+
+pub fn asyncChainOkBlockName() -> String {
+    return "chain_ok"
+}
+
 pub fn isTaskFanFnArg(arg: Node) -> Bool = match arg {
     Identifier(_, _, _) => true
     _ => false
@@ -151,6 +159,35 @@ pub fn isSelectTaskAwaitCall(node: Node) -> Bool = match node {
 pub fn nextSelectListenerWrapperName(g: Generator) -> String {
     g.taskWrapperCounter = g.taskWrapperCounter + 1
     return "__sel_listener_$(g.taskWrapperCounter)"
+}
+
+pub fn nextAsyncChainWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__async_chain_$(g.taskWrapperCounter)"
+}
+
+pub fn asyncPipeFnStepCount(steps: List[Node]) -> Int {
+    if steps.size() < 2 { return 0 }
+    return steps.size() - 1
+}
+
+fn isAsyncPipeQuestStep(step: Node) -> Bool = match step {
+    AsyncPipeQuestStep(_, _, _) => true
+    _ => false
+}
+
+pub fn asyncPipeQuestStepCount(steps: List[Node]) -> Int {
+    if steps.size() < 2 { return 0 }
+    var count = 0
+    var i = 1
+    loop {
+        if i >= steps.size() { break }
+        if isAsyncPipeQuestStep(steps.get(i)) {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
 }
 
 pub fn isTaskCallInner(inner: Node) -> Bool = match inner {
@@ -304,6 +341,43 @@ fn emitPipelineStageLoopStubs(g: Generator) -> Bool {
     setCurrentBlock(g, bodyBlock)
     setCurrentBlock(g, doneBlock)
     return true
+}
+
+fn emitAsyncChainQuestBlocks(g: Generator) -> Bool {
+    val errBlock = newBlock(g, asyncChainErrorBlockName())
+    val okBlock = newBlock(g, asyncChainOkBlockName())
+    setCurrentBlock(g, errBlock)
+    setCurrentBlock(g, okBlock)
+    return true
+}
+
+pub fn generateAsyncPipeStub(g: Generator, stepCount: Int, questStepCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    if stepCount > 1 {
+        registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    }
+    if questStepCount > 0 {
+        if !emitAsyncChainQuestBlocks(g) { return None }
+    }
+    g.asyncChainWrapperName = Some(nextAsyncChainWrapperName(g))
+    var i = 0
+    loop {
+        if i >= stepCount { break }
+        g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+        i = i + 1
+    }
+    g.asyncPipeStepCount = stepCount
+    g.asyncPipeQuestStepCount = questStepCount
+    val stub = stubLlvmValue(g)
+    g.asyncPipeStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn asyncChainBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, asyncChainErrorBlockName()) { return false }
+    return blockNameRegistered(g, asyncChainOkBlockName())
 }
 
 pub fn generateTaskPipelineStub(g: Generator, stageCount: Int) -> Option[LlvmValue] {
