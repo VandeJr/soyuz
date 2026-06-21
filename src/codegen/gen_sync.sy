@@ -31,6 +31,18 @@ pub fn rwlockGuardRuntimeSet() -> String {
     return "srt_rwlock_guard_set"
 }
 
+pub fn rwlockRuntimeNew() -> String {
+    return "srt_rwlock_new"
+}
+
+pub fn rwlockRuntimeRead() -> String {
+    return "srt_rwlock_read"
+}
+
+pub fn rwlockRuntimeWrite() -> String {
+    return "srt_rwlock_write"
+}
+
 pub fn isMutexType(t: Type) -> Bool = match t {
     Specialized(base, params) => match base {
         Class(ct) => ct.name == "Mutex" && params.size() > 0
@@ -82,6 +94,54 @@ pub fn isMutexInstanceMethodCall(callee: Node, g: Generator, methodName: String)
 
 pub fn isMutexLockCall(callee: Node, g: Generator) -> Bool {
     return isMutexInstanceMethodCall(callee, g, "lock")
+}
+
+pub fn isRwLockType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "RwLock" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn rwlockInnerType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "RwLock" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn isRwLockStaticNew(typeName: String, methodName: String) -> Bool {
+    return typeName == "RwLock" && methodName == "new"
+}
+
+pub fn isRwLockNewCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isRwLockStaticNew(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isRwLockInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match syncCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isRwLockType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isRwLockReadCall(callee: Node, g: Generator) -> Bool {
+    return isRwLockInstanceMethodCall(callee, g, "read")
 }
 
 pub fn syncGuardKind(t: Type) -> Option[String] = match t {
@@ -164,5 +224,12 @@ pub fn generateSyncGuardWriteStub(g: Generator, kind: String) -> Option[LlvmValu
     val stub = stubLlvmValue(g)
     g.syncGuardWriteStub = Some(stub)
     g.syncGuardLastKind = Some(kind)
+    return Some(stub)
+}
+
+pub fn generateRwLockNewStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, rwlockRuntimeNew())
+    val stub = stubLlvmValue(g)
+    g.rwLockNewStub = Some(stub)
     return Some(stub)
 }
