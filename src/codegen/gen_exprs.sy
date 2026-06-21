@@ -537,7 +537,10 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                     if !generateCallArg(g, data.args.get(0)) { return None }
                     return match generateTaskTapStub(g) {
                         None => None
-                        Some(_) => exprResultFromNode(g, node, NoConst)
+                        Some(_) => {
+                            if !nullifyTaskVarAfterConsume(g, memberData.object) { return None }
+                            exprResultFromNode(g, node, NoConst)
+                        }
                     }
                 }
             }
@@ -553,7 +556,10 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                     if !generateCallArg(g, data.args.get(0)) { return None }
                     return match generateTaskAlwaysStub(g) {
                         None => None
-                        Some(_) => exprResultFromNode(g, node, NoConst)
+                        Some(_) => {
+                            if !nullifyTaskVarAfterConsume(g, memberData.object) { return None }
+                            exprResultFromNode(g, node, NoConst)
+                        }
                     }
                 }
             }

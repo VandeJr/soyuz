@@ -223,6 +223,30 @@ test fn testNullifyTaskVarAfterConsume() {
     assertMsg(nullifyTaskVarAfterConsume(g, Node.IntLiteral(2, span, IntLiteralData { value: "0" })), "non-identifier is no-op")
 }
 
+test fn testNullifyAfterTapStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    match generateTaskTapStub(g) {
+        None => assertMsg(false, "tap stub")
+        Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "tap nulls source handle")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t"), "tap ownership transfer recorded")
+}
+
+test fn testNullifyAfterAlwaysStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    match generateTaskAlwaysStub(g) {
+        None => assertMsg(false, "always stub")
+        Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "always nulls source handle")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t"), "always ownership transfer recorded")
+}
+
 test fn testIsTaskAllCombinatorCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
