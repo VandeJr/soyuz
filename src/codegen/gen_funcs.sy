@@ -7,9 +7,9 @@ import (
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
-    { LlvmType } from @codegen/llvm_types
+    { LlvmType, LlvmValue, llvmI64 } from @codegen/llvm_types
 )
 
 pub record FuncResult {
@@ -212,7 +212,37 @@ pub fn buildFuncVariantPlans(g: Generator, name: String) -> List[FuncVariantPlan
     return buildFuncVariantPlansLoop(sorted, 0, [])
 }
 
+pub fn funcVariantArgName(index: Int) -> String {
+    return "arg$(index)"
+}
+
+fn seedFuncVariantParamsLoop(g: Generator, index: Int, count: Int) -> Bool {
+    if index >= count { return true }
+    g.vars.set(funcVariantArgName(index), newAlloca(g, llvmI64()))
+    return seedFuncVariantParamsLoop(g, index + 1, count)
+}
+
+pub fn seedFuncVariantParams(g: Generator, paramCount: Int) -> Bool {
+    return seedFuncVariantParamsLoop(g, 0, paramCount)
+}
+
+fn varsMapHasKey(m: Map[String, LlvmValue], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn aliasBindingParamFromArg(g: Generator, pattern: Pattern, paramIndex: Int) -> Bool = match pattern {
+    Binding(_, _, name) => {
+        val argName = funcVariantArgName(paramIndex)
+        if !varsMapHasKey(g.vars, argName) { return false }
+        g.vars.set(name, g.vars.get(argName))
+        true
+    }
+    _ => true
+}
+
 fn generateFuncParamPatternStep(g: Generator, step: FuncParamPatternStep, variantNextName: String) -> Bool {
+    if !aliasBindingParamFromArg(g, step.pattern, step.paramIndex) { return false }
     return matchPatternDispatchNoSubject(g, step.pattern, step.okBlockName, variantNextName)
 }
 
@@ -266,22 +296,35 @@ fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = m
 fn generateFuncVariantsBodyLoop(g: Generator, plans: List[FuncVariantPlan], index: Int) -> Bool {
     if index >= plans.size() { return true }
     val plan = plans.get(index)
-    if !generateFuncVariantBlocks(g, plan) { return false }
-    if !generateFuncVariantParamPatterns(g, plan) { return false }
-    if !generateFuncVariantWhenGuard(g, plan) { return false }
+    val savedVars = snapshotVars(g)
+    if !generateFuncVariantBlocks(g, plan) {
+        restoreVars(g, savedVars)
+        return false
+    }
+    if !generateFuncVariantParamPatterns(g, plan) {
+        restoreVars(g, savedVars)
+        return false
+    }
+    if !generateFuncVariantWhenGuard(g, plan) {
+        restoreVars(g, savedVars)
+        return false
+    }
     setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
-    match plan.variant.body {
+    val continued = match plan.variant.body {
         None => generateFuncVariantsBodyLoop(g, plans, index + 1)
         Some(body) => match generateStmtNode(g, body) {
             None => false
             Some(_) => generateFuncVariantsBodyLoop(g, plans, index + 1)
         }
     }
+    restoreVars(g, savedVars)
+    return continued
 }
 
 pub fn generateFuncVariantsBody(g: Generator, name: String) -> Bool {
     val plans = buildFuncVariantPlans(g, name)
     if plans.size() == 0 { return true }
+    if !seedFuncVariantParams(g, plans.get(0).variant.params.size()) { return false }
     return generateFuncVariantsBodyLoop(g, plans, 0)
 }
 

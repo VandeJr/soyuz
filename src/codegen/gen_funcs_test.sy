@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, shouldSkipFuncVariants } from @codegen/gen_funcs
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -171,6 +171,61 @@ test fn testVariantBlockNames() {
     assertMsg(variantBodyBlockName(1) == "variant_1_body", "body block name")
     assertMsg(variantNextBlockName(2) == "variant_2_next", "next block name")
     assertMsg(variantParamPatternOkBlockName(0, 1) == "v0_p1_ok", "param pattern ok block")
+    assertMsg(funcVariantArgName(0) == "arg0", "first arg slot name")
+}
+
+test fn testSeedFuncVariantParams() {
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(seedFuncVariantParams(g, 2), "seed two arg slots")
+    var hasArg0 = false
+    var hasArg1 = false
+    for k in g.vars.keys() {
+        if k == "arg0" { hasArg0 = true }
+        if k == "arg1" { hasArg1 = true }
+    }
+    assertMsg(hasArg0, "arg0 seeded")
+    assertMsg(hasArg1, "arg1 seeded")
+}
+
+test fn testGenerateFuncVariantsBodyBindingParamAliasesArg() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "42" })) })
+    val bindingVariant = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "pick",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [bindingVariant])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "pick"), "binding param variant body codegen")
+    var argHandle = 0
+    var xHandle = 0
+    var hasArg = false
+    var hasX = false
+    for k in g.vars.keys() {
+        if k == "arg0" {
+            hasArg = true
+            argHandle = g.vars.get("arg0").handle
+        }
+        if k == "x" {
+            hasX = true
+            xHandle = g.vars.get("x").handle
+        }
+    }
+    assertMsg(hasArg, "arg0 present after variant dispatch")
+    assertMsg(hasX, "binding x present after variant dispatch")
+    assertMsg(argHandle == xHandle, "x aliases arg0 alloca")
 }
 
 test fn testBuildFuncVariantPlanWhenGuard() {
