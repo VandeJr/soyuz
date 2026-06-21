@@ -4,7 +4,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered } from @codegen/gen_ir
+    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub } from @codegen/gen_ir
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
 )
@@ -303,6 +303,33 @@ pub fn emitTaskDrops(g: Generator, names: List[String]) -> Bool {
         None => false
         Some(_) => true
     }
+}
+
+fn taskVarsMapHasKey(m: Map[String, LlvmValue], key: String) -> Bool {
+    for k in m.keys() {
+        if k == key { return true }
+    }
+    return false
+}
+
+pub fn nullifyTaskVarAfterConsume(g: Generator, object: Node) -> Bool = match object {
+    Identifier(_, _, idData) => {
+        if !taskVarsMapHasKey(g.vars, idData.name) { return true }
+        val alloca = g.vars.get(idData.name)
+        if !emitStoreStub(g, stubLlvmValue(g), alloca) { return false }
+        var names = g.taskNullStoreVars
+        names.append(idData.name)
+        g.taskNullStoreVars = names
+        return true
+    }
+    _ => true
+}
+
+pub fn taskNullStoreRecorded(g: Generator, name: String) -> Bool {
+    for n in g.taskNullStoreVars {
+        if n == name { return true }
+    }
+    return false
 }
 
 pub fn pushTaskScope(g: Generator) {

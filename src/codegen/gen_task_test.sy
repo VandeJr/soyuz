@@ -4,7 +4,9 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, nullifyTaskVarAfterConsume, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { newAlloca } from @codegen/gen_ir
+    { llvmI8Ptr } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
@@ -209,6 +211,16 @@ test fn testOwnTaskVarAndPopScope() {
     val owned = popTaskScope(g)
     assertMsg(owned.size() == 1, "one task var owned")
     assertMsg(isTaskInstanceType(Type.Specialized(Type.Class(taskEmptyClass("Task")), [IntType])), "task instance type")
+}
+
+test fn testNullifyTaskVarAfterConsume() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    assertMsg(nullifyTaskVarAfterConsume(g, tId), "null store on task var alloca")
+    assertMsg(taskNullStoreRecorded(g, "t"), "null store recorded for t")
+    assertMsg(nullifyTaskVarAfterConsume(g, Node.IntLiteral(2, span, IntLiteralData { value: "0" })), "non-identifier is no-op")
 }
 
 test fn testIsTaskAllCombinatorCall() {

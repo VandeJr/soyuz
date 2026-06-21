@@ -168,6 +168,7 @@ pub class Generator {
     pub var taskTapWrapperName: Option[String] = None
     pub var taskAlwaysStub: Option[LlvmValue] = None
     pub var taskAlwaysWrapperName: Option[String] = None
+    pub var taskNullStoreVars: List[String] = []
     pub var taskLastWrapperName: Option[String] = None
     pub var taskPipeMode: Bool = false
     pub var taskPipeInnerStub: Option[LlvmValue] = None

@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestTaskEnqueue|TestTaskDetach|TestTaskAwait|TestTaskAwaitUnit|TestTaskDropOnScopeExit' -count=1
+go test ./internal/codegen/ -run 'TestTaskEnqueue|TestTaskDetach|TestTaskAwait|TestTaskAwaitUnit|TestTaskDropOnScopeExit|TestTaskAwaitNullsHandle' -count=1
 echo "→ codegen task check (bootstrap) OK"
