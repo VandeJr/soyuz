@@ -184,6 +184,10 @@ pub class Generator {
     pub var asyncPipeStepCount: Int = 0
     pub var asyncPipeQuestStepCount: Int = 0
     pub var asyncChainWrapperName: Option[String] = None
+    pub var taskHandleCurrentStub: Option[LlvmValue] = None
+    pub var taskHandleCurrentSomeResult: Option[LlvmValue] = None
+    pub var taskHandleCurrentNoneResult: Option[LlvmValue] = None
+    pub var taskHandleCurrentPhiResult: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

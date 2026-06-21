@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub, asyncChainBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskHandleCurrentCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub, asyncChainBlockNamesRegistered, generateTaskHandleCurrentStub, taskHandleCurrentBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { newAlloca } from @codegen/gen_ir
     { llvmI8Ptr } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
@@ -474,4 +474,28 @@ test fn testGenerateAsyncPipeStubQuestBlocks() {
             assertMsg(asyncChainBlockNamesRegistered(g), "chain_err/chain_ok blocks registered")
         }
     }
+}
+
+test fn testIsTaskHandleCurrentCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
+    val currentMember = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
+    assertMsg(isTaskHandleCurrentCall(currentMember), "TaskHandle.current call")
+    assertMsg(!isTaskHandleCurrentCall(Node.MemberExpr(3, span, MemberExprData { object: taskHandleId, property: "cancelled" })), "not current")
+}
+
+test fn testGenerateTaskHandleCurrentStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskHandleCurrentStub(g) {
+        None => assertMsg(false, "task handle current stub")
+        Some(_) => {
+            assertMsg(g.taskHandleCurrentStub != None, "stub stored")
+            assertMsg(g.taskHandleCurrentPhiResult != None, "phi stored")
+            assertMsg(g.taskHandleCurrentSomeResult != None, "some result stored")
+            assertMsg(g.taskHandleCurrentNoneResult != None, "none result stored")
+            assertMsg(taskHandleCurrentBlockNamesRegistered(g), "some/none/merge blocks registered")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCurrentRuntime()), "srt_task_handle_current registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
 }

@@ -4,7 +4,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub } from @codegen/gen_ir
+    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
 )
@@ -27,6 +27,22 @@ pub fn taskFreeBuiltin() -> String {
 
 pub fn taskDropHandleRuntime() -> String {
     return "srt_drop_task_handle"
+}
+
+pub fn taskHandleCurrentRuntime() -> String {
+    return "srt_task_handle_current"
+}
+
+pub fn taskHandleSomeBlockName() -> String {
+    return "task_handle_some"
+}
+
+pub fn taskHandleNoneBlockName() -> String {
+    return "task_handle_none"
+}
+
+pub fn taskHandleMergeBlockName() -> String {
+    return "task_handle_merge"
 }
 
 pub fn taskTupleAllocBuiltin() -> String {
@@ -60,6 +76,14 @@ pub fn isTaskFanCall(callee: Node) -> Bool = match callee {
 
 pub fn isTaskStaticPipeline(typeName: String, methodName: String) -> Bool {
     return typeName == "Task" && methodName == "pipe"
+}
+
+pub fn isTaskHandleCurrentCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => idData.name == "TaskHandle" && memberData.property == "current"
+        _ => false
+    }
+    _ => false
 }
 
 pub fn isTaskPipelineCall(callee: Node) -> Bool = match callee {
@@ -389,6 +413,32 @@ pub fn generateAsyncPipeStub(g: Generator, stepCount: Int, questStepCount: Int) 
 pub fn asyncChainBlockNamesRegistered(g: Generator) -> Bool {
     if !blockNameRegistered(g, asyncChainErrorBlockName()) { return false }
     return blockNameRegistered(g, asyncChainOkBlockName())
+}
+
+pub fn generateTaskHandleCurrentStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskHandleCurrentRuntime())
+    registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
+    val someBlock = newBlock(g, taskHandleSomeBlockName())
+    val noneBlock = newBlock(g, taskHandleNoneBlockName())
+    val mergeBlock = newBlock(g, taskHandleMergeBlockName())
+    if !emitCondBrToBlockStub(g, someBlock, noneBlock) { return None }
+    setCurrentBlock(g, someBlock)
+    g.taskHandleCurrentSomeResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, noneBlock)
+    g.taskHandleCurrentNoneResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, mergeBlock)
+    val phi = stubLlvmValue(g)
+    g.taskHandleCurrentPhiResult = Some(phi)
+    g.taskHandleCurrentStub = Some(phi)
+    return Some(phi)
+}
+
+pub fn taskHandleCurrentBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, taskHandleSomeBlockName()) { return false }
+    if !blockNameRegistered(g, taskHandleNoneBlockName()) { return false }
+    return blockNameRegistered(g, taskHandleMergeBlockName())
 }
 
 pub fn generateTaskPipelineStub(g: Generator, stageCount: Int) -> Option[LlvmValue] {

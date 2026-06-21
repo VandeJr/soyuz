@@ -13,7 +13,7 @@ import (
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
-    { taskRuntimeDetach, taskRuntimeSetResult, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
+    { taskRuntimeDetach, taskRuntimeSetResult, taskHandleCurrentRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -1884,6 +1884,31 @@ test fn testAsyncPipeQuestExprCodegen() {
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskHandleCurrentEmitsSrtTaskHandleCurrent — TaskHandle.current() dispatch.
+test fn testTaskHandleCurrentCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelTestClass("TaskHandle")))
+    types.set(2, Type.Class(channelTestClass("TaskHandle")))
+    types.set(3, Type.Basic("Unit"))
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected TaskHandle.current call codegen")
+        Some(_) => {
+            assertMsg(g.taskHandleCurrentStub != None, "task handle current stub stored")
+            assertMsg(g.taskHandleCurrentPhiResult != None, "phi result stored")
+            assertMsg(blockNameRegistered(g, "task_handle_some"), "task_handle_some block registered")
+            assertMsg(blockNameRegistered(g, "task_handle_none"), "task_handle_none block registered")
+            assertMsg(blockNameRegistered(g, "task_handle_merge"), "task_handle_merge block registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCurrentRuntime()), "srt_task_handle_current registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
         }
     }
 }
