@@ -820,6 +820,40 @@ test fn testMatchExprTuplePatternCodegen() {
     }
 }
 
+test fn testMatchExprRangePatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val body = Node.IntLiteral(10, span, IntLiteralData { value: "42" })
+    val toPat = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), toPat, true)
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on range pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "range arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "range arm body block")
+            assertMsg(blockNameRegistered(g, "range_ge"), "range ge stub block")
+            assertMsg(g.rangePatternFromValue != None, "range from bound stub")
+            assertMsg(g.rangePatternToValue != None, "range to bound stub")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
 // Port of soyuz-go/internal/codegen/when_guard_test.go TestMatchWhenGuardCodegen.
 test fn testMatchWhenGuardCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
