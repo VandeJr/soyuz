@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestM5CodegenFieldDefaults' -count=1
+go test ./internal/codegen/ -run 'TestM5CodegenFieldDefaults|TestM5CodegenMethodOverloading' -count=1
 echo "→ codegen class check (bootstrap) OK"

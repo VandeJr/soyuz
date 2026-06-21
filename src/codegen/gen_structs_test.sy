@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind } from @ast/ast
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind, FuncParam, Pattern, BlockStmtData } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType } from @checker/types
+    { CheckResult, FuncType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
+    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, classHasMethodSymbol, classMethodSymbolName, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
     { ensureSoyuzStringLlvmTypes } from @codegen/gen_types
     { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8, llvmPointerType } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -206,4 +206,58 @@ test fn testGenerateTopLevelDeclClassNode() {
     val node = Node.ClassDecl(1, structsZeroSpan(), decl)
     assertMsg(generateTopLevelDecl(g, node), "top-level class ok")
     assertMsg(classInfoRegistered(g, "Contador"), "Contador via top-level")
+}
+
+fn makeClassSelfMethod(span: Span, methodNodeId: Int, name: String, extraParams: List[FuncParam], body: Option[Node]) -> Node {
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(methodNodeId + 100, span, "self"), typeExpr: None, defaultExpr: None })
+    for p in extraParams {
+        params.append(p)
+    }
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: name,
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: body,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    return Node.FuncDecl(methodNodeId, span, fd)
+}
+
+test fn testGenerateClassMethodDecl() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    val incrementar = makeClassSelfMethod(span, 10, "incrementar", [], Some(emptyBody))
+    var body: List[Node] = []
+    body.append(incrementar)
+    val decl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: body }
+    assertMsg(generateClassDecl(g, decl), "class with method ok")
+    assertMsg(classHasMethodSymbol(g, "Contador", "Contador_incrementar"), "incrementar symbol")
+    assertMsg(g.pendingClassBodies.size() == 1, "pending method body")
+}
+
+test fn testGenerateClassMethodOverloading() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    val zeroArg = makeClassSelfMethod(span, 10, "incrementar", [], Some(emptyBody))
+    val nParam = FuncParam { span: span, pattern: Pattern.Binding(11, span, "n"), typeExpr: Some(TypeExpr.Named(0, span, "Int")), defaultExpr: None }
+    var extra: List[FuncParam] = []
+    extra.append(nParam)
+    val oneArg = makeClassSelfMethod(span, 12, "incrementar", extra, Some(emptyBody))
+    var body: List[Node] = []
+    body.append(zeroArg)
+    body.append(oneArg)
+    val decl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: body }
+    assertMsg(generateClassDecl(g, decl), "overloaded class ok")
+    assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 0, 2)), "incrementar_0")
+    assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 1, 2)), "incrementar_1")
+    assertMsg(g.classes.get("Contador").methods.get("incrementar").size() == 2, "two overloads registered")
 }

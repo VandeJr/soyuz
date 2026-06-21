@@ -111,6 +111,8 @@ pub class Generator {
     pub var forIteratorIndexStore: Option[LlvmValue] = None
     pub var forIteratorCondLoad: Option[LlvmValue] = None
     pub var forIteratorBindingAlloca: Option[LlvmValue] = None
+    pub var funcHandleCounter: Int = 0
+    pub var classMethodSymbols: Map[String, List[String]] = Map[String, List[String]]{}
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

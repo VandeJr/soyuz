@@ -1,11 +1,12 @@
 import (
-    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, ClassDeclData, VarDeclData } from @ast/ast
+    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData, ClassDeclData, VarDeclData, FuncDeclData, FuncParam, Pattern } from @ast/ast
     { nodeId } from @ast/ast_helpers
-    { Type } from @checker/types
+    { Type, FuncType, UnitType } from @checker/types
     { Generator } from @codegen/generator
-    { StructInfo, EnumInfo, VariantInfo, ClassInfo } from @codegen/types
+    { StructInfo, EnumInfo, VariantInfo, ClassInfo, PendingClassMethodBody } from @codegen/types
     { mapSoyuzTypeToLLVM, mapTypeToLLVM } from @codegen/gen_types
-    { LlvmType, LlvmFunc, LlvmGlobal, llvmI64, llvmI8, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
+    { stubLlvmFunc } from @codegen/gen_ir
+    { LlvmType, LlvmFunc, LlvmGlobal, llvmI64, llvmI8, llvmVoid, llvmArrayType, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
 fn structsMapHasStruct(m: Map[String, StructInfo], key: String) -> Bool {
@@ -119,6 +120,176 @@ fn registerClassVarField(g: Generator, vd: VarDeclData, indices: Map[String, Int
     return fieldIdx + 1
 }
 
+pub record ClassMethodArityKey {
+    name: String,
+    arity: Int
+}
+
+fn classArityKeyStr(name: String, arity: Int) -> String {
+    return "$(name):$(arity)"
+}
+
+fn isSelfFuncParam(p: FuncParam) -> Bool = match p.pattern {
+    Binding(_, _, paramName) => paramName == "self"
+    _ => false
+}
+
+fn classMethodNonSelfArity(fd: FuncDeclData) -> Int {
+    var arity = 0
+    for p in fd.params {
+        if !isSelfFuncParam(p) { arity = arity + 1 }
+    }
+    return arity
+}
+
+fn mapStringKeyCount(m: Map[String, Int], key: String) -> Int {
+    for k in m.keys() { if k == key { return m.get(key) } }
+    return 0
+}
+
+fn incrementMapStringCount(m: Map[String, Int], key: String) {
+    m.set(key, mapStringKeyCount(m, key) + 1)
+}
+
+fn mapHasStringKey(m: Map[String, Bool], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn funcDeclFuncTypeFromNode(g: Generator, member: Node) -> Option[FuncType] = match checkerNodeTypeForId(g, nodeId(member)) {
+    None => None
+    Some(Func(ft)) => Some(ft)
+    _ => None
+}
+
+pub fn classMethodSymbolName(className: String, methodName: String, nonSelfArity: Int, overloadCount: Int) -> String {
+    var mangled = methodName
+    if overloadCount > 1 { mangled = "$(methodName)_$(nonSelfArity)" }
+    return "$(className)_$(mangled)"
+}
+
+fn appendClassMethodSymbol(g: Generator, className: String, symbol: String) {
+    var syms: List[String] = []
+    for k in g.classMethodSymbols.keys() {
+        if k == className { syms = g.classMethodSymbols.get(className) }
+    }
+    syms.append(symbol)
+    g.classMethodSymbols.set(className, syms)
+}
+
+fn appendClassMethodFn(methods: Map[String, List[LlvmFunc]], methodName: String, llvmFn: LlvmFunc) {
+    var fns: List[LlvmFunc] = []
+    for k in methods.keys() {
+        if k == methodName { fns = methods.get(methodName) }
+    }
+    fns.append(llvmFn)
+    methods.set(methodName, fns)
+}
+
+fn classMethodReturnLlvmType(g: Generator, member: Node, fd: FuncDeclData) -> LlvmType = match funcDeclFuncTypeFromNode(g, member) {
+    None => match fd.returnType {
+        Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
+        None => llvmVoid()
+    }
+    Some(ft) => mapTypeToLLVM(g, ft.returnType)
+}
+
+fn declareClassMethod(g: Generator, className: String, member: Node, fd: FuncDeclData, methodName: String) -> LlvmFunc {
+    val _ret = classMethodReturnLlvmType(g, member, fd)
+    val symbol = "$(className)_$(methodName)"
+    appendClassMethodSymbol(g, className, symbol)
+    return stubLlvmFunc(g)
+}
+
+fn classMethodVariantsHaveBody(variants: List[FuncDeclData]) -> Bool {
+    for v in variants {
+        if v.body != None { return true }
+    }
+    return false
+}
+
+fn appendClassMethodVariantNode(group: Map[String, List[Node]], key: String, member: Node) {
+    var nodes: List[Node] = []
+    for k in group.keys() {
+        if k == key { nodes = group.get(key) }
+    }
+    nodes.append(member)
+    group.set(key, nodes)
+}
+
+fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: List[Node], methods: Map[String, List[LlvmFunc]]) {
+    var methodCounts: Map[String, Int] = Map[String, Int]{}
+    for member in body {
+        match member {
+            FuncDecl(_, _, fd) => { incrementMapStringCount(methodCounts, fd.name); () }
+            _ => {}
+        }
+    }
+    var declaredKeys: List[ClassMethodArityKey] = []
+    var seenKeys: Map[String, Bool] = Map[String, Bool]{}
+    var arityGroupNodes: Map[String, List[Node]] = Map[String, List[Node]]{}
+    for member in body {
+        match member {
+            FuncDecl(_, _, fd) => {
+                val arity = classMethodNonSelfArity(fd)
+                val key = classArityKeyStr(fd.name, arity)
+                if !mapHasStringKey(seenKeys, key) {
+                    seenKeys.set(key, true)
+                    declaredKeys.append(ClassMethodArityKey { name: fd.name, arity: arity })
+                }
+                appendClassMethodVariantNode(arityGroupNodes, key, member)
+            }
+            _ => {}
+        }
+    }
+    for key in declaredKeys {
+        val groupKey = classArityKeyStr(key.name, key.arity)
+        val nodes = arityGroupNodes.get(groupKey)
+        val member = nodes.get(0)
+        match member {
+            FuncDecl(_, _, fd) => {
+                var methodName = fd.name
+                if mapStringKeyCount(methodCounts, fd.name) > 1 {
+                    methodName = "$(fd.name)_$(key.arity)"
+                }
+                val llvmFn = declareClassMethod(g, className, member, fd, methodName)
+                appendClassMethodFn(methods, fd.name, llvmFn)
+                var variants: List[FuncDeclData] = []
+                for n in nodes {
+                    match n {
+                        FuncDecl(_, _, vfd) => { variants.append(vfd); () }
+                        _ => {}
+                    }
+                }
+                if classMethodVariantsHaveBody(variants) {
+                    g.pendingClassBodies.append(PendingClassMethodBody {
+                        className: className,
+                        si: si,
+                        fd: fd,
+                        llvmFn: llvmFn,
+                        variants: variants
+                    })
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn classHasMethodSymbol(g: Generator, className: String, symbol: String) -> Bool {
+    for s in classMethodSymbolsForClass(g, className) {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn classMethodSymbolsForClass(g: Generator, className: String) -> List[String] {
+    for k in g.classMethodSymbols.keys() {
+        if k == className { return g.classMethodSymbols.get(className) }
+    }
+    return []
+}
+
 pub fn generateClassDecl(g: Generator, data: ClassDeclData) -> Bool {
     if data.generics.size() > 0 { return true }
     var indices: Map[String, Int] = Map[String, Int]{}
@@ -131,11 +302,14 @@ pub fn generateClassDecl(g: Generator, data: ClassDeclData) -> Bool {
         }
     }
     val st = llvmStructType(data.name, fieldTypes)
-    g.structs.set(data.name, StructInfo { typ: st, fieldIndices: indices })
+    val si = StructInfo { typ: st, fieldIndices: indices }
+    g.structs.set(data.name, si)
+    var methods: Map[String, List[LlvmFunc]] = Map[String, List[LlvmFunc]]{}
+    registerClassMethods(g, data.name, si, data.body, methods)
     g.classes.set(data.name, ClassInfo {
         typ: st,
         fieldIndices: indices,
-        methods: Map[String, List[LlvmFunc]]{},
+        methods: methods,
         vtables: Map[String, LlvmGlobal]{}
     })
     return true
