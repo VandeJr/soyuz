@@ -9,7 +9,7 @@ import (
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
-    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -1270,6 +1270,33 @@ test fn testChannelRecvCallExprCodegen() {
         Some(_) => {
             assertMsg(g.channelRecvPhiResult != None, "channel recv phi stored")
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeRecv()), "srt_chan_recv registered")
+            assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
+            assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelTryRecvEmitsSrtChanTryRecv — ch.tryRecv() call expr dispatch.
+test fn testChannelTryRecvCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val optionInt = optionIntType()
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "tryRecv" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, optionInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.tryRecv() codegen")
+        Some(_) => {
+            assertMsg(g.channelRecvTryMode, "tryRecv mode flag")
+            assertMsg(g.channelRecvPhiResult != None, "channel tryRecv phi stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeTryRecv()), "srt_chan_try_recv registered")
             assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
             assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
         }

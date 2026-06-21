@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { blockNameRegistered } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -104,6 +104,33 @@ test fn testIsChannelRecvCall() {
     assertMsg(isChannelRecvCall(recvMember, g), "ch.recv on Channel[Int]")
     val sendMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "send" })
     assertMsg(!isChannelRecvCall(sendMember, g), "ch.send not recv")
+}
+
+test fn testIsChannelTryRecvCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelEmptyClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val tryRecvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "tryRecv" })
+    var cr = channelEmptyCheckResult()
+    cr.nodeTypes.append(Some(channelInt))
+    cr.nodeTypes.append(Some(channelInt))
+    val g = newGenerator(cr)
+    assertMsg(isChannelTryRecvCall(tryRecvMember, g), "ch.tryRecv on Channel[Int]")
+    val recvMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "recv" })
+    assertMsg(!isChannelTryRecvCall(recvMember, g), "ch.recv not tryRecv")
+}
+
+test fn testGenerateChannelTryRecvStub() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateChannelRecvStub(g, true) {
+        None => assertMsg(false, "channel tryRecv stub")
+        Some(_) => {
+            assertMsg(g.channelRecvTryMode, "tryRecv mode flag")
+            assertMsg(g.channelRecvPhiResult != None, "phi result stored")
+        }
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeTryRecv()), "srt_chan_try_recv registered")
 }
 
 test fn testGenerateChannelRecvStub() {

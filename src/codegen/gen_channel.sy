@@ -88,6 +88,10 @@ pub fn isChannelRecvCall(callee: Node, g: Generator) -> Bool {
     return isChannelInstanceMethodCall(callee, g, "recv")
 }
 
+pub fn isChannelTryRecvCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "tryRecv")
+}
+
 pub fn chanSomeBlockName() -> String {
     return "chan_some"
 }
