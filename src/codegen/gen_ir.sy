@@ -93,6 +93,10 @@ pub fn emitPhiStub(g: Generator) -> Option[LlvmValue] {
     return Some(phi)
 }
 
+pub fn recordLoopBreakStore(g: Generator, alloca: LlvmValue) {
+    return
+}
+
 pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {
     var copy: Map[String, LlvmValue] = Map[String, LlvmValue]{}
     for k in g.vars.keys() {

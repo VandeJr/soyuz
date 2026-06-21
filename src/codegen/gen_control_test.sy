@@ -4,7 +4,8 @@ import (
     { CheckResult, FuncType, Type, IntType, UnitType, BoolType } from @checker/types
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
-    { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, generateStmtNode, hasTerminator } from @codegen/gen_control
+    { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
+    { blockNameRegistered } from @codegen/gen_ir
     { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -32,7 +33,7 @@ test fn testLoopStack() {
     val cond = LlvmBasicBlock { handle: 1 }
     val after = LlvmBasicBlock { handle: 2 }
     assertMsg(loopDepth(g) == 0, "empty depth")
-    pushLoop(g, newLoopCtx(cond, after, llvmI64()))
+    pushLoop(g, LoopCtx { cond: cond, after: after, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmI64() })
     assertMsg(loopDepth(g) == 1, "depth after push")
     match currentLoop(g) {
         None => assertMsg(false, "expected current loop")
@@ -120,7 +121,7 @@ test fn testGenerateBreakInsideLoop() {
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, UnitType)
     val g = newGenerator(controlCheckerWithNodeTypes(types))
-    pushLoop(g, newLoopCtx(LlvmBasicBlock { handle: 1 }, LlvmBasicBlock { handle: 2 }, llvmI64()))
+    pushLoop(g, LoopCtx { cond: LlvmBasicBlock { handle: 1 }, after: LlvmBasicBlock { handle: 2 }, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmI64() })
     match generateStmtNode(g, brk) {
         None => assertMsg(false, "expected break inside loop")
         Some(r) => assertMsg(hasTerminator(r), "break terminates")
@@ -147,8 +148,8 @@ test fn testGenerateForStmt() {
 test fn testLoopCtxHasResult() {
     val cond = LlvmBasicBlock { handle: 1 }
     val after = LlvmBasicBlock { handle: 2 }
-    assertMsg(!loopCtxHasResult(newLoopCtx(cond, after, llvmVoid())), "unit loop no result")
-    assertMsg(loopCtxHasResult(newLoopCtx(cond, after, llvmI64())), "int loop has result")
+    assertMsg(!loopCtxHasResult(LoopCtx { cond: cond, after: after, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() }), "unit loop no result")
+    assertMsg(loopCtxHasResult(LoopCtx { cond: cond, after: after, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmI64() }), "int loop has result")
 }
 
 test fn testGenerateLoopBreakWithValue() {
@@ -229,7 +230,7 @@ test fn testGenerateContinueInsideLoop() {
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, UnitType)
     val g = newGenerator(controlCheckerWithNodeTypes(types))
-    pushLoop(g, newLoopCtx(LlvmBasicBlock { handle: 1 }, LlvmBasicBlock { handle: 2 }, llvmVoid()))
+    pushLoop(g, LoopCtx { cond: LlvmBasicBlock { handle: 1 }, after: LlvmBasicBlock { handle: 2 }, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     match generateStmtNode(g, cont) {
         None => assertMsg(false, "expected continue inside loop")
         Some(r) => assertMsg(hasTerminator(r), "continue terminates")
@@ -252,5 +253,43 @@ test fn testGenerateIfElseBothBranches() {
     match generateStmtNode(g, ifNode) {
         None => assertMsg(false, "expected if-else stmt result")
         Some(r) => assertMsg(!hasTerminator(r), "if stmt itself does not terminate")
+    }
+}
+
+test fn testGenerateValueLoopBlocksAndResultLoad() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val body = Node.BlockStmt(3, span, BlockStmtData { statements: [] })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, IntType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val handlesBeforeGen = g.valueHandleCounter
+    match generateStmtNode(g, loopNode) {
+        None => assertMsg(false, "expected value loop stmt")
+        Some(_) => {
+            assertMsg(blockNameRegistered(g, "loop_body"), "loop body block registered")
+            assertMsg(blockNameRegistered(g, "loop_after"), "loop after block registered")
+            assertMsg(g.valueHandleCounter > handlesBeforeGen, "value loop allocates result slot")
+            assertMsg(g.loopResultLoad != None, "value loop records result load stub")
+        }
+    }
+}
+
+test fn testGenerateUnitLoopNoResultLoad() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val body = Node.BlockStmt(3, span, BlockStmtData { statements: [] })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val handlesBefore = g.valueHandleCounter
+    match generateStmtNode(g, loopNode) {
+        None => assertMsg(false, "expected unit loop stmt")
+        Some(_) => {
+            assertMsg(g.valueHandleCounter == handlesBefore, "unit loop has no result alloca")
+            assertMsg(g.loopResultLoad == None, "unit loop has no result load")
+        }
     }
 }

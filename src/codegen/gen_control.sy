@@ -6,7 +6,8 @@ import (
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { LlvmType, LlvmBasicBlock, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
+    { newBlock, setCurrentBlock, newAlloca, recordLoopBreakStore } from @codegen/gen_ir
+    { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
 pub enum TerminatorKind {
@@ -26,6 +27,10 @@ fn stmtResultFromNode(g: Generator, node: Node, term: TerminatorKind) -> Option[
         None => None
         Some(t) => Some(StmtResult { llvmType: mapTypeToLLVM(g, t), terminator: term })
     }
+}
+
+pub fn noneLlvmValueOption() -> Option[LlvmValue] {
+    return None
 }
 
 fn dummyLoopBlock() -> LlvmBasicBlock {
@@ -93,7 +98,7 @@ fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[St
     return match generateExprNode(g, data.condition) {
         None => None
         Some(_) => {
-            pushLoop(g, newLoopCtx(dummyLoopBlock(), dummyLoopBlock(), llvmVoid()))
+            pushLoop(g, LoopCtx { cond: dummyLoopBlock(), after: dummyLoopBlock(), resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
             val bodyOk = match generateStmtNode(g, data.body) {
                 None => false
                 Some(_) => true
@@ -110,23 +115,37 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
         None => UnitType
         Some(t) => t
     }
-    var resultLlvm = llvmVoid()
+    val bodyBlock = newBlock(g, "loop_body")
+    val afterBlock = newBlock(g, "loop_after")
+    setCurrentBlock(g, bodyBlock)
     if loopNeedsResultAlloca(loopType) {
-        resultLlvm = mapTypeToLLVM(g, loopType)
+        val resultLlvm = mapTypeToLLVM(g, loopType)
+        val resultAlloca = newAlloca(g, resultLlvm)
+        pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: Some(resultAlloca), resultLlvm: resultLlvm })
+        val bodyOk = match generateStmtNode(g, data.body) {
+            None => false
+            Some(_) => true
+        }
+        popLoop(g)
+        if !bodyOk { return None }
+        setCurrentBlock(g, afterBlock)
+        setLoopResultLoad(g, resultAlloca)
+        return stmtResultFromNode(g, node, NoTerminator)
     }
-    pushLoop(g, newLoopCtx(dummyLoopBlock(), dummyLoopBlock(), resultLlvm))
+    pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     val bodyOk = match generateStmtNode(g, data.body) {
         None => false
         Some(_) => true
     }
     popLoop(g)
     if !bodyOk { return None }
+    setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
 }
 
 fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
     if !exprGeneratesOk(g, data.iterable) { return None }
-    pushLoop(g, newLoopCtx(dummyLoopBlock(), dummyLoopBlock(), llvmVoid()))
+    pushLoop(g, LoopCtx { cond: dummyLoopBlock(), after: dummyLoopBlock(), resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     val bodyOk = match generateStmtNode(g, data.body) {
         None => false
         Some(_) => true
@@ -162,6 +181,10 @@ fn generateBreakStmt(g: Generator, node: Node, data: BreakStmtData) -> Option[St
         }
         Some(v) => {
             if !exprGeneratesOk(g, v) { return None }
+            match currentLoop(g) {
+                None => {}
+                Some(ctx) => recordBreakValueStore(g, ctx)
+            }
         }
     }
     return stmtResultFromNode(g, node, BreakTerm)
@@ -207,8 +230,31 @@ pub fn loopNeedsResultAlloca(loopType: Type) -> Bool {
     return typeToString(loopType) != "Unit"
 }
 
-pub fn newLoopCtx(cond: LlvmBasicBlock, after: LlvmBasicBlock, resultLlvm: LlvmType) -> LoopCtx {
-    return LoopCtx { cond: cond, after: after, resultAlloca: None, resultLlvm: resultLlvm }
+fn setLoopResultLoad(g: Generator, alloca: LlvmValue) {
+    g.loopResultLoad = Some(stubLoopResultLoad(g, alloca))
+}
+
+fn recordBreakValueStore(g: Generator, ctx: LoopCtx) {
+    match loopCtxResultAlloca(ctx) {
+        None => {}
+        Some(alloca) => {
+            recordLoopBreakStore(g, alloca)
+        }
+    }
+}
+
+fn stubLoopResultLoad(g: Generator, alloca: LlvmValue) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn loopCtxResultAlloca(ctx: LoopCtx) -> Option[LlvmValue] {
+    return ctx.resultAlloca
+}
+
+pub fn newLoopCtx(cond: LlvmBasicBlock, after: LlvmBasicBlock, resultLlvm: LlvmType, resultAlloca: Option[LlvmValue]) -> LoopCtx {
+    return LoopCtx { cond: cond, after: after, resultAlloca: resultAlloca, resultLlvm: resultLlvm }
 }
 
 pub fn pushLoop(g: Generator, ctx: LoopCtx) {
