@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
@@ -99,6 +99,39 @@ test fn testIsTaskDetachCall() {
     cr.nodeTypes.append(Some(taskInt))
     val g = newGenerator(cr)
     assertMsg(isTaskDetachMethodCall(detachMember, g), "t.detach on Task[Int]")
+}
+
+test fn testIsTaskTapMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val tapMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "tap" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskTapMethodCall(tapMember, g), "t.tap on Task[Int]")
+    assertMsg(!isTaskTapMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "await" }), g), "t.await not tap")
+}
+
+test fn testGenerateTaskTapStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskTapStub(g) {
+        None => assertMsg(false, "task tap stub")
+        Some(_) => {
+            assertMsg(g.taskTapStub != None, "tap stub stored")
+            assertMsg(g.taskTapWrapperName != None, "tap wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    match g.taskTapWrapperName {
+        None => assertMsg(false, "tap wrapper name")
+        Some(name) => assertMsg(name == "__tap_wrapper_1", "tap wrapper counter used")
+    }
 }
 
 test fn testGenerateTaskEnqueueStub() {

@@ -10,7 +10,7 @@ import (
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
-    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, taskFanFnArgsValid, ownTaskVar, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub } from @codegen/gen_task
+    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskTapMethodCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, taskFanFnArgsValid, ownTaskVar, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub } from @codegen/gen_task
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -523,6 +523,22 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                 Some(_) => match generateChannelIsClosedStub(g) {
                     None => None
                     Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
+    if isTaskTapMethodCall(data.callee, g) {
+        if data.args.size() != 1 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => {
+                    if !generateCallArg(g, data.args.get(0)) { return None }
+                    return match generateTaskTapStub(g) {
+                        None => None
+                        Some(_) => exprResultFromNode(g, node, NoConst)
+                    }
                 }
             }
             _ => None

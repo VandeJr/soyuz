@@ -164,6 +164,8 @@ pub class Generator {
     pub var taskFanFnCount: Int = 0
     pub var taskPipelineStub: Option[LlvmValue] = None
     pub var taskPipelineStageCount: Int = 0
+    pub var taskTapStub: Option[LlvmValue] = None
+    pub var taskTapWrapperName: Option[String] = None
     pub var taskLastWrapperName: Option[String] = None
     pub var taskPipeMode: Bool = false
     pub var taskPipeInnerStub: Option[LlvmValue] = None
