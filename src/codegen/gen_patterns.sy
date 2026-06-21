@@ -786,10 +786,37 @@ fn matchPatternTupleElemThenBlock(index: Int, elemCount: Int, thenBlockName: Str
     return tupleElemPatternOkBlockName(index)
 }
 
+fn clearTuplePatternElemStubs(g: Generator) {
+    g.tuplePatternSubject = None
+    g.tuplePatternElemLoads = []
+}
+
+fn emitTuplePatternSubjectStub(g: Generator, hasSubject: Bool) -> Bool {
+    if !hasSubject { return true }
+    g.tuplePatternSubject = Some(stubLlvmValue(g))
+    return true
+}
+
+fn appendTuplePatternElemLoad(g: Generator, elemVal: LlvmValue) {
+    var loads = g.tuplePatternElemLoads
+    loads.append(elemVal)
+    g.tuplePatternElemLoads = loads
+}
+
+fn emitTupleElemLoadStub(g: Generator) -> LlvmValue {
+    val _elemPtr = emitGepStub(g)
+    val elemVal = emitLoadStub(g)
+    appendTuplePatternElemLoad(g, elemVal)
+    return elemVal
+}
+
 fn matchPatternTupleElementsLoop(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= elements.size() { return true }
     val elemThen = matchPatternTupleElemThenBlock(index, elements.size(), thenBlockName)
     val elemSubjectType = tuplePatternElemSubjectType(hasSubject, subjectType, index)
+    if hasSubject {
+        emitTupleElemLoadStub(g)
+    }
     val dispatched = match hasSubject {
         true => matchPatternDispatchWithSubject(g, elements.get(index), elemSubjectType, elemThen, nextBlockName)
         false => matchPatternDispatchNoSubject(g, elements.get(index), elemThen, nextBlockName)
@@ -800,6 +827,8 @@ fn matchPatternTupleElementsLoop(g: Generator, elements: List[Pattern], thenBloc
 
 fn matchPatternTupleDispatch(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
     if elements.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
+    clearTuplePatternElemStubs(g)
+    if !emitTuplePatternSubjectStub(g, hasSubject) { return false }
     return matchPatternTupleElementsLoop(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
