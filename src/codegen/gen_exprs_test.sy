@@ -1,9 +1,10 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode } from @codegen/gen_exprs
+    { generateEnumDecl } from @codegen/gen_structs
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -306,5 +307,37 @@ test fn testGenerateMatchExprWithGuard() {
     match generateExprNode(g, node) {
         None => assertMsg(false, "expected match expr result")
         Some(r) => assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, StringType)), "match returns String")
+    }
+}
+
+test fn testGenerateMatchExprEnumConstructor() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "cor" })
+    val body = Node.IntLiteral(4, span, IntLiteralData { value: "1" })
+    val arm = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(2, span, "Verde", []),
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(4, IntType)
+    types.set(5, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected enum match expr result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "enum match returns Int")
     }
 }

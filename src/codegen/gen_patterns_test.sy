@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, funcParamPatternsSupported } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, funcParamPatternsSupported, constructorPatternMatchOkBlockName, rangePatternGeBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName } from @codegen/gen_patterns
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -217,4 +217,27 @@ test fn testFuncParamPatternsSupported() {
     val literalParam = FuncParam { span: span, pattern: Pattern.Literal(1, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }
     assertMsg(funcParamPatternsSupported(g, [bindingParam]), "binding param supported")
     assertMsg(funcParamPatternsSupported(g, [literalParam]), "literal param supported")
+}
+
+test fn testMatchPatternSupportedForSubjectCor() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v0 = EnumVariant { span: patternsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: patternsZeroSpan(), name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    val verdePat = Pattern.Constructor(2, patternsZeroSpan(), "Verde", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    assertMsg(matchPatternSupportedWithType(g, verdePat, corType), "Verde supported for Cor subject")
+    assertMsg(!matchPatternSupportedWithType(g, Pattern.Constructor(3, patternsZeroSpan(), "Missing", []), corType), "missing variant unsupported for Cor")
+}
+
+test fn testPatternMatchBlockNames() {
+    assertMsg(constructorPatternMatchOkBlockName("Verde") == "match_Verde_ok", "constructor match ok block")
+    assertMsg(rangePatternGeBlockName() == "range_ge", "range ge block")
+    assertMsg(enumFieldPatternOkBlockName("Some", 0) == "enum_Some_field_0_ok", "enum field ok block")
+    assertMsg(tupleElemPatternOkBlockName(1) == "tuple_elem_1_ok", "tuple elem ok block")
 }

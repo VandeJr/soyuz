@@ -5,7 +5,7 @@ import (
     { Generator } from @codegen/generator
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { buildMatchArmPlans, matchPatternSupported } from @codegen/gen_patterns
+    { buildMatchArmPlans, matchPatternSupported, matchPatternSupportedWithType } from @codegen/gen_patterns
 )
 
 pub enum ConstValue {
@@ -268,7 +268,12 @@ fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: I
     val plans = buildMatchArmPlans(data)
     if index >= plans.size() { return true }
     val plan = plans.get(index)
-    if !matchPatternSupported(g, plan.matchArm.pattern) { return false }
+    val subjectType = checkerTypeForNode(g, nodeId(data.subject))
+    val supported = match subjectType {
+        None => matchPatternSupported(g, plan.matchArm.pattern)
+        Some(t) => matchPatternSupportedWithType(g, plan.matchArm.pattern, t)
+    }
+    if !supported { return false }
     if !generateMatchGuardFromArm(g, plan.matchArm) { return false }
     match generateExprNode(g, plan.matchArm.body) {
         None => false

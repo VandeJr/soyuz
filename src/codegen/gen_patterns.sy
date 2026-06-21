@@ -134,17 +134,42 @@ pub fn funcParamPatternsSupported(g: Generator, params: List[FuncParam]) -> Bool
     return funcParamPatternsSupportedLoop(g, params, 0)
 }
 
-pub fn matchPatternSupported(g: Generator, pat: Pattern) -> Bool = match pat {
+pub fn matchPatternSupportedWithType(g: Generator, pat: Pattern, subjectType: Type) -> Bool = match pat {
     Wildcard(_, _) => true
     Binding(_, _, _) => true
     Literal(_, _, _) => true
-    Constructor(_, _, name, args) => match enumVariantForPattern(g, name, None) {
+    Constructor(_, _, name, args) => match enumVariantForPattern(g, name, Some(subjectType)) {
         None => false
         Some(lookup) => constructorPatternArgsOk(args, lookup.variantInfo)
     }
     Record(_, _, _, _) => true
     Tuple(_, _, _) => true
     Range(_, _, _, _, _) => true
+}
+
+pub fn matchPatternSupportedForSubject(g: Generator, pat: Pattern, subjectType: Option[Type]) -> Bool = match subjectType {
+    None => matchPatternSupported(g, pat)
+    Some(t) => matchPatternSupportedWithType(g, pat, t)
+}
+
+pub fn matchPatternSupported(g: Generator, pat: Pattern) -> Bool {
+    return matchPatternSupportedForSubject(g, pat, None)
+}
+
+pub fn constructorPatternMatchOkBlockName(variantName: String) -> String {
+    return "match_$(variantName)_ok"
+}
+
+pub fn rangePatternGeBlockName() -> String {
+    return "range_ge"
+}
+
+pub fn enumFieldPatternOkBlockName(variantName: String, fieldIndex: Int) -> String {
+    return "enum_$(variantName)_field_$(fieldIndex)_ok"
+}
+
+pub fn tupleElemPatternOkBlockName(index: Int) -> String {
+    return "tuple_elem_$(index)_ok"
 }
 
 pub fn matchArmPatternOkBlockName(index: Int) -> String {
