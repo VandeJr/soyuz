@@ -598,6 +598,38 @@ test fn testMatchPatternDispatchRecordNestedBindingNoSubject() {
     assertMsg(g.recordPatternFieldStores.size() == 0, "no field store without subject")
 }
 
+test fn testMatchPatternDispatchRecordNestedLiteralWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val xField = RecordPatternField { name: "x", pattern: Some(lit) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    val pointType = Type.Record("Point", pointFields, [])
+    assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: 42 } with subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 1, "field load for nested literal")
+    assertMsg(g.literalPatternSubjectValue != None, "literal cmp uses loaded field value")
+    assertMsg(g.recordPatternFieldStores.size() == 0, "literal field does not store binding")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal cmp for nested field")
+    assertMsg(blockNameRegistered(g, "field_match_ok"), "nested field ok block")
+}
+
+test fn testMatchPatternDispatchRecordNestedLiteralNoSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val xField = RecordPatternField { name: "x", pattern: Some(lit) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: 42 } no subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 0, "no field load without subject")
+    assertMsg(g.literalPatternSubjectValue == None, "no literal subject without match subject")
+}
+
 test fn testMatchPatternDispatchTupleElements() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
