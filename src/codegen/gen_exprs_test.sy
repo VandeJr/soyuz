@@ -9,7 +9,7 @@ import (
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
-    { channelRuntimeNew, channelRuntimeSend, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -1233,6 +1233,45 @@ test fn testChannelSendCallExprCodegen() {
         Some(_) => {
             assertMsg(g.channelSendStub != None, "channel send stub stored")
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
+        }
+    }
+}
+
+fn optionIntType() -> Type {
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optEnum = EnumType {
+        name: "Option",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: ["T"]
+    }
+    return Type.Specialized(Type.Enum(optEnum), [IntType])
+}
+
+// Port of m_channel_test.go TestChannelRecvEmitsSrtChanRecv — ch.recv() call expr dispatch.
+test fn testChannelRecvCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val optionInt = optionIntType()
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, optionInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.recv() codegen")
+        Some(_) => {
+            assertMsg(g.channelRecvPhiResult != None, "channel recv phi stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeRecv()), "srt_chan_recv registered")
+            assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
+            assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
         }
     }
 }

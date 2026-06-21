@@ -3,8 +3,8 @@ import (
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
-    { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue } from @codegen/gen_ir
+    { LlvmValue, llvmI64 } from @codegen/llvm_types
+    { stubLlvmValue, newBlock, setCurrentBlock, newAlloca, emitLoadStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
 )
 
 pub fn channelRuntimeNew() -> String {
@@ -69,15 +69,35 @@ fn checkerNodeType(g: Generator, id: Int) -> Option[Type] {
     return g.check.nodeTypes.get(id)
 }
 
-pub fn isChannelSendCall(callee: Node, g: Generator) -> Bool = match callee {
+pub fn isChannelSendCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "send")
+}
+
+pub fn isChannelInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
-        if memberData.property != "send" { return false }
+        if memberData.property != methodName { return false }
         match checkerNodeType(g, nodeId(memberData.object)) {
             None => false
             Some(t) => isChannelType(t)
         }
     }
     _ => false
+}
+
+pub fn isChannelRecvCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "recv")
+}
+
+pub fn chanSomeBlockName() -> String {
+    return "chan_some"
+}
+
+pub fn chanNoneBlockName() -> String {
+    return "chan_none"
+}
+
+pub fn chanMergeBlockName() -> String {
+    return "chan_merge"
 }
 
 fn registerChannelRuntimeSymbol(g: Generator, symbol: String) {
@@ -111,4 +131,38 @@ pub fn generateChannelSendStub(g: Generator) -> Option[LlvmValue] {
     val stub = stubLlvmValue(g)
     g.channelSendStub = Some(stub)
     return Some(stub)
+}
+
+fn clearChannelRecvStubs(g: Generator) {
+    g.channelRecvOutAlloca = None
+    g.channelRecvRawLoad = None
+    g.channelRecvSomeResult = None
+    g.channelRecvNoneResult = None
+    g.channelRecvPhiResult = None
+}
+
+pub fn generateChannelRecvStub(g: Generator, tryMode: Bool) -> Option[LlvmValue] {
+    clearChannelRecvStubs(g)
+    g.channelRecvTryMode = tryMode
+    if tryMode {
+        registerChannelRuntimeSymbol(g, channelRuntimeTryRecv())
+    } else {
+        registerChannelRuntimeSymbol(g, channelRuntimeRecv())
+    }
+    g.channelRecvOutAlloca = Some(newAlloca(g, llvmI64()))
+    val someBlock = newBlock(g, chanSomeBlockName())
+    val noneBlock = newBlock(g, chanNoneBlockName())
+    val mergeBlock = newBlock(g, chanMergeBlockName())
+    if !emitCondBrToBlockStub(g, someBlock, noneBlock) { return None }
+    setCurrentBlock(g, someBlock)
+    g.channelRecvRawLoad = Some(emitLoadStub(g))
+    g.channelRecvSomeResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, noneBlock)
+    g.channelRecvNoneResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, mergeBlock)
+    val phi = stubLlvmValue(g)
+    g.channelRecvPhiResult = Some(phi)
+    return Some(phi)
 }

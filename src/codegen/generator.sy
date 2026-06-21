@@ -122,6 +122,12 @@ pub class Generator {
     pub var extendMethodBodiesGenerated: Int = 0
     pub var channelNewStub: Option[LlvmValue] = None
     pub var channelSendStub: Option[LlvmValue] = None
+    pub var channelRecvOutAlloca: Option[LlvmValue] = None
+    pub var channelRecvRawLoad: Option[LlvmValue] = None
+    pub var channelRecvSomeResult: Option[LlvmValue] = None
+    pub var channelRecvNoneResult: Option[LlvmValue] = None
+    pub var channelRecvPhiResult: Option[LlvmValue] = None
+    pub var channelRecvTryMode: Bool = false
     pub var channelRuntimeSymbols: List[String] = []
 }
 

@@ -3,7 +3,8 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, channelRuntimeNew, channelRuntimeSend, generateChannelNewStub, generateChannelSendStub, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { blockNameRegistered } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
 
@@ -88,6 +89,38 @@ test fn testIsChannelSendCall() {
     cr2.nodeTypes.append(Some(listInt))
     val g2 = newGenerator(cr2)
     assertMsg(!isChannelSendCall(sendMember, g2), "ch.send not on List[Int]")
+}
+
+test fn testIsChannelRecvCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelEmptyClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val recvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    var cr = channelEmptyCheckResult()
+    cr.nodeTypes.append(Some(channelInt))
+    cr.nodeTypes.append(Some(channelInt))
+    val g = newGenerator(cr)
+    assertMsg(isChannelRecvCall(recvMember, g), "ch.recv on Channel[Int]")
+    val sendMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "send" })
+    assertMsg(!isChannelRecvCall(sendMember, g), "ch.send not recv")
+}
+
+test fn testGenerateChannelRecvStub() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateChannelRecvStub(g, false) {
+        None => assertMsg(false, "channel recv stub")
+        Some(_) => {
+            assertMsg(g.channelRecvPhiResult != None, "phi result stored")
+            assertMsg(g.channelRecvOutAlloca != None, "out alloca stored")
+            assertMsg(g.channelRecvSomeResult != None, "some branch result")
+            assertMsg(g.channelRecvNoneResult != None, "none branch result")
+        }
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeRecv()), "srt_chan_recv registered")
+    assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
+    assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
+    assertMsg(blockNameRegistered(g, chanMergeBlockName()), "chan_merge block")
 }
 
 test fn testGenerateChannelSendStub() {

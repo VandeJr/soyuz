@@ -6,7 +6,7 @@ import (
     { VariantInfo } from @codegen/types
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { isChannelNewCall, isChannelSendCall, generateChannelNewStub, generateChannelSendStub } from @codegen/gen_channel
+    { isChannelNewCall, isChannelSendCall, isChannelRecvCall, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub } from @codegen/gen_channel
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -353,6 +353,19 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                         None => None
                         Some(_) => exprResultFromNode(g, node, NoConst)
                     }
+                }
+            }
+            _ => None
+        }
+    }
+    if isChannelRecvCall(data.callee, g) {
+        if data.args.size() != 0 { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateChannelRecvStub(g, false) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
                 }
             }
             _ => None
