@@ -177,6 +177,13 @@ else
   echo "  tools/codegen-async-pipe-check.sh ausente"
 fi
 
+hr "Codegen async-pipe-quest check (bootstrap, S7)"
+if [[ -x tools/codegen-async-pipe-quest-check.sh ]]; then
+  bash tools/codegen-async-pipe-quest-check.sh 2>&1 || echo "→ codegen async-pipe-quest check FALHOU"
+else
+  echo "  tools/codegen-async-pipe-quest-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

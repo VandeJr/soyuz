@@ -4,7 +4,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub } from @codegen/gen_ir
+    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub } from @codegen/gen_ir
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
 )
@@ -351,6 +351,16 @@ fn emitAsyncChainQuestBlocks(g: Generator) -> Bool {
     return true
 }
 
+fn emitAsyncChainQuestCondBrStubs(g: Generator, questStepCount: Int) -> Bool {
+    var i = 0
+    loop {
+        if i >= questStepCount { break }
+        if !emitCondBrStub(g, asyncChainErrorBlockName(), asyncChainOkBlockName()) { return false }
+        i = i + 1
+    }
+    return true
+}
+
 pub fn generateAsyncPipeStub(g: Generator, stepCount: Int, questStepCount: Int) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
     registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
@@ -360,6 +370,7 @@ pub fn generateAsyncPipeStub(g: Generator, stepCount: Int, questStepCount: Int) 
     }
     if questStepCount > 0 {
         if !emitAsyncChainQuestBlocks(g) { return None }
+        if !emitAsyncChainQuestCondBrStubs(g, questStepCount) { return None }
     }
     g.asyncChainWrapperName = Some(nextAsyncChainWrapperName(g))
     var i = 0
