@@ -76,6 +76,8 @@ pub class Generator {
     pub var forRangeToValue: Option[LlvmValue] = None
     pub var forRangeIncrLoad: Option[LlvmValue] = None
     pub var forRangeIncrStore: Option[LlvmValue] = None
+    pub var forRangeCondLoad: Option[LlvmValue] = None
+    pub var forRangeCondInclusive: Bool = false
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

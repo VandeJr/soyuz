@@ -181,6 +181,8 @@ fn clearForRangeStubs(g: Generator) {
     g.forRangeToValue = None
     g.forRangeIncrLoad = None
     g.forRangeIncrStore = None
+    g.forRangeCondLoad = None
+    g.forRangeCondInclusive = false
 }
 
 fn registerForRangeBinding(g: Generator, binding: String, startVal: LlvmValue) -> Bool {
@@ -189,6 +191,19 @@ fn registerForRangeBinding(g: Generator, binding: String, startVal: LlvmValue) -
     g.vars.set(binding, alloca)
     g.forRangeCounterAlloca = Some(alloca)
     return true
+}
+
+fn emitForRangeCondStub(g: Generator, inclusive: Bool, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if g.forRangeToValue == None { return false }
+    return match g.forRangeCounterAlloca {
+        None => false
+        Some(_alloca) => {
+            val counter = emitLoadStub(g)
+            g.forRangeCondLoad = Some(counter)
+            g.forRangeCondInclusive = inclusive
+            emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+        }
+    }
 }
 
 fn emitForRangeIncrStub(g: Generator) -> Bool {
@@ -220,7 +235,7 @@ fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: Ra
     val afterBlock = newBlock(g, "for_after")
     emitBrToBlockStub(g, condBlock)
     setCurrentBlock(g, condBlock)
-    if !emitCondBrToBlockStub(g, bodyBlock, afterBlock) { return None }
+    if !emitForRangeCondStub(g, rangeData.inclusive, bodyBlock, afterBlock) { return None }
     pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     setCurrentBlock(g, bodyBlock)
     if !finishLoopBodyFromNode(g, incrBlock, body) { return None }

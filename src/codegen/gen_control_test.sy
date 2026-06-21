@@ -178,6 +178,8 @@ test fn testGenerateForRangeStmt() {
             assertMsg(g.forRangeCounterAlloca != None, "range binding alloca recorded")
             assertMsg(g.forRangeFromValue != None, "range from bound recorded")
             assertMsg(g.forRangeToValue != None, "range to bound recorded")
+            assertMsg(g.forRangeCondLoad != None, "for_cond loads counter stub")
+            assertMsg(g.forRangeCondInclusive, "inclusive range records SLE cmp path")
             assertMsg(g.forRangeIncrLoad != None, "for_incr loads counter stub")
             assertMsg(g.forRangeIncrStore != None, "for_incr stores next counter stub")
             assertMsg(g.valueHandleCounter > handlesBefore + 4, "range bounds plus incr load/store stubs")
@@ -188,6 +190,28 @@ test fn testGenerateForRangeStmt() {
             assertMsg(hasI, "range binding registered in g.vars")
         }
     }
+}
+
+test fn testGenerateForRangeStmtExclusive() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
+    val from = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
+    val to = Node.IntLiteral(4, span, IntLiteralData { value: "10" })
+    val range = Node.RangeExpr(5, span, RangeExprData { from: from, to: to, inclusive: false })
+    val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "i", iterable: range, body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    types.set(4, IntType)
+    types.set(5, IntType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    assertMsg(match generateStmtNode(g, forNode) {
+        None => false
+        Some(_) => true
+    }, "exclusive for-range dispatch")
+    assertMsg(g.forRangeCondLoad != None, "exclusive for_cond loads counter")
+    assertMsg(!g.forRangeCondInclusive, "exclusive range records SLT cmp path")
 }
 
 test fn testLoopCtxHasResult() {
