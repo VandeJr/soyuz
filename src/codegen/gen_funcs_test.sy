@@ -1,5 +1,5 @@
 import (
-    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, ReturnStmtData } from @ast/ast
+    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -131,6 +131,54 @@ test fn testSortFuncVariantsWhenGuardBeforeCatchall() {
     assertMsg(sorted.size() == 2, "two variants")
     assertMsg(isWhenGuardVariant(sorted.get(0)), "when-guarded variant runs first (P-13)")
     assertMsg(!isWhenGuardVariant(sorted.get(1)), "catch-all variant runs last")
+}
+
+fn makePickReturnBody(span: Span, value: String) -> Node {
+    val lit = Node.StringLiteral(20, span, StringLiteralData { value: value })
+    return Node.ReturnStmt(21, span, ReturnStmtData { value: Some(lit) })
+}
+
+// Port of soyuz-go/internal/codegen/when_dispatch_test.go TestWhenVariantBeforeCatchall (P-13).
+test fn testWhenVariantBeforeCatchall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    var catchall = makePickVariant(span, None)
+    catchall.body = Some(makePickReturnBody(span, "default"))
+    var guarded = makePickVariant(span, Some(guardCond))
+    guarded.body = Some(makePickReturnBody(span, "positive"))
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchall, guarded])
+    cr.nodeTypes.append(Some(StringType))
+    cr.nodeTypes.append(Some(StringType))
+    val g = newGenerator(cr)
+    val plans = buildFuncVariantPlans(g, "pick")
+    assertMsg(plans.size() == 2, "two variant plans")
+    assertMsg(isWhenGuardVariant(plans.get(0).variant), "when-guarded variant at index 0 after sort")
+    match plans.get(0).variant.body {
+        None => assertMsg(false, "guarded variant body")
+        Some(bodyNode) => match bodyNode {
+            ReturnStmt(_, _, data) => match data.value {
+                None => assertMsg(false, "guarded return value")
+                Some(valNode) => match valNode {
+                    StringLiteral(_, _, lit) => assertMsg(lit.value == "positive", "guarded body is positive")
+                    _ => assertMsg(false, "guarded string return")
+                }
+            }
+            _ => assertMsg(false, "guarded return stmt")
+        }
+    }
+    match plans.get(0).guardBlockName {
+        None => assertMsg(false, "guarded plan has guard block")
+        Some(name) => assertMsg(name == "v0_guard_ok", "guard block at sorted index 0")
+    }
+    assertMsg(generateFuncVariantsBody(g, "pick"), "when-guarded pick codegen")
+    assertMsg(blockNameRegistered(g, "v0_guard_ok"), "v0_guard_ok block registered")
+    assertMsg(blockNameRegistered(g, "variant_0_body"), "guarded variant body block at index 0")
+    assertMsg(blockNameRegistered(g, "variant_1_body"), "catchall variant body block at index 1")
+    match g.funcVariantGuardCondValue {
+        None => assertMsg(false, "func variant guard condition stub")
+        Some(v) => assertMsg(v.handle > 0, "guard cond br uses generated condition stub")
+    }
 }
 
 test fn testSortFuncVariantsStableAmongSamePriority() {

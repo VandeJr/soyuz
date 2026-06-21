@@ -80,6 +80,7 @@ pub class Generator {
     pub var forRangeCondInclusive: Bool = false
     pub var whileCondValue: Option[LlvmValue] = None
     pub var matchGuardCondValue: Option[LlvmValue] = None
+    pub var funcVariantGuardCondValue: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

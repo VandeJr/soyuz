@@ -7,7 +7,7 @@ import (
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, stubLlvmValue } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { LlvmType, LlvmValue, llvmI64 } from @codegen/llvm_types
 )
@@ -286,7 +286,10 @@ fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = m
     Some(expr) => match (generateExprNode(g, expr), plan.guardBlockName) {
         (None, _) => false
         (Some(_), None) => true
-        (Some(_), Some(guardName)) => emitCondBrStub(g, guardName, plan.nextBlockName)
+        (Some(_), Some(guardName)) => {
+            g.funcVariantGuardCondValue = Some(stubLlvmValue(g))
+            emitCondBrStub(g, guardName, plan.nextBlockName)
+        }
     }
 }
 
