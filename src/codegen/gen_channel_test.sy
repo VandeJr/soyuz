@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
+    { isChannelType, channelInnerType, isChannelStaticNew, isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, chanSomeBlockName, chanNoneBlockName, chanMergeBlockName, channelRuntimeSymbolRegistered } from @codegen/gen_channel
     { blockNameRegistered } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
@@ -134,6 +134,30 @@ test fn testIsChannelCloseCall() {
     assertMsg(isChannelCloseCall(closeMember, g), "ch.close on Channel[Int]")
     val sendMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "send" })
     assertMsg(!isChannelCloseCall(sendMember, g), "ch.send not close")
+}
+
+test fn testIsChannelIsClosedCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelEmptyClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val isClosedMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "isClosed" })
+    var cr = channelEmptyCheckResult()
+    cr.nodeTypes.append(Some(channelInt))
+    cr.nodeTypes.append(Some(channelInt))
+    val g = newGenerator(cr)
+    assertMsg(isChannelIsClosedCall(isClosedMember, g), "ch.isClosed on Channel[Int]")
+    val closeMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "close" })
+    assertMsg(!isChannelIsClosedCall(closeMember, g), "ch.close not isClosed")
+}
+
+test fn testGenerateChannelIsClosedStub() {
+    val g = newGenerator(channelEmptyCheckResult())
+    match generateChannelIsClosedStub(g) {
+        None => assertMsg(false, "channel isClosed stub")
+        Some(_) => assertMsg(g.channelIsClosedStub != None, "stub stored on generator")
+    }
+    assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeIsClosed()), "srt_chan_is_closed registered")
 }
 
 test fn testGenerateChannelCloseStub() {

@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestChannelNewEmitsSrtChanNew|TestChannelSendEmitsSrtChanSend|TestChannelRecvEmitsSrtChanRecv|TestChannelRecvWrapsOptionBranches|TestChannelTryRecvEmitsSrtChanTryRecv|TestChannelCloseEmitsSrtChanClose' -count=1
+go test ./internal/codegen/ -run 'TestChannelNewEmitsSrtChanNew|TestChannelSendEmitsSrtChanSend|TestChannelRecvEmitsSrtChanRecv|TestChannelRecvWrapsOptionBranches|TestChannelTryRecvEmitsSrtChanTryRecv|TestChannelCloseEmitsSrtChanClose|TestChannelIsClosedEmitsSrtChanIsClosed' -count=1
 echo "→ codegen channel check (bootstrap) OK"

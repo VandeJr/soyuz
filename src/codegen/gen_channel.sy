@@ -96,6 +96,10 @@ pub fn isChannelCloseCall(callee: Node, g: Generator) -> Bool {
     return isChannelInstanceMethodCall(callee, g, "close")
 }
 
+pub fn isChannelIsClosedCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "isClosed")
+}
+
 pub fn chanSomeBlockName() -> String {
     return "chan_some"
 }
@@ -179,5 +183,12 @@ pub fn generateChannelCloseStub(g: Generator) -> Option[LlvmValue] {
     registerChannelRuntimeSymbol(g, channelRuntimeClose())
     val stub = stubLlvmValue(g)
     g.channelCloseStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateChannelIsClosedStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeIsClosed())
+    val stub = stubLlvmValue(g)
+    g.channelIsClosedStub = Some(stub)
     return Some(stub)
 }

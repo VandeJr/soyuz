@@ -1,7 +1,7 @@
 import (
     { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData, RecordPatternField } from @ast/ast
     { Span } from @lexer/tokens
-    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType, ClassType } from @checker/types
+    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, BoolType, EnumType, ClassType } from @checker/types
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk, constFromLiteralPatternValue } from @codegen/gen_exprs
     { generateLiteralPatternValue } from @codegen/gen_patterns
@@ -9,7 +9,7 @@ import (
     { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
-    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
     { assertMsg } from @soyuz/testing
 )
 
@@ -1322,6 +1322,29 @@ test fn testChannelCloseCallExprCodegen() {
         Some(_) => {
             assertMsg(g.channelCloseStub != None, "channel close stub stored")
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeClose()), "srt_chan_close registered")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelIsClosedEmitsSrtChanIsClosed — ch.isClosed() call expr dispatch.
+test fn testChannelIsClosedCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "isClosed" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, BoolType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.isClosed() codegen")
+        Some(_) => {
+            assertMsg(g.channelIsClosedStub != None, "channel isClosed stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeIsClosed()), "srt_chan_is_closed registered")
         }
     }
 }
