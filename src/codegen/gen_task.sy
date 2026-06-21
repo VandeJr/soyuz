@@ -33,6 +33,10 @@ pub fn taskHandleCurrentRuntime() -> String {
     return "srt_task_handle_current"
 }
 
+pub fn taskHandleCancelledRuntime() -> String {
+    return "srt_task_cancelled"
+}
+
 pub fn taskHandleSomeBlockName() -> String {
     return "task_handle_some"
 }
@@ -160,6 +164,26 @@ pub fn isTaskTapMethodCall(callee: Node, g: Generator) -> Bool {
 
 pub fn isTaskAlwaysMethodCall(callee: Node, g: Generator) -> Bool {
     return isTaskInstanceMethodCall(callee, g, "always")
+}
+
+pub fn isTaskHandleInstanceType(t: Type) -> Bool = match t {
+    Class(ct) => ct.name == "TaskHandle"
+    _ => false
+}
+
+pub fn isTaskHandleInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match taskCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isTaskHandleInstanceType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isTaskHandleCancelledMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskHandleInstanceMethodCall(callee, g, "cancelled")
 }
 
 pub fn nextTapWrapperName(g: Generator) -> String {
@@ -439,6 +463,13 @@ pub fn taskHandleCurrentBlockNamesRegistered(g: Generator) -> Bool {
     if !blockNameRegistered(g, taskHandleSomeBlockName()) { return false }
     if !blockNameRegistered(g, taskHandleNoneBlockName()) { return false }
     return blockNameRegistered(g, taskHandleMergeBlockName())
+}
+
+pub fn generateTaskHandleCancelledStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskHandleCancelledRuntime())
+    val stub = stubLlvmValue(g)
+    g.taskHandleCancelledStub = Some(stub)
+    return Some(stub)
 }
 
 pub fn generateTaskPipelineStub(g: Generator, stageCount: Int) -> Option[LlvmValue] {

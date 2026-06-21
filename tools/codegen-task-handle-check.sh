@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestTaskHandleCurrentEmitsSrtTaskHandleCurrent|TestTaskHandleCurrentWrapsInOption' -count=1
+go test ./internal/codegen/ -run 'TestTaskHandleCurrentEmitsSrtTaskHandleCurrent|TestTaskHandleCurrentWrapsInOption|TestTaskHandleCancelledEmitsSrtTaskCancelled' -count=1
 echo "→ codegen task-handle check (bootstrap) OK"
