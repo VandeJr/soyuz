@@ -33,10 +33,6 @@ pub fn noneLlvmValueOption() -> Option[LlvmValue] {
     return None
 }
 
-fn dummyLoopBlock() -> LlvmBasicBlock {
-    return LlvmBasicBlock { handle: 0 }
-}
-
 fn hasCurrentLoop(g: Generator) -> Bool {
     match currentLoop(g) {
         None => false
@@ -181,13 +177,13 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
 
 fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
     if !exprGeneratesOk(g, data.iterable) { return None }
-    pushLoop(g, LoopCtx { cond: dummyLoopBlock(), after: dummyLoopBlock(), resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
-    val bodyOk = match generateStmtNode(g, data.body) {
-        None => false
-        Some(_) => true
-    }
+    val bodyBlock = newBlock(g, "for_body")
+    val afterBlock = newBlock(g, "for_after")
+    emitBrToBlockStub(g, bodyBlock)
+    pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
     popLoop(g)
-    if !bodyOk { return None }
+    setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
 }
 

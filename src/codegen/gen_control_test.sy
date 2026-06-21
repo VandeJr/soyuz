@@ -144,7 +144,11 @@ test fn testGenerateForStmt() {
     val g = newGenerator(controlCheckerWithNodeTypes(types))
     match generateStmtNode(g, forNode) {
         None => assertMsg(false, "expected for stmt result")
-        Some(r) => assertMsg(!hasTerminator(r), "for completes without terminator")
+        Some(r) => {
+            assertMsg(!hasTerminator(r), "for completes without terminator")
+            assertMsg(blockNameRegistered(g, "for_body"), "for body block registered")
+            assertMsg(blockNameRegistered(g, "for_after"), "for after block registered")
+        }
     }
 }
 
