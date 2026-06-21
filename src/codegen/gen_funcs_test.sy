@@ -4,7 +4,7 @@ import (
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
     { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, shouldSkipFuncVariants } from @codegen/gen_funcs
-    { currentBlockHandle } from @codegen/gen_ir
+    { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -230,6 +230,28 @@ test fn testGenerateFuncVariantsBodyWhenGuard() {
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
     assertMsg(generateFuncVariantsBody(g, "pick"), "when-guard variant bodies codegen")
+}
+
+test fn testGenerateFuncVariantsBodyWhenGuardCreatesBlocks() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "42" })) })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    var catchallBody = catchall
+    catchallBody.body = Some(ret)
+    var guardedBody = guarded
+    guardedBody.body = Some(ret)
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "pick"), "when-guard blocks codegen")
+    assertMsg(blockNameRegistered(g, "v0_guard_ok"), "guard ok block registered")
+    assertMsg(blockNameRegistered(g, "variant_0_body"), "guarded variant body block")
+    assertMsg(blockNameRegistered(g, "variant_0_next"), "guarded variant next block")
+    assertMsg(blockNameRegistered(g, "variant_1_body"), "catchall variant body block")
 }
 
 test fn testGenerateFuncVariantsBodyLiteralParam() {

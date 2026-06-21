@@ -254,19 +254,30 @@ fn appendFuncVariantName(names: List[String], name: String) -> List[String] {
     return result
 }
 
+fn generateFuncVariantBlocks(g: Generator, plan: FuncVariantPlan) -> Bool {
+    newBlock(g, plan.nextBlockName)
+    return true
+}
+
 fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = match plan.variant.whenGuard {
     None => true
-    Some(expr) => match generateExprNode(g, expr) {
-        None => false
-        Some(_) => true
+    Some(expr) => match (generateExprNode(g, expr), plan.guardBlockName) {
+        (None, _) => false
+        (Some(_), None) => true
+        (Some(_), Some(name)) => {
+            setCurrentBlock(g, newBlock(g, name))
+            true
+        }
     }
 }
 
 fn generateFuncVariantsBodyLoop(g: Generator, plans: List[FuncVariantPlan], index: Int) -> Bool {
     if index >= plans.size() { return true }
     val plan = plans.get(index)
+    if !generateFuncVariantBlocks(g, plan) { return false }
     if !generateFuncVariantParamPatterns(g, plan) { return false }
     if !generateFuncVariantWhenGuard(g, plan) { return false }
+    setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
     match plan.variant.body {
         None => generateFuncVariantsBodyLoop(g, plans, index + 1)
         Some(body) => match generateStmtNode(g, body) {
