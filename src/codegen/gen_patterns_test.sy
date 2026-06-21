@@ -562,6 +562,41 @@ test fn testMatchPatternDispatchRecordWithSubjectFieldLoads() {
     assertMsg(g.valueHandleCounter > handlesBefore + 4, "subject plus field gep/load stubs")
 }
 
+test fn testMatchPatternDispatchRecordNestedBindingWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val binding = Pattern.Binding(3, span, "n")
+    val xField = RecordPatternField { name: "x", pattern: Some(binding) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    val pointType = Type.Record("Point", pointFields, [])
+    assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: n } with subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 1, "field load for nested binding")
+    assertMsg(g.recordPatternFieldStores.size() == 1, "nested binding store from loaded field")
+    var hasN = false
+    for k in g.vars.keys() {
+        if k == "n" { hasN = true }
+    }
+    assertMsg(hasN, "n bound from nested field pattern")
+    assertMsg(blockNameRegistered(g, "field_match_ok"), "nested field ok block")
+}
+
+test fn testMatchPatternDispatchRecordNestedBindingNoSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val binding = Pattern.Binding(3, span, "n")
+    val xField = RecordPatternField { name: "x", pattern: Some(binding) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: n } no subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 0, "no field load without subject")
+    assertMsg(g.recordPatternFieldStores.size() == 0, "no field store without subject")
+}
+
 test fn testMatchPatternDispatchTupleElements() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
