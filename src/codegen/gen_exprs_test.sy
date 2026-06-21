@@ -854,6 +854,41 @@ test fn testMatchExprRangePatternCodegen() {
     }
 }
 
+test fn testMatchExprLiteralPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val body = Node.IntLiteral(10, span, IntLiteralData { value: "42" })
+    val pat = Pattern.Literal(2, span, LiteralPatternValue.Int("1"))
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on literal pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "literal arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "literal arm body block")
+            assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal compare stub block")
+            match g.literalPatternSubjectValue {
+                None => assertMsg(false, "literal pattern records subject value stub")
+                Some(v) => assertMsg(v.handle > 0, "subject value handle for literal cmp")
+            }
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
 // Port of soyuz-go/internal/codegen/when_guard_test.go TestMatchWhenGuardCodegen.
 test fn testMatchWhenGuardCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }

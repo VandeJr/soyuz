@@ -1005,7 +1005,13 @@ fn matchPatternTupleDispatch(g: Generator, elements: List[Pattern], thenBlockNam
 fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
     Wildcard(_, _) => matchPatternAdvance(g, thenBlockName)
     Binding(_, _, name) => matchPatternBindingDispatch(g, name, hasSubject, subjectType, thenBlockName)
-    Literal(_, _, value) => matchPatternLiteralDispatch(g, value, thenBlockName, nextBlockName)
+    Literal(_, _, value) => {
+        if hasSubject {
+            val subjectVal = stubLlvmValue(g)
+            return matchPatternLiteralDispatchWithSubject(g, value, subjectVal, thenBlockName, nextBlockName)
+        }
+        return matchPatternLiteralDispatch(g, value, thenBlockName, nextBlockName)
+    }
     Constructor(_, _, name, args) => {
         if hasSubject {
             return matchPatternConstructorDispatch(g, name, args, subjectType, thenBlockName, nextBlockName)
