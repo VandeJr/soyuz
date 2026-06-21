@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, generateFuncDeclNode, generateProgramBody } from @codegen/gen_funcs
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncDeclNode, generateProgramBody } from @codegen/gen_funcs
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -163,6 +163,54 @@ test fn testSortFuncVariantsStableAmongSamePriority() {
     val sorted = sortFuncVariantsForDispatch([first, second])
     assertMsg(sorted.get(0).name == "first", "stable sort preserves order among equal priority")
     assertMsg(sorted.get(1).name == "second", "stable sort preserves order among equal priority")
+}
+
+test fn testVariantBlockNames() {
+    assertMsg(variantGuardBlockName(0) == "v0_guard_ok", "guard block name")
+    assertMsg(variantBodyBlockName(1) == "variant_1_body", "body block name")
+    assertMsg(variantNextBlockName(2) == "variant_2_next", "next block name")
+    assertMsg(variantParamPatternOkBlockName(0, 1) == "v0_p1_ok", "param pattern ok block")
+}
+
+test fn testBuildFuncVariantPlanWhenGuard() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val guarded = makePickVariant(span, Some(guardCond))
+    val plan = buildFuncVariantPlan(guarded, 0)
+    assertMsg(plan.bodyBlockName == "variant_0_body", "plan body block")
+    assertMsg(plan.nextBlockName == "variant_0_next", "plan next block")
+    match plan.guardBlockName {
+        None => assertMsg(false, "plan guard block")
+        Some(name) => assertMsg(name == "v0_guard_ok", "plan guard block name")
+    }
+    assertMsg(plan.paramPatternOkBlockNames.size() == 1, "one param pattern block")
+    assertMsg(plan.paramPatternOkBlockNames.get(0) == "v0_p0_ok", "param pattern block name")
+}
+
+test fn testBuildFuncVariantPlansFromCheckResult() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchall, guarded])
+    val g = newGenerator(cr)
+    val plans = buildFuncVariantPlans(g, "pick")
+    assertMsg(plans.size() == 2, "two variant plans")
+    assertMsg(isWhenGuardVariant(plans.get(0).variant), "guarded plan first")
+    match plans.get(0).guardBlockName {
+        None => assertMsg(false, "first plan has guard block")
+        Some(name) => assertMsg(name == "v0_guard_ok", "first plan guard block")
+    }
+    match plans.get(1).guardBlockName {
+        None => assertMsg(true, "catchall has no guard block")
+        Some(_) => assertMsg(false, "catchall has no guard block")
+    }
+}
+
+test fn testFuncVariantsForNameMissing() {
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(funcVariantsForName(g, "missing").size() == 0, "missing name returns empty")
 }
 
 test fn testGenerateFuncDeclNode() {

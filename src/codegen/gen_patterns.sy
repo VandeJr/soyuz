@@ -1,6 +1,6 @@
 import (
     { Type } from @checker/types
-    { Pattern, MatchArm } from @ast/ast
+    { Pattern, MatchArm, MatchExprData } from @ast/ast
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
@@ -59,6 +59,53 @@ pub fn matchArmHasGuard(arm: MatchArm) -> Bool {
 
 pub fn matchArmIsCatchall(arm: MatchArm) -> Bool {
     return isCatchallMatchPattern(arm.pattern)
+}
+
+pub fn matchArmPatternOkBlockName(index: Int) -> String {
+    return "match_arm_$(index)_pattern_ok"
+}
+
+pub fn matchArmBodyBlockName(index: Int) -> String {
+    return "match_arm_$(index)_body"
+}
+
+pub fn matchArmNextBlockName(index: Int) -> String {
+    return "match_arm_$(index)_next"
+}
+
+pub fn matchMergeBlockName() -> String {
+    return "match_merge"
+}
+
+pub record MatchArmPlan {
+    arm: MatchArm,
+    index: Int,
+    patternOkBlockName: String,
+    bodyBlockName: String,
+    nextBlockName: String,
+    hasGuard: Bool
+}
+
+pub fn buildMatchArmPlan(arm: MatchArm, index: Int) -> MatchArmPlan {
+    return MatchArmPlan {
+        arm: arm,
+        index: index,
+        patternOkBlockName: matchArmPatternOkBlockName(index),
+        bodyBlockName: matchArmBodyBlockName(index),
+        nextBlockName: matchArmNextBlockName(index),
+        hasGuard: matchArmHasGuard(arm)
+    }
+}
+
+fn buildMatchArmPlansLoop(arms: List[MatchArm], index: Int, plans: List[MatchArmPlan]) -> List[MatchArmPlan] {
+    if index >= arms.size() { return plans }
+    var result = plans
+    result.append(buildMatchArmPlan(arms.get(index), index))
+    return buildMatchArmPlansLoop(arms, index + 1, result)
+}
+
+pub fn buildMatchArmPlans(data: MatchExprData) -> List[MatchArmPlan] {
+    return buildMatchArmPlansLoop(data.arms, 0, [])
 }
 
 fn patternsMapHasEnum(m: Map[String, EnumInfo], key: String) -> Bool {

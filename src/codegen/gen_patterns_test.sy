@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr, MatchArm, Pattern, LiteralPatternValue, IntLiteralData } from @ast/ast
+    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr, MatchArm, Pattern, LiteralPatternValue, IntLiteralData, MatchExprData } from @ast/ast
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans } from @codegen/gen_patterns
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -151,4 +151,37 @@ test fn testMatchArmGuardAndCatchall() {
     assertMsg(!matchArmHasGuard(catchallArm), "catchall no guard")
     assertMsg(matchArmIsCatchall(catchallArm), "wildcard catchall arm")
     assertMsg(!matchArmIsCatchall(guardedArm), "binding arm not catchall")
+}
+
+test fn testMatchArmBlockNames() {
+    assertMsg(matchArmPatternOkBlockName(0) == "match_arm_0_pattern_ok", "pattern ok block")
+    assertMsg(matchArmBodyBlockName(1) == "match_arm_1_body", "body block")
+    assertMsg(matchArmNextBlockName(2) == "match_arm_2_next", "next block")
+    assertMsg(matchMergeBlockName() == "match_merge", "merge block")
+}
+
+test fn testBuildMatchArmPlans() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val body = Node.IntLiteral(5, span, IntLiteralData { value: "0" })
+    val guardCond = Node.IntLiteral(6, span, IntLiteralData { value: "1" })
+    val subject = Node.IntLiteral(7, span, IntLiteralData { value: "10" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(0, span, "n"),
+        guard: Some(guardCond),
+        body: body
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(1, span),
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val plans = buildMatchArmPlans(data)
+    assertMsg(plans.size() == 2, "two arm plans")
+    assertMsg(plans.get(0).patternOkBlockName == "match_arm_0_pattern_ok", "first arm pattern ok")
+    assertMsg(plans.get(0).hasGuard, "first arm has guard")
+    assertMsg(plans.get(1).bodyBlockName == "match_arm_1_body", "second arm body block")
+    assertMsg(!plans.get(1).hasGuard, "catchall no guard")
 }

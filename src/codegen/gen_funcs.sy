@@ -134,6 +134,82 @@ pub fn sortFuncVariantsForDispatch(variants: List[FuncDeclData]) -> List[FuncDec
     return sortFuncVariantsLoop(variants, 0, empty)
 }
 
+fn funcsMapHasVariants(m: Map[String, List[FuncDeclData]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+pub fn funcVariantsForName(g: Generator, name: String) -> List[FuncDeclData] {
+    if !funcsMapHasVariants(g.check.funcVariants, name) {
+        var empty: List[FuncDeclData] = []
+        return empty
+    }
+    return g.check.funcVariants.get(name)
+}
+
+pub fn variantGuardBlockName(index: Int) -> String {
+    return "v$(index)_guard_ok"
+}
+
+pub fn variantBodyBlockName(index: Int) -> String {
+    return "variant_$(index)_body"
+}
+
+pub fn variantNextBlockName(index: Int) -> String {
+    return "variant_$(index)_next"
+}
+
+pub fn variantParamPatternOkBlockName(variantIdx: Int, paramIdx: Int) -> String {
+    return "v$(variantIdx)_p$(paramIdx)_ok"
+}
+
+pub record FuncVariantPlan {
+    variant: FuncDeclData,
+    index: Int,
+    nextBlockName: String,
+    bodyBlockName: String,
+    guardBlockName: Option[String],
+    paramPatternOkBlockNames: List[String]
+}
+
+fn buildParamPatternOkNames(variantIdx: Int, paramCount: Int) -> List[String] {
+    var names: List[String] = []
+    var i = 0
+    loop {
+        if i >= paramCount { break }
+        names.append(variantParamPatternOkBlockName(variantIdx, i))
+        i = i + 1
+    }
+    return names
+}
+
+pub fn buildFuncVariantPlan(variant: FuncDeclData, index: Int) -> FuncVariantPlan {
+    val guardName = match variant.whenGuard {
+        None => None
+        Some(_) => Some(variantGuardBlockName(index))
+    }
+    return FuncVariantPlan {
+        variant: variant,
+        index: index,
+        nextBlockName: variantNextBlockName(index),
+        bodyBlockName: variantBodyBlockName(index),
+        guardBlockName: guardName,
+        paramPatternOkBlockNames: buildParamPatternOkNames(index, variant.params.size())
+    }
+}
+
+fn buildFuncVariantPlansLoop(variants: List[FuncDeclData], index: Int, plans: List[FuncVariantPlan]) -> List[FuncVariantPlan] {
+    if index >= variants.size() { return plans }
+    var result = plans
+    result.append(buildFuncVariantPlan(variants.get(index), index))
+    return buildFuncVariantPlansLoop(variants, index + 1, result)
+}
+
+pub fn buildFuncVariantPlans(g: Generator, name: String) -> List[FuncVariantPlan] {
+    val sorted = sortFuncVariantsForDispatch(funcVariantsForName(g, name))
+    return buildFuncVariantPlansLoop(sorted, 0, [])
+}
+
 pub record ProgramResult {
     funcCount: Int
 }

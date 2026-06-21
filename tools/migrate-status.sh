@@ -65,6 +65,13 @@ else
   echo "  tools/codegen-struct-check.sh ausente"
 fi
 
+hr "Codegen when check (bootstrap, S4)"
+if [[ -x tools/codegen-when-check.sh ]]; then
+  bash tools/codegen-when-check.sh 2>&1 || echo "→ codegen when check FALHOU"
+else
+  echo "  tools/codegen-when-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 
