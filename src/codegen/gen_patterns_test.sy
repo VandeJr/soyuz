@@ -1,5 +1,5 @@
 import (
-    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr, MatchArm, Pattern, LiteralPatternValue, IntLiteralData, MatchExprData, FuncParam } from @ast/ast
+    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr, MatchArm, Pattern, LiteralPatternValue, IntLiteralData, MatchExprData, FuncParam, RecordPatternField } from @ast/ast
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
@@ -343,4 +343,32 @@ test fn testMatchPatternDispatchConstructorMultiFieldArgs() {
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Pair(a,b) dispatch")
     assertMsg(blockNameRegistered(g, "enum_Pair_field_0_ok"), "first nested field ok block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "final then block")
+}
+
+test fn testMatchPatternDispatchRecordShorthandFields() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xField = RecordPatternField { name: "x", pattern: None }
+    val yField = RecordPatternField { name: "y", pattern: None }
+    val pat = Pattern.Record(2, span, "Point", [xField, yField])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x, y } dispatch")
+    var hasX = false
+    var hasY = false
+    for k in g.vars.keys() {
+        if k == "x" { hasX = true }
+        if k == "y" { hasY = true }
+    }
+    assertMsg(hasX, "x bound from record field")
+    assertMsg(hasY, "y bound from record field")
+}
+
+test fn testMatchPatternDispatchTupleElements() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val a = Pattern.Binding(3, span, "a")
+    val b = Pattern.Binding(4, span, "b")
+    val pat = Pattern.Tuple(2, span, [a, b])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "tuple (a,b) dispatch")
+    assertMsg(blockNameRegistered(g, "tuple_elem_0_ok"), "first tuple elem ok block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "tuple final then block")
 }

@@ -441,6 +441,52 @@ fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, args: 
     return matchPatternConstructorArgsLoop(g, variantName, args, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
+fn matchPatternRecordFieldsLoop(g: Generator, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
+    if index >= fields.size() { return matchPatternAdvance(g, thenBlockName) }
+    val field = fields.get(index)
+    return match field.pattern {
+        None => {
+            if !registerPatternBinding(g, field.name, llvmI64()) { return false }
+            matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+        }
+        Some(inner) => {
+            val fieldThen = recordFieldPatternOkBlockName()
+            val dispatched = match hasSubject {
+                true => matchPatternDispatchWithSubject(g, inner, subjectType, fieldThen, nextBlockName)
+                false => matchPatternDispatchNoSubject(g, inner, fieldThen, nextBlockName)
+            }
+            if !dispatched { return false }
+            matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+        }
+    }
+}
+
+fn matchPatternRecordDispatch(g: Generator, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
+    if fields.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
+    return matchPatternRecordFieldsLoop(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
+}
+
+fn matchPatternTupleElemThenBlock(index: Int, elemCount: Int, thenBlockName: String) -> String {
+    if index == elemCount - 1 { return thenBlockName }
+    return tupleElemPatternOkBlockName(index)
+}
+
+fn matchPatternTupleElementsLoop(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
+    if index >= elements.size() { return true }
+    val elemThen = matchPatternTupleElemThenBlock(index, elements.size(), thenBlockName)
+    val dispatched = match hasSubject {
+        true => matchPatternDispatchWithSubject(g, elements.get(index), subjectType, elemThen, nextBlockName)
+        false => matchPatternDispatchNoSubject(g, elements.get(index), elemThen, nextBlockName)
+    }
+    if !dispatched { return false }
+    return matchPatternTupleElementsLoop(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+}
+
+fn matchPatternTupleDispatch(g: Generator, elements: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
+    if elements.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
+    return matchPatternTupleElementsLoop(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
+}
+
 fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
     Wildcard(_, _) => matchPatternAdvance(g, thenBlockName)
     Binding(_, _, name) => matchPatternBindingDispatch(g, name, thenBlockName)
@@ -454,8 +500,8 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
         }
         return matchPatternConstructorDispatchNoSubject(g, name, args, thenBlockName, nextBlockName)
     }
-    Record(_, _, _, _) => matchPatternAdvance(g, thenBlockName)
-    Tuple(_, _, _) => matchPatternAdvance(g, thenBlockName)
+    Record(_, _, _, fields) => matchPatternRecordDispatch(g, fields, thenBlockName, nextBlockName, hasSubject, subjectType)
+    Tuple(_, _, elements) => matchPatternTupleDispatch(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType)
     Range(_, _, _, _, _) => {
         newBlock(g, rangePatternGeBlockName())
         matchPatternAdvance(g, thenBlockName)
