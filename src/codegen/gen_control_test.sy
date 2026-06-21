@@ -278,6 +278,7 @@ test fn testGenerateWhileStmt() {
     types.set(2, UnitType)
     types.set(3, UnitType)
     val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val handlesBefore = g.valueHandleCounter
     match generateStmtNode(g, whileNode) {
         None => assertMsg(false, "expected while stmt result")
         Some(r) => {
@@ -285,6 +286,8 @@ test fn testGenerateWhileStmt() {
             assertMsg(blockNameRegistered(g, "while_cond"), "while cond block registered")
             assertMsg(blockNameRegistered(g, "while_body"), "while body block registered")
             assertMsg(blockNameRegistered(g, "while_after"), "while after block registered")
+            assertMsg(g.whileCondValue != None, "while_cond records condition value stub")
+            assertMsg(g.valueHandleCounter > handlesBefore, "while condition stub allocates value handle")
         }
     }
 }

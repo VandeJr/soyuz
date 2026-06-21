@@ -107,14 +107,19 @@ fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResu
     }
 }
 
+fn emitWhileCondStub(g: Generator, condition: Node, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if !exprGeneratesOk(g, condition) { return false }
+    g.whileCondValue = Some(stubLlvmValue(g))
+    return emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+}
+
 fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[StmtResult] {
     val condBlock = newBlock(g, "while_cond")
     val bodyBlock = newBlock(g, "while_body")
     val afterBlock = newBlock(g, "while_after")
     emitBrToBlockStub(g, condBlock)
     setCurrentBlock(g, condBlock)
-    if !exprGeneratesOk(g, data.condition) { return None }
-    if !emitCondBrToBlockStub(g, bodyBlock, afterBlock) { return None }
+    if !emitWhileCondStub(g, data.condition, bodyBlock, afterBlock) { return None }
     pushLoop(g, LoopCtx { cond: condBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     setCurrentBlock(g, bodyBlock)
     if !finishLoopBodyFromNode(g, condBlock, data.body) { return None }
