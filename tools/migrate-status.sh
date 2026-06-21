@@ -72,6 +72,13 @@ else
   echo "  tools/codegen-when-check.sh ausente"
 fi
 
+hr "Codegen collections check (bootstrap, S5)"
+if [[ -x tools/codegen-collections-check.sh ]]; then
+  bash tools/codegen-collections-check.sh 2>&1 || echo "→ codegen collections check FALHOU"
+else
+  echo "  tools/codegen-collections-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

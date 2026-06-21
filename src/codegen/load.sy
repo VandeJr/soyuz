@@ -11,5 +11,7 @@ import @codegen/gen_structs
 import @codegen/gen_structs_test
 import @codegen/gen_patterns
 import @codegen/gen_patterns_test
+import @codegen/gen_collections
+import @codegen/gen_collections_test
 import @codegen/gen_ir
 import @codegen/gen_ir_test

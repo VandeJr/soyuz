@@ -1,0 +1,36 @@
+import (
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue } from @codegen/gen_ir
+)
+
+// collectionElemKind: 0 = Int/Char, 1 = String (for list/map to_string runtime).
+pub fn collectionElemKind(t: Type) -> Int = match t {
+    Basic(name) => {
+        if name == "String" { return 1 }
+        return 0
+    }
+    _ => 0
+}
+
+pub fn mapKeyIsStringKind(t: Type) -> Int = match t {
+    Basic(name) => {
+        if name == "String" { return 1 }
+        return 0
+    }
+    _ => 0
+}
+
+pub fn isListOrMapType(t: Type) -> Bool = match t {
+    Specialized(base, _) => match base {
+        Class(ct) => ct.name == "List" || ct.name == "Map"
+        _ => false
+    }
+    _ => false
+}
+
+pub fn emitCollectionToStringStub(g: Generator, _val: LlvmValue, soyuzType: Type) -> Option[LlvmValue] {
+    if !isListOrMapType(soyuzType) { return None }
+    return Some(stubLlvmValue(g))
+}
