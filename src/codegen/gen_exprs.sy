@@ -5,7 +5,8 @@ import (
     { Generator } from @codegen/generator
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
-    { buildMatchArmPlans, matchPatternSupported, matchPatternSupportedWithType } from @codegen/gen_patterns
+    { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternSupported, matchPatternSupportedWithType } from @codegen/gen_patterns
+    { newBlock, setCurrentBlock } from @codegen/gen_ir
 )
 
 pub enum ConstValue {
@@ -275,10 +276,18 @@ fn generateMatchGuardFromArm(g: Generator, matchArm: MatchArm) -> Bool = match m
     }
 }
 
+fn generateMatchArmBlocks(g: Generator, plan: MatchArmPlan) -> Bool {
+    newBlock(g, plan.nextBlockName)
+    newBlock(g, plan.bodyBlockName)
+    setCurrentBlock(g, newBlock(g, plan.patternOkBlockName))
+    return true
+}
+
 fn generateMatchArmsLoop(g: Generator, node: Node, data: MatchExprData, index: Int) -> Bool {
     val plans = buildMatchArmPlans(data)
     if index >= plans.size() { return true }
     val plan = plans.get(index)
+    if !generateMatchArmBlocks(g, plan) { return false }
     val subjectType = checkerTypeForNode(g, nodeId(data.subject))
     val supported = match subjectType {
         None => matchPatternSupported(g, plan.matchArm.pattern)
@@ -296,7 +305,9 @@ fn generateMatchExprResult(g: Generator, node: Node, data: MatchExprData) -> Opt
     return match generateExprNode(g, data.subject) {
         None => None
         Some(_) => {
+            val merge = newBlock(g, matchMergeBlockName())
             if !generateMatchArmsLoop(g, node, data, 0) { return None }
+            setCurrentBlock(g, merge)
             exprResultFromNode(g, node, NoConst)
         }
     }

@@ -5,6 +5,7 @@ import (
     { newGenerator } from @codegen/generator
     { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk } from @codegen/gen_exprs
     { generateEnumDecl } from @codegen/gen_structs
+    { blockNameRegistered } from @codegen/gen_ir
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -345,5 +346,43 @@ test fn testGenerateMatchExprEnumConstructor() {
     match generateExprNode(g, node) {
         None => assertMsg(false, "expected enum match expr result")
         Some(r) => assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "enum match returns Int")
+    }
+}
+
+test fn testGenerateMatchExprCreatesBlocks() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
+    val guardCond = Node.IntLiteral(7, span, IntLiteralData { value: "1" })
+    val negBody = Node.StringLiteral(4, span, StringLiteralData { value: "neg" })
+    val posBody = Node.StringLiteral(5, span, StringLiteralData { value: "pos" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(2, span, "n"),
+        guard: Some(guardCond),
+        body: negBody
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(3, span),
+        guard: None,
+        body: posBody
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val node = Node.MatchExpr(6, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(4, StringType)
+    types.set(5, StringType)
+    types.set(6, StringType)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr with blocks")
+        Some(_) => {
+            assertMsg(blockNameRegistered(g, "match_merge"), "merge block registered")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "first arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "first arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_1_next"), "second arm next block")
+        }
     }
 }

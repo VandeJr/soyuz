@@ -39,3 +39,10 @@ pub fn currentBlockHandle(g: Generator) -> Option[Int] = match g.current {
     None => None
     Some(block) => Some(block.handle)
 }
+
+pub fn blockNameRegistered(g: Generator, name: String) -> Bool {
+    for k in g.blockNames.keys() {
+        if k == name { return true }
+    }
+    return false
+}
