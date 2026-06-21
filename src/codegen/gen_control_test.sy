@@ -1,0 +1,52 @@
+import (
+    { Node, LoopStmtData, BlockStmtData, FuncDeclData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, FuncType, Type, IntType, UnitType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { LoopCtx } from @codegen/types
+    { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx } from @codegen/gen_control
+    { LlvmBasicBlock, llvmI64, llvmVoid } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn controlTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testLoopNeedsResultAlloca() {
+    assertMsg(loopNeedsResultAlloca(IntType), "Int loop needs result")
+    assertMsg(!loopNeedsResultAlloca(UnitType), "Unit loop does not")
+}
+
+test fn testLoopStack() {
+    val g = newGenerator(controlTestCheckResult())
+    val cond = LlvmBasicBlock { handle: 1 }
+    val after = LlvmBasicBlock { handle: 2 }
+    assertMsg(loopDepth(g) == 0, "empty depth")
+    pushLoop(g, newLoopCtx(cond, after, llvmI64()))
+    assertMsg(loopDepth(g) == 1, "depth after push")
+    match currentLoop(g) {
+        None => assertMsg(false, "expected current loop")
+        Some(ctx) => assertMsg(ctx.cond.handle == 1, "cond block")
+    }
+    popLoop(g)
+    assertMsg(loopDepth(g) == 0, "depth after pop")
+    assertMsg(currentLoop(g) == None, "no current loop")
+}
+
+test fn testIsControlFlowStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val loopNode = Node.LoopStmt(1, span, LoopStmtData { body: Node.BlockStmt(2, span, BlockStmtData { statements: [] }) })
+    assertMsg(isLoopStmt(loopNode), "loop stmt")
+    assertMsg(isControlFlowStmt(loopNode), "loop is control flow")
+    assertMsg(!isBreakOrContinue(loopNode), "loop is not break")
+}

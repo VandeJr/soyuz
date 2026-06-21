@@ -1,0 +1,38 @@
+import (
+    { Pattern, FuncDeclData, FuncParam, LiteralPatternValue } from @ast/ast
+    { Span } from @lexer/tokens
+    { Type, IntType, StringType } from @checker/types
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant } from @codegen/gen_funcs
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testMangleSpecializedFuncName() {
+    assertMsg(mangleSpecializedFuncName("identity", [IntType]) == "identity__Int", "identity Int")
+    assertMsg(mangleSpecializedFuncName("pair", [IntType, StringType]) == "pair__Int__String", "pair Int String")
+}
+
+test fn testIsCatchallPatternForDispatch() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    assertMsg(isCatchallPatternForDispatch(Pattern.Wildcard(0, span)), "wildcard catchall")
+    assertMsg(isCatchallPatternForDispatch(Pattern.Binding(0, span, "x")), "binding catchall")
+    assertMsg(!isCatchallPatternForDispatch(Pattern.Literal(0, span, LiteralPatternValue.Int("42"))), "literal not catchall")
+}
+
+test fn testFuncVariantDispatchPriority() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val catchall = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "f",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    assertMsg(funcVariantDispatchPriority(catchall) == 2, "catchall priority 2")
+    assertMsg(!isWhenGuardVariant(catchall), "no when guard")
+}

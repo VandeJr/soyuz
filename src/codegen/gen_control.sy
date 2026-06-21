@@ -1,0 +1,61 @@
+import (
+    { Node } from @ast/ast
+    { Type, UnitType, typeToString } from @checker/types
+    { Generator } from @codegen/generator
+    { LoopCtx } from @codegen/types
+    { LlvmType, LlvmBasicBlock } from @codegen/llvm_types
+)
+
+pub fn loopNeedsResultAlloca(loopType: Type) -> Bool {
+    return typeToString(loopType) != "Unit"
+}
+
+pub fn newLoopCtx(cond: LlvmBasicBlock, after: LlvmBasicBlock, resultLlvm: LlvmType) -> LoopCtx {
+    return LoopCtx { cond: cond, after: after, resultAlloca: None, resultLlvm: resultLlvm }
+}
+
+pub fn pushLoop(g: Generator, ctx: LoopCtx) {
+    g.loops.append(ctx)
+}
+
+pub fn popLoop(g: Generator) {
+    if g.loops.size() > 0 {
+        g.loops = g.loops.slice(0, g.loops.size() - 1)
+    }
+}
+
+pub fn currentLoop(g: Generator) -> Option[LoopCtx] {
+    if g.loops.size() == 0 { return None }
+    return Some(g.loops.get(g.loops.size() - 1))
+}
+
+pub fn loopDepth(g: Generator) -> Int {
+    return g.loops.size()
+}
+
+pub fn isControlFlowStmt(node: Node) -> Bool = match node {
+    BlockStmt(_, _, _) => true
+    ReturnStmt(_, _, _) => true
+    BreakStmt(_, _, _) => true
+    ContinueStmt(_, _) => true
+    IfStmt(_, _, _) => true
+    ForStmt(_, _, _) => true
+    ForTaskStmt(_, _, _) => true
+    WhileStmt(_, _, _) => true
+    LoopStmt(_, _, _) => true
+    _ => false
+}
+
+pub fn isLoopStmt(node: Node) -> Bool = match node {
+    WhileStmt(_, _, _) => true
+    LoopStmt(_, _, _) => true
+    ForStmt(_, _, _) => true
+    ForTaskStmt(_, _, _) => true
+    _ => false
+}
+
+pub fn isBreakOrContinue(node: Node) -> Bool = match node {
+    BreakStmt(_, _, _) => true
+    ContinueStmt(_, _) => true
+    _ => false
+}

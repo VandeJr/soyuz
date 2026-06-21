@@ -1,0 +1,30 @@
+import (
+    { Pattern, FuncDeclData } from @ast/ast
+    { Type, typeToString } from @checker/types
+)
+
+pub fn mangleSpecializedFuncName(name: String, params: List[Type]) -> String {
+    var mangled = name
+    for p in params {
+        mangled = "$(mangled)__$(typeToString(p))"
+    }
+    return mangled
+}
+
+pub fn isCatchallPatternForDispatch(p: Pattern) -> Bool = match p {
+    Binding(_, _, _) => true
+    Wildcard(_, _) => true
+    _ => false
+}
+
+pub fn funcVariantDispatchPriority(v: FuncDeclData) -> Int {
+    if v.whenGuard != None { return 0 }
+    for param in v.params {
+        if !isCatchallPatternForDispatch(param.pattern) { return 1 }
+    }
+    return 2
+}
+
+pub fn isWhenGuardVariant(v: FuncDeclData) -> Bool {
+    return v.whenGuard != None
+}
