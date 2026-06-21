@@ -1,6 +1,6 @@
 import (
     { Type } from @checker/types
-    { Pattern, MatchArm, MatchExprData } from @ast/ast
+    { Pattern, MatchArm, MatchExprData, RecordPatternField } from @ast/ast
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
@@ -61,6 +61,82 @@ pub fn matchArmIsCatchall(arm: MatchArm) -> Bool {
     return isCatchallMatchPattern(arm.pattern)
 }
 
+pub fn patternBindingName(p: Pattern) -> Option[String] = match p {
+    Binding(_, _, name) => Some(name)
+    _ => noneStringOption()
+}
+
+fn appendAllStrings(dest: List[String], src: List[String]) -> List[String] {
+    var result = dest
+    for s in src {
+        result.append(s)
+    }
+    return result
+}
+
+fn collectPatternBindingsFromList(patterns: List[Pattern]) -> List[String] {
+    var names: List[String] = []
+    for p in patterns {
+        names = appendAllStrings(names, collectPatternBindings(p))
+    }
+    return names
+}
+
+fn appendRecordFieldBinding(names: List[String], f: RecordPatternField) -> List[String] {
+    match f.pattern {
+        None => {
+            var result = names
+            result.append(f.name)
+            return result
+        }
+        Some(inner) => appendAllStrings(names, collectPatternBindings(inner))
+    }
+}
+
+fn collectRecordPatternBindings(fields: List[RecordPatternField]) -> List[String] {
+    var names: List[String] = []
+    for f in fields {
+        names = appendRecordFieldBinding(names, f)
+    }
+    return names
+}
+
+fn emptyStringList() -> List[String] {
+    var empty: List[String] = []
+    return empty
+}
+
+pub fn collectPatternBindings(p: Pattern) -> List[String] = match p {
+    Wildcard(_, _) => emptyStringList()
+    Binding(_, _, name) => [name]
+    Literal(_, _, _) => emptyStringList()
+    Constructor(_, _, _, args) => collectPatternBindingsFromList(args)
+    Record(_, _, _, fields) => collectRecordPatternBindings(fields)
+    Tuple(_, _, elements) => collectPatternBindingsFromList(elements)
+    Range(_, _, _, _, _) => emptyStringList()
+}
+
+fn constructorPatternArgsOk(args: List[Pattern], vi: VariantInfo) -> Bool {
+    if args.size() == 0 { return true }
+    if vi.fields.size() > 0 {
+        return args.size() <= vi.fields.size()
+    }
+    return args.size() <= 1
+}
+
+pub fn matchPatternSupported(g: Generator, pat: Pattern) -> Bool = match pat {
+    Wildcard(_, _) => true
+    Binding(_, _, _) => true
+    Literal(_, _, _) => true
+    Constructor(_, _, name, args) => match enumVariantForPattern(g, name, None) {
+        None => false
+        Some(lookup) => constructorPatternArgsOk(args, lookup.variantInfo)
+    }
+    Record(_, _, _, _) => true
+    Tuple(_, _, _) => true
+    Range(_, _, _, _, _) => true
+}
+
 pub fn matchArmPatternOkBlockName(index: Int) -> String {
     return "match_arm_$(index)_pattern_ok"
 }
@@ -78,7 +154,7 @@ pub fn matchMergeBlockName() -> String {
 }
 
 pub record MatchArmPlan {
-    arm: MatchArm,
+    matchArm: MatchArm,
     index: Int,
     patternOkBlockName: String,
     bodyBlockName: String,
@@ -88,7 +164,7 @@ pub record MatchArmPlan {
 
 pub fn buildMatchArmPlan(arm: MatchArm, index: Int) -> MatchArmPlan {
     return MatchArmPlan {
-        arm: arm,
+        matchArm: arm,
         index: index,
         patternOkBlockName: matchArmPatternOkBlockName(index),
         bodyBlockName: matchArmBodyBlockName(index),

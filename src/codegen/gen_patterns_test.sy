@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported } from @codegen/gen_patterns
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -184,4 +184,28 @@ test fn testBuildMatchArmPlans() {
     assertMsg(plans.get(0).hasGuard, "first arm has guard")
     assertMsg(plans.get(1).bodyBlockName == "match_arm_1_body", "second arm body block")
     assertMsg(!plans.get(1).hasGuard, "catchall no guard")
+}
+
+test fn testPatternBindingNameAndCollect() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val binding = Pattern.Binding(0, span, "n")
+    match patternBindingName(binding) {
+        None => assertMsg(false, "binding name")
+        Some(name) => assertMsg(name == "n", "binding n")
+    }
+    val ctor = Pattern.Constructor(1, span, "Some", [binding])
+    val names = collectPatternBindings(ctor)
+    assertMsg(names.size() == 1, "one binding from constructor")
+    assertMsg(names.get(0) == "n", "nested binding n")
+}
+
+test fn testMatchPatternSupportedConstructor() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v0 = EnumVariant { span: patternsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: patternsZeroSpan(), name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    val okPat = Pattern.Constructor(2, patternsZeroSpan(), "Verde", [])
+    val badPat = Pattern.Constructor(3, patternsZeroSpan(), "Missing", [])
+    assertMsg(matchPatternSupported(g, okPat), "Verde supported")
+    assertMsg(!matchPatternSupported(g, badPat), "missing variant unsupported")
 }
