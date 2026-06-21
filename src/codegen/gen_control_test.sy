@@ -197,3 +197,60 @@ test fn testGenerateBlockStopsOnReturn() {
         Some(r) => assertMsg(hasTerminator(r), "block stops at return")
     }
 }
+
+test fn testGenerateWhileStmt() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val cond = Node.IntLiteral(1, span, IntLiteralData { value: "1" })
+    val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
+    val whileNode = Node.WhileStmt(3, span, WhileStmtData { condition: cond, body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, BoolType)
+    types.set(2, UnitType)
+    types.set(3, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, whileNode) {
+        None => assertMsg(false, "expected while stmt result")
+        Some(r) => assertMsg(!hasTerminator(r), "while completes without terminator")
+    }
+}
+
+test fn testGenerateContinueOutsideLoop() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 5 }
+    val cont = Node.ContinueStmt(1, span)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    assertMsg(generateStmtNode(g, cont) == None, "continue outside loop fails")
+}
+
+test fn testGenerateContinueInsideLoop() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 5 }
+    val cont = Node.ContinueStmt(1, span)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    pushLoop(g, newLoopCtx(LlvmBasicBlock { handle: 1 }, LlvmBasicBlock { handle: 2 }, llvmVoid()))
+    match generateStmtNode(g, cont) {
+        None => assertMsg(false, "expected continue inside loop")
+        Some(r) => assertMsg(hasTerminator(r), "continue terminates")
+    }
+    popLoop(g)
+}
+
+test fn testGenerateIfElseBothBranches() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
+    val cond = Node.IntLiteral(1, span, IntLiteralData { value: "1" })
+    val thenBranch = Node.ReturnStmt(3, span, ReturnStmtData { value: None })
+    val elseBranch = Node.ReturnStmt(5, span, ReturnStmtData { value: None })
+    val ifNode = Node.IfStmt(4, span, IfStmtData { condition: cond, consequent: thenBranch, alternate: Some(elseBranch) })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, BoolType)
+    types.set(3, UnitType)
+    types.set(4, UnitType)
+    types.set(5, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, ifNode) {
+        None => assertMsg(false, "expected if-else stmt result")
+        Some(r) => assertMsg(!hasTerminator(r), "if stmt itself does not terminate")
+    }
+}
