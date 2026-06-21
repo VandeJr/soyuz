@@ -17,5 +17,7 @@ import @codegen/gen_iter
 import @codegen/gen_iter_test
 import @codegen/gen_channel
 import @codegen/gen_channel_test
+import @codegen/gen_sync
+import @codegen/gen_sync_test
 import @codegen/gen_ir
 import @codegen/gen_ir_test

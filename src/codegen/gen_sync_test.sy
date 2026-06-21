@@ -1,0 +1,80 @@
+import (
+    { Node, FuncDeclData, IdentifierData, MemberExprData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, mutexRuntimeNew, generateMutexNewStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { assertMsg } from @soyuz/testing
+)
+
+fn syncEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn syncEmptyClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+test fn testIsMutexType() {
+    val mutexClass = syncEmptyClass("Mutex")
+    val atomicClass = syncEmptyClass("Atomic")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    assertMsg(isMutexType(mutexInt), "Mutex[Int] is mutex")
+    assertMsg(!isMutexType(atomicInt), "Atomic[Int] not mutex")
+    assertMsg(!isMutexType(IntType), "Int not mutex")
+}
+
+test fn testMutexInnerType() {
+    val mutexClass = syncEmptyClass("Mutex")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    match mutexInnerType(mutexInt) {
+        None => assertMsg(false, "Mutex[Int] inner type")
+        Some(t) => assertMsg(match t { Basic(name) => name == "Int", _ => false }, "inner is Int")
+    }
+    match mutexInnerType(IntType) {
+        None => assertMsg(true, "Int has no mutex inner")
+        Some(_) => assertMsg(false, "Int should not have inner")
+    }
+}
+
+test fn testIsMutexStaticNew() {
+    assertMsg(isMutexStaticNew("Mutex", "new"), "Mutex.new")
+    assertMsg(!isMutexStaticNew("Mutex", "lock"), "not Mutex.lock static")
+    assertMsg(!isMutexStaticNew("RwLock", "new"), "not RwLock.new")
+}
+
+test fn testIsMutexNewCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexId = Node.Identifier(1, span, IdentifierData { name: "Mutex" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: mutexId, property: "new" })
+    assertMsg(isMutexNewCall(member), "Mutex.new member is mutex new call")
+    val channelId = Node.Identifier(3, span, IdentifierData { name: "Channel" })
+    val channelMember = Node.MemberExpr(4, span, MemberExprData { object: channelId, property: "new" })
+    assertMsg(!isMutexNewCall(channelMember), "Channel.new not mutex new")
+}
+
+test fn testGenerateMutexNewStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateMutexNewStub(g) {
+        None => assertMsg(false, "mutex new stub")
+        Some(_) => assertMsg(g.mutexNewStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeNew()), "srt_mutex_new registered")
+}

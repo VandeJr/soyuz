@@ -1,0 +1,74 @@
+import (
+    { Node } from @ast/ast
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue } from @codegen/gen_ir
+)
+
+pub fn mutexRuntimeNew() -> String {
+    return "srt_mutex_new"
+}
+
+pub fn mutexRuntimeLock() -> String {
+    return "srt_mutex_lock"
+}
+
+pub fn isMutexType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "Mutex" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn mutexInnerType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "Mutex" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn isMutexStaticNew(typeName: String, methodName: String) -> Bool {
+    return typeName == "Mutex" && methodName == "new"
+}
+
+pub fn isMutexNewCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isMutexStaticNew(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+fn registerSyncRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.syncRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.syncRuntimeSymbols
+        syms.append(symbol)
+        g.syncRuntimeSymbols = syms
+    }
+}
+
+pub fn syncRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.syncRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn generateMutexNewStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, mutexRuntimeNew())
+    val stub = stubLlvmValue(g)
+    g.mutexNewStub = Some(stub)
+    return Some(stub)
+}

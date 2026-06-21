@@ -131,6 +131,8 @@ pub class Generator {
     pub var channelCloseStub: Option[LlvmValue] = None
     pub var channelIsClosedStub: Option[LlvmValue] = None
     pub var channelRuntimeSymbols: List[String] = []
+    pub var mutexNewStub: Option[LlvmValue] = None
+    pub var syncRuntimeSymbols: List[String] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {
