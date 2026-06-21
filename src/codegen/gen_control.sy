@@ -6,7 +6,7 @@ import (
     { LoopCtx } from @codegen/types
     { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, recordLoopBreakStore } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, defaultLlvmValue, emitStoreStub, emitBreakValueStoreStub } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -110,6 +110,20 @@ fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[St
     }
 }
 
+fn storeLoopResultDefault(g: Generator, resultLlvm: LlvmType, resultAlloca: LlvmValue) {
+    match defaultLlvmValue(g, resultLlvm) {
+        None => {}
+        Some(def) => {
+            emitStoreStub(g, def, resultAlloca)
+            recordLoopResultDefaultStore(g, def)
+        }
+    }
+}
+
+fn recordLoopResultDefaultStore(g: Generator, def: LlvmValue) {
+    g.loopResultDefaultStore = Some(def)
+}
+
 fn finishLoopBodyFromNode(g: Generator, bodyBlock: LlvmBasicBlock, body: Node) -> Bool {
     return match generateStmtNode(g, body) {
         None => false
@@ -133,6 +147,7 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
     if loopNeedsResultAlloca(loopType) {
         val resultLlvm = mapTypeToLLVM(g, loopType)
         val resultAlloca = newAlloca(g, resultLlvm)
+        storeLoopResultDefault(g, resultLlvm, resultAlloca)
         pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: Some(resultAlloca), resultLlvm: resultLlvm })
         if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
         popLoop(g)
@@ -261,9 +276,7 @@ fn setLoopResultLoad(g: Generator, alloca: LlvmValue) {
 fn recordBreakValueStore(g: Generator, ctx: LoopCtx) {
     match loopCtxResultAlloca(ctx) {
         None => {}
-        Some(alloca) => {
-            recordLoopBreakStore(g, alloca)
-        }
+        Some(alloca) => emitBreakValueStoreStub(g, alloca)
     }
 }
 

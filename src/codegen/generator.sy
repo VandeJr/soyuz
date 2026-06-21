@@ -56,6 +56,7 @@ pub class Generator {
     pub var matchPhiIncomings: List[PhiIncoming] = []
     pub var matchPhiResult: Option[LlvmValue] = None
     pub var loopResultLoad: Option[LlvmValue] = None
+    pub var loopResultDefaultStore: Option[LlvmValue] = None
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

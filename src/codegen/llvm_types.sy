@@ -85,6 +85,17 @@ pub fn isHeapLlvmType(t: LlvmType) -> Bool = match t.kind {
     _ => false
 }
 
+pub fn llvmTypeHasDefaultZero(t: LlvmType) -> Bool = match t.kind {
+    I1 => true
+    I8 => true
+    I32 => true
+    I64 => true
+    F64 => true
+    I8Ptr => true
+    Pointer(_) => true
+    _ => false
+}
+
 // Opaque handles for IR values (wired in later milestones).
 
 pub record LlvmModule {

@@ -272,7 +272,27 @@ test fn testGenerateValueLoopBlocksAndResultLoad() {
             assertMsg(blockNameRegistered(g, "loop_after"), "loop after block registered")
             assertMsg(g.valueHandleCounter > handlesBeforeGen, "value loop allocates result slot")
             assertMsg(g.loopResultLoad != None, "value loop records result load stub")
+            assertMsg(g.loopResultDefaultStore != None, "value loop stores default into result alloca")
         }
+    }
+}
+
+test fn testGenerateValueLoopBreakStoresValue() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
+    val breakVal = Node.IntLiteral(5, span, IntLiteralData { value: "50" })
+    val brk = Node.BreakStmt(4, span, BreakStmtData { value: Some(breakVal) })
+    val body = Node.BlockStmt(3, span, BlockStmtData { statements: [brk] })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, IntType)
+    types.set(3, UnitType)
+    types.set(4, UnitType)
+    types.set(5, IntType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val handlesBefore = g.valueHandleCounter
+    match generateStmtNode(g, loopNode) {
+        None => assertMsg(false, "expected value loop with break")
+        Some(_) => assertMsg(g.valueHandleCounter > handlesBefore + 1, "break value store stub allocates value handle")
     }
 }
 
@@ -290,6 +310,7 @@ test fn testGenerateUnitLoopNoResultLoad() {
         Some(_) => {
             assertMsg(g.valueHandleCounter == handlesBefore, "unit loop has no result alloca")
             assertMsg(g.loopResultLoad == None, "unit loop has no result load")
+            assertMsg(g.loopResultDefaultStore == None, "unit loop has no default store")
         }
     }
 }

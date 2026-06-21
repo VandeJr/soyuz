@@ -1,7 +1,7 @@
 import (
     { Generator } from @codegen/generator
     { PhiIncoming } from @codegen/types
-    { LlvmBasicBlock, LlvmType, LlvmValue } from @codegen/llvm_types
+    { LlvmBasicBlock, LlvmType, LlvmValue, llvmTypeHasDefaultZero } from @codegen/llvm_types
 )
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
@@ -98,8 +98,23 @@ pub fn emitPhiStub(g: Generator) -> Option[LlvmValue] {
     return Some(phi)
 }
 
-pub fn recordLoopBreakStore(g: Generator, alloca: LlvmValue) {
-    return
+fn stubValueHandle(g: Generator) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
+    if !llvmTypeHasDefaultZero(ty) { return None }
+    return Some(stubValueHandle(g))
+}
+
+pub fn emitStoreStub(g: Generator, value: LlvmValue, alloca: LlvmValue) -> Bool {
+    return true
+}
+
+pub fn emitBreakValueStoreStub(g: Generator, alloca: LlvmValue) {
+    emitStoreStub(g, stubValueHandle(g), alloca)
 }
 
 pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {
