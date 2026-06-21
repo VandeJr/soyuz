@@ -1,5 +1,5 @@
 import (
-    { Type } from @checker/types
+    { Type, EnumType } from @checker/types
     { Pattern, MatchArm, MatchExprData, RecordPatternField, FuncParam, LiteralPatternValue } from @ast/ast
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
@@ -19,6 +19,10 @@ fn noneEnumVariantLookup() -> Option[EnumVariantLookup] {
 }
 
 fn noneLlvmTypeOption() -> Option[LlvmType] {
+    return None
+}
+
+fn noneTypeOption() -> Option[Type] {
     return None
 }
 
@@ -479,7 +483,7 @@ fn matchPatternConstructorDispatch(g: Generator, name: String, args: List[Patter
         Some(lookup) => {
             if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
             setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
-            matchPatternConstructorArgsDispatch(g, name, args, thenBlockName, nextBlockName, true, subjectType)
+            matchPatternConstructorArgsDispatch(g, name, lookup.variantInfo, args, thenBlockName, nextBlockName, true, subjectType)
         }
     }
 }
@@ -490,8 +494,53 @@ fn matchPatternConstructorDispatchNoSubject(g: Generator, name: String, args: Li
         Some(lookup) => {
             if !constructorPatternArgsOk(args, lookup.variantInfo) { return false }
             setCurrentBlock(g, newBlock(g, constructorPatternMatchOkBlockName(name)))
-            matchPatternConstructorArgsDispatch(g, name, args, thenBlockName, nextBlockName, false, Type.Basic("Unknown"))
+            matchPatternConstructorArgsDispatch(g, name, lookup.variantInfo, args, thenBlockName, nextBlockName, false, Type.Basic("Unknown"))
         }
+    }
+}
+
+fn checkerEnumVariantFieldsAt(data: EnumType, variantName: String, argIndex: Int) -> Option[Type] {
+    for k in data.variants.keys() {
+        if k == variantName {
+            val fields = data.variants.get(variantName)
+            if argIndex >= fields.size() { return None }
+            return Some(fields.get(argIndex))
+        }
+    }
+    return None
+}
+
+fn specializedVariantFieldType(variantName: String, params: List[Type], argIndex: Int) -> Option[Type] {
+    if argIndex != 0 { return None }
+    if params.size() == 0 { return None }
+    if variantName == "Ok" || variantName == "Some" {
+        return Some(params.get(0))
+    }
+    if variantName == "Err" {
+        return Some(Type.Basic("String"))
+    }
+    return None
+}
+
+fn checkerEnumVariantFieldType(subjectType: Type, variantName: String, argIndex: Int) -> Option[Type] {
+    return match subjectType {
+        Enum(data) => checkerEnumVariantFieldsAt(data, variantName, argIndex)
+        Specialized(base, params) => {
+            val fromBase = checkerEnumVariantFieldType(base, variantName, argIndex)
+            match fromBase {
+                Some(_) => fromBase
+                None => specializedVariantFieldType(variantName, params, argIndex)
+            }
+        }
+        _ => noneTypeOption()
+    }
+}
+
+pub fn constructorPatternArgSubjectType(hasSubject: Bool, subjectType: Type, variantName: String, argIndex: Int) -> Type {
+    if !hasSubject { return subjectType }
+    return match checkerEnumVariantFieldType(subjectType, variantName, argIndex) {
+        None => subjectType
+        Some(fieldType) => fieldType
     }
 }
 
@@ -500,20 +549,21 @@ fn matchPatternConstructorArgThenBlock(variantName: String, argIndex: Int, argCo
     return enumFieldPatternOkBlockName(variantName, argIndex)
 }
 
-fn matchPatternConstructorArgsLoop(g: Generator, variantName: String, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
+fn matchPatternConstructorArgsLoop(g: Generator, variantName: String, vi: VariantInfo, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
     if index >= args.size() { return true }
     val argThen = matchPatternConstructorArgThenBlock(variantName, index, args.size(), thenBlockName)
+    val argSubjectType = constructorPatternArgSubjectType(hasSubject, subjectType, variantName, index)
     val dispatched = match hasSubject {
-        true => matchPatternDispatchWithSubject(g, args.get(index), subjectType, argThen, nextBlockName)
+        true => matchPatternDispatchWithSubject(g, args.get(index), argSubjectType, argThen, nextBlockName)
         false => matchPatternDispatchNoSubject(g, args.get(index), argThen, nextBlockName)
     }
     if !dispatched { return false }
-    return matchPatternConstructorArgsLoop(g, variantName, args, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
+    return matchPatternConstructorArgsLoop(g, variantName, vi, args, thenBlockName, nextBlockName, hasSubject, subjectType, index + 1)
 }
 
-fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
+fn matchPatternConstructorArgsDispatch(g: Generator, variantName: String, vi: VariantInfo, args: List[Pattern], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool {
     if args.size() == 0 { return matchPatternAdvance(g, thenBlockName) }
-    return matchPatternConstructorArgsLoop(g, variantName, args, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
+    return matchPatternConstructorArgsLoop(g, variantName, vi, args, thenBlockName, nextBlockName, hasSubject, subjectType, 0)
 }
 
 fn matchPatternRecordFieldsLoop(g: Generator, recordName: String, fields: List[RecordPatternField], thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, index: Int) -> Bool {
