@@ -1,0 +1,133 @@
+import (
+    { Node, RecordDeclData, EnumDeclData, EnumVariant, EnumField, InterfaceDeclData } from @ast/ast
+    { Generator } from @codegen/generator
+    { StructInfo, EnumInfo, VariantInfo } from @codegen/types
+    { mapSoyuzTypeToLLVM } from @codegen/gen_types
+    { LlvmType, llvmI64, llvmI8, llvmArrayType, llvmStructType } from @codegen/llvm_types
+)
+
+fn structsMapHasStruct(m: Map[String, StructInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn structsMapHasEnum(m: Map[String, EnumInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn enumFieldIndexName(index: Int) -> String {
+    return "$(index)"
+}
+
+fn buildEnumVariantFields(g: Generator, v: EnumVariant) -> (List[LlvmType], Map[String, Int]) {
+    var fields: List[LlvmType] = []
+    var fieldNames: Map[String, Int] = Map[String, Int]{}
+    var j = 0
+    for f in v.fields {
+        fields.append(mapSoyuzTypeToLLVM(g, Some(f.typeExpr)))
+        if f.name != "" {
+            fieldNames.set(f.name, j)
+        } else {
+            fieldNames.set(enumFieldIndexName(j), j)
+        }
+        j = j + 1
+    }
+    return (fields, fieldNames)
+}
+
+fn registerEnumPayloadStruct(g: Generator, enumName: String, variantName: String, fields: List[LlvmType], fieldNames: Map[String, Int]) -> Option[LlvmType] {
+    if fields.size() == 0 { return None }
+    val payloadName = "$(enumName)__$(variantName)__payload"
+    val payloadTy = llvmStructType(payloadName, fields)
+    g.structs.set(payloadName, StructInfo { typ: payloadTy, fieldIndices: fieldNames })
+    return Some(payloadTy)
+}
+
+pub fn generateRecordDecl(g: Generator, data: RecordDeclData) -> Bool {
+    if data.generics.size() > 0 {
+        g.genericRecordDecls.set(data.name, data)
+        return true
+    }
+    var indices: Map[String, Int] = Map[String, Int]{}
+    var fieldTypes: List[LlvmType] = []
+    var i = 0
+    for f in data.fields {
+        indices.set(f.name, i)
+        fieldTypes.append(mapSoyuzTypeToLLVM(g, Some(f.typeExpr)))
+        i = i + 1
+    }
+    val st = llvmStructType(data.name, fieldTypes)
+    g.structs.set(data.name, StructInfo { typ: st, fieldIndices: indices })
+    return true
+}
+
+pub fn generateEnumDecl(g: Generator, data: EnumDeclData) -> Bool {
+    if data.generics.size() > 0 {
+        g.genericEnumDecls.set(data.name, data)
+        return true
+    }
+    var variants: Map[String, VariantInfo] = Map[String, VariantInfo]{}
+    var tag = 0
+    for v in data.variants {
+        val (fields, fieldNames) = buildEnumVariantFields(g, v)
+        val payloadType = registerEnumPayloadStruct(g, data.name, v.name, fields, fieldNames)
+        variants.set(v.name, VariantInfo {
+            tag: tag,
+            fields: fields,
+            fieldNames: fieldNames,
+            payloadType: payloadType
+        })
+        tag = tag + 1
+    }
+    val enumTy = llvmStructType(data.name, [llvmI64(), llvmArrayType(llvmI8(), 64)])
+    g.enums.set(data.name, EnumInfo { typ: enumTy, variants: variants })
+    return true
+}
+
+pub fn generateInterfaceDecl(g: Generator, data: InterfaceDeclData) -> Bool {
+    g.interfaceDecls.set(data.name, data)
+    return true
+}
+
+pub fn generateTopLevelDecl(g: Generator, node: Node) -> Bool = match node {
+    RecordDecl(_, _, data) => generateRecordDecl(g, data)
+    EnumDecl(_, _, data) => generateEnumDecl(g, data)
+    InterfaceDecl(_, _, data) => generateInterfaceDecl(g, data)
+    _ => true
+}
+
+pub fn structInfoRegistered(g: Generator, name: String) -> Bool {
+    return structsMapHasStruct(g.structs, name)
+}
+
+pub fn enumInfoRegistered(g: Generator, name: String) -> Bool {
+    return structsMapHasEnum(g.enums, name)
+}
+
+pub fn enumVariantTag(g: Generator, enumName: String, variantName: String) -> Option[Int] {
+    if !structsMapHasEnum(g.enums, enumName) { return None }
+    val ei = g.enums.get(enumName)
+    for k in ei.variants.keys() {
+        if k == variantName {
+            return Some(ei.variants.get(variantName).tag)
+        }
+    }
+    return None
+}
+
+pub fn enumVariantCount(g: Generator, enumName: String) -> Int {
+    if !structsMapHasEnum(g.enums, enumName) { return 0 }
+    return g.enums.get(enumName).variants.size()
+}
+
+pub fn recordFieldIndex(g: Generator, recordName: String, fieldName: String) -> Option[Int] {
+    if !structsMapHasStruct(g.structs, recordName) { return None }
+    val si = g.structs.get(recordName)
+    for k in si.fieldIndices.keys() {
+        if k == fieldName {
+            return Some(si.fieldIndices.get(fieldName))
+        }
+    }
+    return None
+}

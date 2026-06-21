@@ -5,6 +5,7 @@ import (
     { Generator } from @codegen/generator
     { generateStmtNode } from @codegen/gen_control
     { checkerTypeForNode } from @codegen/gen_exprs
+    { generateTopLevelDecl } from @codegen/gen_structs
     { mapTypeToLLVM } from @codegen/gen_types
     { LlvmType } from @codegen/llvm_types
 )
@@ -90,7 +91,7 @@ pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResu
                     true
                 }
             }
-            _ => true
+            _ => generateTopLevelDecl(g, decl)
         }
         if !ok { return None }
     }

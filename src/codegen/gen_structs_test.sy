@@ -1,0 +1,122 @@
+import (
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, FuncType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { generateRecordDecl, generateEnumDecl, generateTopLevelDecl, structInfoRegistered, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex } from @codegen/gen_structs
+    { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8 } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn structsZeroSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 0 }
+
+fn structsEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testGenerateRecordDecl() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val xField = RecordField { span: structsZeroSpan(), name: "x", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Int") }
+    val yField = RecordField { span: structsZeroSpan(), name: "y", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Int") }
+    val decl = RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xField, yField] }
+    assertMsg(generateRecordDecl(g, decl), "record decl ok")
+    assertMsg(structInfoRegistered(g, "Point"), "Point registered")
+    match recordFieldIndex(g, "Point", "x") {
+        None => assertMsg(false, "field x index")
+        Some(idx) => assertMsg(idx == 0, "x at index 0")
+    }
+    val expected = llvmStructType("Point", [llvmI64(), llvmI64()])
+    assertMsg(llvmTypesEqual(g.structs.get("Point").typ, expected), "Point struct type")
+}
+
+test fn testGenerateEnumSimple() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val v0 = EnumVariant { span: structsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: structsZeroSpan(), name: "Verde", fields: [] }
+    val v2 = EnumVariant { span: structsZeroSpan(), name: "Azul", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1, v2] }
+    assertMsg(generateEnumDecl(g, decl), "enum decl ok")
+    assertMsg(enumInfoRegistered(g, "Cor"), "Cor registered")
+    assertMsg(enumVariantCount(g, "Cor") == 3, "three variants")
+    match enumVariantTag(g, "Cor", "Verde") {
+        None => assertMsg(false, "Verde tag")
+        Some(tag) => assertMsg(tag == 1, "Verde tag is 1")
+    }
+    val expected = llvmStructType("Cor", [llvmI64(), llvmArrayType(llvmI8(), 64)])
+    assertMsg(llvmTypesEqual(g.enums.get("Cor").typ, expected), "Cor enum layout")
+}
+
+test fn testGenerateEnumWithFields() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val circuloField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Float") }
+    val retField = EnumField { name: "largura", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Float") }
+    val circulo = EnumVariant { span: structsZeroSpan(), name: "Circulo", fields: [circuloField] }
+    val retangulo = EnumVariant { span: structsZeroSpan(), name: "Retangulo", fields: [retField] }
+    val decl = EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo, retangulo] }
+    assertMsg(generateEnumDecl(g, decl), "enum with fields ok")
+    assertMsg(structInfoRegistered(g, "Forma__Circulo__payload"), "Circulo payload registered")
+    val payload = g.structs.get("Forma__Circulo__payload")
+    assertMsg(llvmTypesEqual(payload.typ, llvmStructType("Forma__Circulo__payload", [llvmF64()])), "payload type")
+    match recordFieldIndex(g, "Forma__Circulo__payload", "raio") {
+        None => assertMsg(false, "raio field")
+        Some(idx) => assertMsg(idx == 0, "raio at 0")
+    }
+}
+
+test fn testGenerateTwoEnumsSameVariantName() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val sOk = EnumVariant { span: structsZeroSpan(), name: "Ok", fields: [] }
+    val sErro = EnumVariant { span: structsZeroSpan(), name: "Erro", fields: [] }
+    val rOk = EnumVariant { span: structsZeroSpan(), name: "Ok", fields: [] }
+    val rFalha = EnumVariant { span: structsZeroSpan(), name: "Falha", fields: [] }
+    val status = EnumDeclData { isPub: true, name: "Status", generics: [], variants: [sOk, sErro] }
+    val resultado = EnumDeclData { isPub: true, name: "Resultado", generics: [], variants: [rOk, rFalha] }
+    assertMsg(generateEnumDecl(g, status), "Status ok")
+    assertMsg(generateEnumDecl(g, resultado), "Resultado ok")
+    assertMsg(enumInfoRegistered(g, "Status"), "Status registered")
+    assertMsg(enumInfoRegistered(g, "Resultado"), "Resultado registered")
+    match enumVariantTag(g, "Status", "Ok") {
+        None => assertMsg(false, "Status.Ok tag")
+        Some(tag) => assertMsg(tag == 0, "Status.Ok is 0")
+    }
+    match enumVariantTag(g, "Resultado", "Ok") {
+        None => assertMsg(false, "Resultado.Ok tag")
+        Some(tag) => assertMsg(tag == 0, "Resultado.Ok is 0")
+    }
+}
+
+test fn testGenericRecordDeferred() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val valueField = RecordField { span: structsZeroSpan(), name: "value", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "T") }
+    val decl = RecordDeclData {
+        isPub: true,
+        name: "Box",
+        generics: [GenericParam { name: "T", constraints: [] }],
+        fields: [valueField]
+    }
+    assertMsg(generateRecordDecl(g, decl), "generic record deferred")
+    assertMsg(!structInfoRegistered(g, "Box"), "Box not concrete yet")
+    var hasGeneric = false
+    for k in g.genericRecordDecls.keys() {
+        if k == "Box" { hasGeneric = true }
+    }
+    assertMsg(hasGeneric, "Box in genericRecordDecls")
+}
+
+test fn testGenerateTopLevelDeclEnumNode() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val v = EnumVariant { span: structsZeroSpan(), name: "Vermelho", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v] }
+    val node = Node.EnumDecl(1, structsZeroSpan(), decl)
+    assertMsg(generateTopLevelDecl(g, node), "top-level enum ok")
+    assertMsg(enumInfoRegistered(g, "Cor"), "Cor via top-level")
+}

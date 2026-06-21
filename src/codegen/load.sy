@@ -7,3 +7,5 @@ import @codegen/gen_control
 import @codegen/gen_control_test
 import @codegen/gen_funcs
 import @codegen/gen_funcs_test
+import @codegen/gen_structs
+import @codegen/gen_structs_test
