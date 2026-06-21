@@ -1,5 +1,5 @@
 import (
-    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant } from @ast/ast
+    { Node, FuncDeclData, IntLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr } from @ast/ast
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, EnumType } from @checker/types
     { newGenerator } from @codegen/generator
@@ -425,6 +425,63 @@ test fn testM6EnumMatchCodegen() {
             assertMsg(blockNameRegistered(g, "match_arm_1_body"), "second arm body block")
             assertMsg(blockNameRegistered(g, "match_arm_2_body"), "wildcard arm body block")
             assertMsg(matchPhiIncomingCount(g) == 4, "three arm bodies plus fallthrough phi")
+        }
+    }
+}
+
+// Port of m6_enum_test.go Forma enum — match on variants with payload fields.
+test fn testM6EnumWithFieldsMatchCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 80 }
+    val floatType = Type.Basic("Float")
+    val subject = Node.Identifier(1, span, IdentifierData { name: "f" })
+    val raioBinding = Pattern.Binding(6, span, "r")
+    val larguraBinding = Pattern.Binding(7, span, "w")
+    val body0 = Node.Identifier(10, span, IdentifierData { name: "r" })
+    val body1 = Node.Identifier(11, span, IdentifierData { name: "w" })
+    val arm0 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(2, span, "Circulo", [raioBinding]),
+        guard: None,
+        body: body0
+    }
+    val arm1 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(3, span, "Retangulo", [larguraBinding]),
+        guard: None,
+        body: body1
+    }
+    val data = MatchExprData { subject: subject, arms: [arm0, arm1] }
+    val node = Node.MatchExpr(5, span, data)
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Circulo", [floatType])
+    variants.set("Retangulo", [floatType])
+    val formaType = Type.Enum(EnumType {
+        name: "Forma",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, formaType)
+    types.set(5, floatType)
+    types.set(10, floatType)
+    types.set(11, floatType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val raioField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val larguraField = EnumField { name: "largura", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val circulo = EnumVariant { span: span, name: "Circulo", fields: [raioField] }
+    val retangulo = EnumVariant { span: span, name: "Retangulo", fields: [larguraField] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo, retangulo] }), "register Forma")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected m6 enum with fields match codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, floatType)), "match returns Float")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_Circulo_tag_cmp"), "Circulo tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_Retangulo_tag_cmp"), "Retangulo tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "Circulo arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_1_body"), "Retangulo arm body block")
+            assertMsg(matchPhiIncomingCount(g) == 3, "two arm bodies plus fallthrough phi")
         }
     }
 }
