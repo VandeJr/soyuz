@@ -76,6 +76,64 @@ pub fn isWhenGuardVariant(v: FuncDeclData) -> Bool {
     return v.whenGuard != None
 }
 
+fn appendAllFuncVariants(dest: List[FuncDeclData], src: List[FuncDeclData]) -> List[FuncDeclData] {
+    var result = dest
+    for item in src {
+        result.append(item)
+    }
+    return result
+}
+
+fn listPrefixFuncVariants(items: List[FuncDeclData], end: Int) -> List[FuncDeclData] {
+    var result: List[FuncDeclData] = []
+    var i = 0
+    loop {
+        if i >= end { break }
+        result.append(items.get(i))
+        i = i + 1
+    }
+    return result
+}
+
+fn listSuffixFuncVariants(items: List[FuncDeclData], start: Int) -> List[FuncDeclData] {
+    var result: List[FuncDeclData] = []
+    var i = start
+    loop {
+        if i >= items.size() { break }
+        result.append(items.get(i))
+        i = i + 1
+    }
+    return result
+}
+
+fn insertSortedFuncVariantAt(sorted: List[FuncDeclData], v: FuncDeclData, pos: Int) -> List[FuncDeclData] {
+    if pos >= sorted.size() {
+        var result = sorted
+        result.append(v)
+        return result
+    }
+    if funcVariantDispatchPriority(v) < funcVariantDispatchPriority(sorted.get(pos)) {
+        val prefix = listPrefixFuncVariants(sorted, pos)
+        val suffix = listSuffixFuncVariants(sorted, pos)
+        return appendAllFuncVariants(appendAllFuncVariants(prefix, [v]), suffix)
+    }
+    return insertSortedFuncVariantAt(sorted, v, pos + 1)
+}
+
+fn insertSortedFuncVariant(sorted: List[FuncDeclData], v: FuncDeclData) -> List[FuncDeclData] {
+    return insertSortedFuncVariantAt(sorted, v, 0)
+}
+
+fn sortFuncVariantsLoop(input: List[FuncDeclData], index: Int, sorted: List[FuncDeclData]) -> List[FuncDeclData] {
+    if index >= input.size() { return sorted }
+    return sortFuncVariantsLoop(input, index + 1, insertSortedFuncVariant(sorted, input.get(index)))
+}
+
+pub fn sortFuncVariantsForDispatch(variants: List[FuncDeclData]) -> List[FuncDeclData] {
+    var empty: List[FuncDeclData] = []
+    return sortFuncVariantsLoop(variants, 0, empty)
+}
+
 pub record ProgramResult {
     funcCount: Int
 }

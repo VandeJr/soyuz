@@ -1,9 +1,9 @@
 import (
-    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr } from @ast/ast
+    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr, MatchArm, Pattern, LiteralPatternValue, IntLiteralData } from @ast/ast
     { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { generateEnumDecl } from @codegen/gen_structs
-    { enumVariantForPattern, resolveEnumPayloadType } from @codegen/gen_patterns
+    { enumVariantForPattern, resolveEnumPayloadType, isWildcardPattern, isBindingPattern, isConstructorPattern, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall } from @codegen/gen_patterns
     { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -109,4 +109,46 @@ test fn testResolveEnumPayloadTypeSpecializedErr() {
             assertMsg(llvmTypesEqual(ty, llvmI8Ptr()), "Err payload is i8*")
         }
     }
+}
+
+test fn testPatternClassificationHelpers() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val wildcard = Pattern.Wildcard(0, span)
+    val binding = Pattern.Binding(1, span, "n")
+    val constructor = Pattern.Constructor(2, span, "Verde", [])
+    val literal = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    assertMsg(isWildcardPattern(wildcard), "wildcard")
+    assertMsg(isBindingPattern(binding), "binding")
+    assertMsg(isConstructorPattern(constructor), "constructor")
+    assertMsg(!isConstructorPattern(literal), "literal not constructor")
+    assertMsg(isCatchallMatchPattern(wildcard), "wildcard catchall")
+    assertMsg(!isCatchallMatchPattern(binding), "binding not catchall in match")
+    assertMsg(!isCatchallMatchPattern(constructor), "constructor not catchall")
+    match patternConstructorName(constructor) {
+        None => assertMsg(false, "constructor name")
+        Some(name) => assertMsg(name == "Verde", "Verde name")
+    }
+    assertMsg(constructorPatternArgCount(constructor) == 0, "no constructor args")
+}
+
+test fn testMatchArmGuardAndCatchall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val body = Node.IntLiteral(5, span, IntLiteralData { value: "0" })
+    val guardCond = Node.IntLiteral(6, span, IntLiteralData { value: "1" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(0, span, "n"),
+        guard: Some(guardCond),
+        body: body
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(1, span),
+        guard: None,
+        body: body
+    }
+    assertMsg(matchArmHasGuard(guardedArm), "arm has guard")
+    assertMsg(!matchArmHasGuard(catchallArm), "catchall no guard")
+    assertMsg(matchArmIsCatchall(catchallArm), "wildcard catchall arm")
+    assertMsg(!matchArmIsCatchall(guardedArm), "binding arm not catchall")
 }

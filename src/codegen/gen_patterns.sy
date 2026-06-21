@@ -1,5 +1,6 @@
 import (
     { Type } from @checker/types
+    { Pattern, MatchArm } from @ast/ast
     { Generator } from @codegen/generator
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
@@ -17,6 +18,47 @@ fn noneEnumVariantLookup() -> Option[EnumVariantLookup] {
 
 fn noneLlvmTypeOption() -> Option[LlvmType] {
     return None
+}
+
+fn noneStringOption() -> Option[String] {
+    return None
+}
+
+pub fn isWildcardPattern(p: Pattern) -> Bool = match p {
+    Wildcard(_, _) => true
+    _ => false
+}
+
+pub fn isBindingPattern(p: Pattern) -> Bool = match p {
+    Binding(_, _, _) => true
+    _ => false
+}
+
+pub fn isConstructorPattern(p: Pattern) -> Bool = match p {
+    Constructor(_, _, _, _) => true
+    _ => false
+}
+
+pub fn isCatchallMatchPattern(p: Pattern) -> Bool {
+    return isWildcardPattern(p)
+}
+
+pub fn patternConstructorName(p: Pattern) -> Option[String] = match p {
+    Constructor(_, _, name, _) => Some(name)
+    _ => noneStringOption()
+}
+
+pub fn constructorPatternArgCount(p: Pattern) -> Int = match p {
+    Constructor(_, _, _, args) => args.size()
+    _ => 0
+}
+
+pub fn matchArmHasGuard(arm: MatchArm) -> Bool {
+    return arm.guard != None
+}
+
+pub fn matchArmIsCatchall(arm: MatchArm) -> Bool {
+    return isCatchallMatchPattern(arm.pattern)
 }
 
 fn patternsMapHasEnum(m: Map[String, EnumInfo], key: String) -> Bool {

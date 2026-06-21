@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, generateFuncDeclNode, generateProgramBody } from @codegen/gen_funcs
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, generateFuncDeclNode, generateProgramBody } from @codegen/gen_funcs
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -103,6 +103,66 @@ test fn testFuncVariantWhenGuardPriority() {
     }
     assertMsg(funcVariantDispatchPriority(guarded) == 0, "when guard priority 0")
     assertMsg(isWhenGuardVariant(guarded), "has when guard")
+}
+
+fn makePickVariant(span: Span, whenGuard: Option[Node]) -> FuncDeclData {
+    return FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "pick",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: whenGuard,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+}
+
+test fn testSortFuncVariantsWhenGuardBeforeCatchall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    val sorted = sortFuncVariantsForDispatch([catchall, guarded])
+    assertMsg(sorted.size() == 2, "two variants")
+    assertMsg(isWhenGuardVariant(sorted.get(0)), "when-guarded variant runs first (P-13)")
+    assertMsg(!isWhenGuardVariant(sorted.get(1)), "catch-all variant runs last")
+}
+
+test fn testSortFuncVariantsStableAmongSamePriority() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val first = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "first",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Literal(0, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val second = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "second",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Literal(1, span, LiteralPatternValue.Int("2")), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val sorted = sortFuncVariantsForDispatch([first, second])
+    assertMsg(sorted.get(0).name == "first", "stable sort preserves order among equal priority")
+    assertMsg(sorted.get(1).name == "second", "stable sort preserves order among equal priority")
 }
 
 test fn testGenerateFuncDeclNode() {
