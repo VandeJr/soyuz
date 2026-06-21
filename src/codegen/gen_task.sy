@@ -368,6 +368,13 @@ pub fn taskNullStoreRecorded(g: Generator, name: String) -> Bool {
     return false
 }
 
+pub fn nullifyTaskVarsAfterAll(g: Generator, args: List[Node]) -> Bool {
+    for arg in args {
+        if !nullifyTaskVarAfterConsume(g, arg) { return false }
+    }
+    return true
+}
+
 pub fn pushTaskScope(g: Generator) {
     var stack = g.taskVarStack
     stack.append([])
