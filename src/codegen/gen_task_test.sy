@@ -4,7 +4,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
     { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
-    { isTaskCallInner, isTaskPipeInner, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskAwaitMethodCall, isTaskDetachMethodCall, taskRuntimeDetach, taskRuntimeSetResult, taskMallocBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskDropStub, generateTaskAllStub, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
     { assertMsg } from @soyuz/testing
 )
 
@@ -142,6 +142,32 @@ test fn testOwnTaskVarAndPopScope() {
     val owned = popTaskScope(g)
     assertMsg(owned.size() == 1, "one task var owned")
     assertMsg(isTaskInstanceType(Type.Specialized(Type.Class(taskEmptyClass("Task")), [IntType])), "task instance type")
+}
+
+test fn testIsTaskAllCombinatorCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val allMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "all" })
+    val settledMember = Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "allSettled" })
+    val gatherMember = Node.MemberExpr(4, span, MemberExprData { object: taskId, property: "gather" })
+    assertMsg(isTaskStaticAll("Task", "all"), "Task.all static")
+    assertMsg(isTaskStaticAll("Task", "allSettled"), "Task.allSettled static")
+    assertMsg(isTaskAllCombinatorCall(allMember), "Task.all call")
+    assertMsg(isTaskAllCombinatorCall(settledMember), "Task.allSettled call")
+    assertMsg(!isTaskAllCombinatorCall(gatherMember), "Task.gather not all combinator")
+}
+
+test fn testGenerateTaskAllStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskAllStub(g, 2) {
+        None => assertMsg(false, "task all stub")
+        Some(_) => {
+            assertMsg(g.taskAllStub != None, "all stub stored")
+            assertMsg(g.taskAllArgCount == 2, "arg count stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
 }
 
 test fn testEmitTaskDrops() {

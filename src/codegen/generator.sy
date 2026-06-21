@@ -158,6 +158,8 @@ pub class Generator {
     pub var taskDetachStub: Option[LlvmValue] = None
     pub var taskAwaitStub: Option[LlvmValue] = None
     pub var taskDropStub: Option[LlvmValue] = None
+    pub var taskAllStub: Option[LlvmValue] = None
+    pub var taskAllArgCount: Int = 0
     pub var taskLastWrapperName: Option[String] = None
     pub var taskPipeMode: Bool = false
     pub var taskPipeInnerStub: Option[LlvmValue] = None

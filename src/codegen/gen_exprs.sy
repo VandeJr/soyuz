@@ -10,7 +10,7 @@ import (
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
-    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCallInner, isTaskPipeInner, ownTaskVar, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub } from @codegen/gen_task
+    { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, ownTaskVar, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskAwaitStub, generateTaskAllStub } from @codegen/gen_task
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -552,6 +552,14 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                 }
             }
             _ => None
+        }
+    }
+    if isTaskAllCombinatorCall(data.callee) {
+        if data.args.size() == 0 { return None }
+        if !generateAllCallArgs(g, data.args) { return None }
+        return match generateTaskAllStub(g, data.args.size()) {
+            None => None
+            Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
     if isTaskGatherCall(data.callee) {
