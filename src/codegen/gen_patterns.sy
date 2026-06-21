@@ -1,0 +1,122 @@
+import (
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { EnumInfo, VariantInfo } from @codegen/types
+    { mapTypeToLLVM } from @codegen/gen_types
+    { LlvmType, llvmI64, llvmI8Ptr, llvmStructType } from @codegen/llvm_types
+)
+
+pub record EnumVariantLookup {
+    enumInfo: EnumInfo,
+    variantInfo: VariantInfo
+}
+
+fn noneEnumVariantLookup() -> Option[EnumVariantLookup] {
+    return None
+}
+
+fn noneLlvmTypeOption() -> Option[LlvmType] {
+    return None
+}
+
+fn patternsMapHasEnum(m: Map[String, EnumInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn patternsMapHasVariant(ei: EnumInfo, variantName: String) -> Bool {
+    for k in ei.variants.keys() {
+        if k == variantName { return true }
+    }
+    return false
+}
+
+fn enumVariantFromEnumInfo(ei: EnumInfo, variantName: String) -> Option[EnumVariantLookup] {
+    if !patternsMapHasVariant(ei, variantName) { return noneEnumVariantLookup() }
+    return Some(EnumVariantLookup {
+        enumInfo: ei,
+        variantInfo: ei.variants.get(variantName)
+    })
+}
+
+fn enumVariantForRegisteredEnum(g: Generator, enumName: String, variantName: String) -> Option[EnumVariantLookup] {
+    if !patternsMapHasEnum(g.enums, enumName) { return noneEnumVariantLookup() }
+    return enumVariantFromEnumInfo(g.enums.get(enumName), variantName)
+}
+
+fn enumVariantBySubjectType(g: Generator, variantName: String, subjectType: Type) -> Option[EnumVariantLookup] = match subjectType {
+    Enum(data) => enumVariantForRegisteredEnum(g, data.name, variantName)
+    _ => noneEnumVariantLookup()
+}
+
+fn enumVariantByScanAt(g: Generator, variantName: String, enumNames: List[String], index: Int) -> Option[EnumVariantLookup] {
+    if index >= enumNames.size() { return noneEnumVariantLookup() }
+    return match enumVariantFromEnumInfo(g.enums.get(enumNames.get(index)), variantName) {
+        Some(lookup) => Some(lookup)
+        None => enumVariantByScanAt(g, variantName, enumNames, index + 1)
+    }
+}
+
+fn enumVariantByScan(g: Generator, variantName: String) -> Option[EnumVariantLookup] {
+    var enumNames: List[String] = []
+    for enumName in g.enums.keys() {
+        enumNames.append(enumName)
+    }
+    return enumVariantByScanAt(g, variantName, enumNames, 0)
+}
+
+pub fn enumVariantForPattern(g: Generator, variantName: String, subjectCheckerType: Option[Type]) -> Option[EnumVariantLookup] = match subjectCheckerType {
+    Some(t) => match enumVariantBySubjectType(g, variantName, t) {
+        Some(found) => Some(found)
+        None => match enumVariantForRegisteredEnum(g, variantName, variantName) {
+            Some(found) => Some(found)
+            None => enumVariantByScan(g, variantName)
+        }
+    }
+    None => match enumVariantForRegisteredEnum(g, variantName, variantName) {
+        Some(found) => Some(found)
+        None => enumVariantByScan(g, variantName)
+    }
+}
+
+pub fn resolveEnumPayloadType(g: Generator, vi: VariantInfo, variantName: String, subjectCheckerType: Option[Type]) -> LlvmType {
+    match vi.payloadType {
+        Some(ty) => ty
+        None => match resolveEnumPayloadFromFields(g, vi, variantName) {
+            Some(ty) => ty
+            None => match subjectCheckerType {
+                Some(t) => match resolveSpecializedPayloadType(g, variantName, t) {
+                    Some(ty) => ty
+                    None => llvmI64()
+                }
+                None => llvmI64()
+            }
+        }
+    }
+}
+
+fn resolveEnumPayloadFromFields(g: Generator, vi: VariantInfo, variantName: String) -> Option[LlvmType] {
+    if vi.fields.size() > 1 {
+        return Some(llvmStructType("", vi.fields))
+    }
+    if vi.fields.size() == 1 {
+        return Some(vi.fields.get(0))
+    }
+    return noneLlvmTypeOption()
+}
+
+fn resolveSpecializedPayloadType(g: Generator, variantName: String, subjectType: Type) -> Option[LlvmType] = match subjectType {
+    Specialized(_, params) => resolveSpecializedPayloadLlvm(g, variantName, params)
+    _ => noneLlvmTypeOption()
+}
+
+fn resolveSpecializedPayloadLlvm(g: Generator, variantName: String, params: List[Type]) -> Option[LlvmType] {
+    if params.size() == 0 { return noneLlvmTypeOption() }
+    if variantName == "Ok" || variantName == "Some" {
+        return Some(mapTypeToLLVM(g, params.get(0)))
+    }
+    if variantName == "Err" {
+        return Some(llvmI8Ptr())
+    }
+    return noneLlvmTypeOption()
+}

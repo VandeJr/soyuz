@@ -1,0 +1,112 @@
+import (
+    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr } from @ast/ast
+    { CheckResult, Type, EnumType, FuncType, IntType, StringType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { generateEnumDecl } from @codegen/gen_structs
+    { enumVariantForPattern, resolveEnumPayloadType } from @codegen/gen_patterns
+    { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn patternsZeroSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 0 }
+
+fn patternsEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testEnumVariantForPatternBySubjectType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v0 = EnumVariant { span: patternsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: patternsZeroSpan(), name: "Verde", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }
+    assertMsg(generateEnumDecl(g, decl), "register Cor")
+    match enumVariantForPattern(g, "Verde", Some(Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    }))) {
+        None => assertMsg(false, "expected Verde lookup")
+        Some(lookup) => assertMsg(lookup.variantInfo.tag == 1, "Verde tag is 1")
+    }
+}
+
+test fn testEnumVariantForPatternSameNameFallback() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Ok", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Ok", generics: [], variants: [v] }
+    assertMsg(generateEnumDecl(g, decl), "register Ok enum")
+    match enumVariantForPattern(g, "Ok", None) {
+        None => assertMsg(false, "expected Ok via same-name fallback")
+        Some(lookup) => assertMsg(lookup.variantInfo.tag == 0, "Ok tag is 0")
+    }
+}
+
+test fn testEnumVariantForPatternScanTwoEnums() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val sOk = EnumVariant { span: patternsZeroSpan(), name: "Ok", fields: [] }
+    val sErro = EnumVariant { span: patternsZeroSpan(), name: "Erro", fields: [] }
+    val rOk = EnumVariant { span: patternsZeroSpan(), name: "Ok", fields: [] }
+    val rFalha = EnumVariant { span: patternsZeroSpan(), name: "Falha", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Status", generics: [], variants: [sOk, sErro] }), "Status")
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Resultado", generics: [], variants: [rOk, rFalha] }), "Resultado")
+    match enumVariantForPattern(g, "Ok", Some(Type.Enum(EnumType {
+        name: "Status",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    }))) {
+        None => assertMsg(false, "Status.Ok lookup")
+        Some(lookup) => assertMsg(lookup.variantInfo.tag == 0, "Status.Ok tag 0")
+    }
+}
+
+test fn testResolveEnumPayloadTypeFromPayloadStruct() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val field = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, patternsZeroSpan(), "Float") }
+    val circulo = EnumVariant { span: patternsZeroSpan(), name: "Circulo", fields: [field] }
+    val decl = EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo] }
+    assertMsg(generateEnumDecl(g, decl), "register Forma")
+    match enumVariantForPattern(g, "Circulo", None) {
+        None => assertMsg(false, "Circulo lookup")
+        Some(lookup) => {
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Circulo", None)
+            assertMsg(llvmTypesEqual(ty, llvmStructType("Forma__Circulo__payload", [llvmF64()])), "payload struct type")
+        }
+    }
+}
+
+test fn testResolveEnumPayloadTypeSpecializedSome() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Some", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [v] }), "Option")
+    match enumVariantForPattern(g, "Some", None) {
+        None => assertMsg(false, "Some lookup")
+        Some(lookup) => {
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Some", Some(Type.Specialized(Type.Basic("Option"), [IntType])))
+            assertMsg(llvmTypesEqual(ty, llvmI64()), "Some payload maps to Int")
+        }
+    }
+}
+
+test fn testResolveEnumPayloadTypeSpecializedErr() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Err", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Result", generics: [], variants: [v] }), "Result")
+    match enumVariantForPattern(g, "Err", None) {
+        None => assertMsg(false, "Err lookup")
+        Some(lookup) => {
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Err", Some(Type.Specialized(Type.Basic("Result"), [StringType])))
+            assertMsg(llvmTypesEqual(ty, llvmI8Ptr()), "Err payload is i8*")
+        }
+    }
+}
