@@ -1,9 +1,10 @@
 import (
+    { Type } from @checker/types
     { Generator } from @codegen/generator
     { StructInfo } from @codegen/types
-    { LlvmType, LlvmValue, llvmI64, llvmI8Ptr, llvmPointerType, llvmStructType } from @codegen/llvm_types
+    { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmI8Ptr, llvmPointerType, llvmStructType } from @codegen/llvm_types
     { structInfoRegistered } from @codegen/gen_structs
-    { stubLlvmValue } from @codegen/gen_ir
+    { stubLlvmValue, newBlock, setCurrentBlock, emitCondBrToBlockStub, emitBrToBlockStub, emitLoadStub } from @codegen/gen_ir
 )
 
 pub fn forListCondBlockName() -> String {
@@ -73,4 +74,50 @@ pub fn generateListIterStub(g: Generator, listVal: LlvmValue) -> Option[LlvmValu
     val iterPtr = stubLlvmValue(g)
     g.listIterAllocStub = Some(iterPtr)
     return Some(iterPtr)
+}
+
+fn clearIterNextStubs(g: Generator) {
+    g.iterNextListLoad = None
+    g.iterNextIndexLoad = None
+    g.iterNextSizeLoad = None
+    g.iterNextGetStub = None
+    g.iterNextIndexStore = None
+    g.iterNextSomeResult = None
+    g.iterNextNoneResult = None
+    g.iterNextPhiResult = None
+}
+
+pub fn generateIteratorNextStub(g: Generator, iterVal: LlvmValue, _elemType: Type) -> Option[LlvmValue] {
+    ensureRuntimeCollectionStructs(g)
+    clearIterNextStubs(g)
+    val _iter = iterVal
+    g.iterNextListLoad = Some(emitLoadStub(g))
+    g.iterNextIndexLoad = Some(emitLoadStub(g))
+    g.iterNextSizeLoad = Some(emitLoadStub(g))
+    val hasBlock = newBlock(g, iterNextHasBlockName())
+    val doneBlock = newBlock(g, iterNextDoneBlockName())
+    val mergeBlock = newBlock(g, iterNextMergeBlockName())
+    if !emitCondBrToBlockStub(g, hasBlock, doneBlock) { return None }
+    setCurrentBlock(g, hasBlock)
+    g.iterNextGetStub = Some(stubLlvmValue(g))
+    g.iterNextIndexStore = Some(stubLlvmValue(g))
+    g.iterNextSomeResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, doneBlock)
+    g.iterNextNoneResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, mergeBlock)
+    val phi = stubLlvmValue(g)
+    g.iterNextPhiResult = Some(phi)
+    return Some(phi)
+}
+
+pub fn generateIteratorIsEmptyStub(g: Generator, iterVal: LlvmValue) -> Option[LlvmValue] {
+    ensureRuntimeCollectionStructs(g)
+    val _iter = iterVal
+    g.iterNextIndexLoad = Some(emitLoadStub(g))
+    g.iterNextSizeLoad = Some(emitLoadStub(g))
+    val result = stubLlvmValue(g)
+    g.iterIsEmptyResult = Some(result)
+    return Some(result)
 }

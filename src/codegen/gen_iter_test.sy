@@ -3,8 +3,9 @@ import (
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
     { structInfoRegistered } from @codegen/gen_structs
-    { ensureRuntimeCollectionStructs, iteratorStructType, generateListIterStub, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, iterNextHasBlockName, iterNextDoneBlockName, iterNextMergeBlockName } from @codegen/gen_iter
-    { stubLlvmValue } from @codegen/gen_ir
+    { ensureRuntimeCollectionStructs, iteratorStructType, generateListIterStub, generateIteratorNextStub, generateIteratorIsEmptyStub, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, iterNextHasBlockName, iterNextDoneBlockName, iterNextMergeBlockName } from @codegen/gen_iter
+    { stubLlvmValue, blockNameRegistered } from @codegen/gen_ir
+    { IntType } from @checker/types
     { llvmStructType, llvmI8Ptr, llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -58,6 +59,48 @@ test fn testGenerateListIterStub() {
                 Some(v) => assertMsg(v.handle == listVal.handle, "list store uses input list")
             }
             assertMsg(g.listIterIndexInitStub != None, "index init stub recorded")
+        }
+    }
+}
+
+test fn testGenerateIteratorNextStub() {
+    val g = newGenerator(iterEmptyCheckResult())
+    val iterVal = stubLlvmValue(g)
+    match generateIteratorNextStub(g, iterVal, IntType) {
+        None => assertMsg(false, "expected iterator next stub")
+        Some(phi) => {
+            assertMsg(phi.handle > iterVal.handle, "phi result handle")
+            assertMsg(blockNameRegistered(g, "iter_next_has"), "has block registered")
+            assertMsg(blockNameRegistered(g, "iter_next_done"), "done block registered")
+            assertMsg(blockNameRegistered(g, "iter_next_merge"), "merge block registered")
+            assertMsg(g.iterNextListLoad != None, "list field load stub")
+            assertMsg(g.iterNextIndexLoad != None, "index load stub")
+            assertMsg(g.iterNextSizeLoad != None, "size load stub")
+            assertMsg(g.iterNextGetStub != None, "list get stub on has branch")
+            assertMsg(g.iterNextIndexStore != None, "index advance store stub")
+            assertMsg(g.iterNextSomeResult != None, "Some branch result stub")
+            assertMsg(g.iterNextNoneResult != None, "None branch result stub")
+            match g.iterNextPhiResult {
+                None => assertMsg(false, "iter next phi result stub")
+                Some(v) => assertMsg(v.handle == phi.handle, "phi result recorded")
+            }
+        }
+    }
+}
+
+test fn testGenerateIteratorIsEmptyStub() {
+    val g = newGenerator(iterEmptyCheckResult())
+    val iterVal = stubLlvmValue(g)
+    match generateIteratorIsEmptyStub(g, iterVal) {
+        None => assertMsg(false, "expected iterator isEmpty stub")
+        Some(result) => {
+            assertMsg(result.handle > iterVal.handle, "isEmpty result handle")
+            assertMsg(g.iterNextIndexLoad != None, "index load for isEmpty cmp")
+            assertMsg(g.iterNextSizeLoad != None, "size load for isEmpty cmp")
+            match g.iterIsEmptyResult {
+                None => assertMsg(false, "isEmpty result recorded")
+                Some(v) => assertMsg(v.handle == result.handle, "isEmpty stub matches return")
+            }
         }
     }
 }
