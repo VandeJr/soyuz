@@ -53,6 +53,12 @@ pub fn newAlloca(g: Generator, ty: LlvmType) -> LlvmValue {
     return value
 }
 
+pub fn emitCondBrStub(g: Generator, thenBlockName: String, nextBlockName: String) -> Bool {
+    newBlock(g, nextBlockName)
+    setCurrentBlock(g, newBlock(g, thenBlockName))
+    return true
+}
+
 pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {
     var copy: Map[String, LlvmValue] = Map[String, LlvmValue]{}
     for k in g.vars.keys() {

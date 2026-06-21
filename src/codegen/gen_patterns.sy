@@ -5,7 +5,7 @@ import (
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
     { recordFieldLlvmType } from @codegen/gen_structs
-    { newBlock, setCurrentBlock, newAlloca } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
     { LlvmType, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
@@ -188,6 +188,10 @@ pub fn constructorPatternMatchOkBlockName(variantName: String) -> String {
 
 pub fn rangePatternGeBlockName() -> String {
     return "range_ge"
+}
+
+pub fn literalPatternCmpBlockName() -> String {
+    return "literal_match_cmp"
 }
 
 pub fn enumFieldPatternOkBlockName(variantName: String, fieldIndex: Int) -> String {
@@ -490,6 +494,12 @@ fn literalPatternDispatchOk(v: LiteralPatternValue) -> Bool = match v {
     Bool(_) => true
 }
 
+fn matchPatternLiteralDispatch(g: Generator, value: LiteralPatternValue, thenBlockName: String, nextBlockName: String) -> Bool {
+    if !literalPatternDispatchOk(value) { return false }
+    setCurrentBlock(g, newBlock(g, literalPatternCmpBlockName()))
+    return emitCondBrStub(g, thenBlockName, nextBlockName)
+}
+
 fn matchPatternConstructorDispatch(g: Generator, name: String, args: List[Pattern], subjectType: Type, thenBlockName: String, nextBlockName: String) -> Bool {
     return match enumVariantForPattern(g, name, Some(subjectType)) {
         None => false
@@ -664,10 +674,7 @@ fn matchPatternTupleDispatch(g: Generator, elements: List[Pattern], thenBlockNam
 fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String, hasSubject: Bool, subjectType: Type) -> Bool = match pat {
     Wildcard(_, _) => matchPatternAdvance(g, thenBlockName)
     Binding(_, _, name) => matchPatternBindingDispatch(g, name, hasSubject, subjectType, thenBlockName)
-    Literal(_, _, value) => {
-        if !literalPatternDispatchOk(value) { return false }
-        return matchPatternAdvance(g, thenBlockName)
-    }
+    Literal(_, _, value) => matchPatternLiteralDispatch(g, value, thenBlockName, nextBlockName)
     Constructor(_, _, name, args) => {
         if hasSubject {
             return matchPatternConstructorDispatch(g, name, args, subjectType, thenBlockName, nextBlockName)
@@ -677,8 +684,8 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
     Record(_, _, recordName, fields) => matchPatternRecordDispatch(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType)
     Tuple(_, _, elements) => matchPatternTupleDispatch(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType)
     Range(_, _, _, _, _) => {
-        newBlock(g, rangePatternGeBlockName())
-        matchPatternAdvance(g, thenBlockName)
+        setCurrentBlock(g, newBlock(g, rangePatternGeBlockName()))
+        emitCondBrStub(g, thenBlockName, nextBlockName)
     }
 }
 

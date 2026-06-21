@@ -2,7 +2,7 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars } from @codegen/gen_ir
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, blockNameRegistered } from @codegen/gen_ir
     { llvmI64 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -64,4 +64,15 @@ test fn testSnapshotRestoreVars() {
     }
     assertMsg(hasX, "x restored")
     assertMsg(!hasY, "y removed after restore")
+}
+
+test fn testEmitCondBrStub() {
+    val g = newGenerator(irTestCheckResult())
+    assertMsg(emitCondBrStub(g, "then_block", "next_block"), "cond br stub")
+    assertMsg(blockNameRegistered(g, "then_block"), "then block registered")
+    assertMsg(blockNameRegistered(g, "next_block"), "next block registered")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "current block after cond br")
+        Some(handle) => assertMsg(handle > 0, "current at then block")
+    }
 }
