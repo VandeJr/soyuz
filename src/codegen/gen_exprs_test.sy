@@ -10,6 +10,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
+    { mutexRuntimeNew, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -1207,6 +1208,32 @@ test fn testChannelNewCallExprCodegen() {
         Some(_) => {
             assertMsg(g.channelNewStub != None, "channel new stub stored")
             assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexNewAndLockEmitsCalls (new half) — Mutex.new(42) call expr dispatch.
+test fn testMutexNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexClass = channelTestClass("Mutex")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mutexId = Node.Identifier(1, span, IdentifierData { name: "Mutex" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: mutexId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(mutexClass))
+    types.set(2, Type.Class(mutexClass))
+    types.set(3, IntType)
+    types.set(4, mutexInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Mutex.new(42) codegen")
+        Some(_) => {
+            assertMsg(g.mutexNewStub != None, "mutex new stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeNew()), "srt_mutex_new registered")
         }
     }
 }

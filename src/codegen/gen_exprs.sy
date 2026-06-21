@@ -7,6 +7,7 @@ import (
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub } from @codegen/gen_channel
+    { isMutexNewCall, generateMutexNewStub } from @codegen/gen_sync
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
@@ -338,6 +339,14 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateChannelNewStub(g) {
+            None => None
+            Some(_) => exprResultFromNode(g, node, NoConst)
+        }
+    }
+    if isMutexNewCall(data.callee) {
+        if data.args.size() != 1 { return None }
+        if !generateAllCallArgs(g, data.args) { return None }
+        return match generateMutexNewStub(g) {
             None => None
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
