@@ -486,6 +486,48 @@ test fn testM6EnumWithFieldsMatchCodegen() {
     }
 }
 
+// Port of soyuz-go/internal/codegen/when_guard_test.go TestMatchWhenGuardCodegen.
+test fn testMatchWhenGuardCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
+    val guardCond = Node.IntLiteral(7, span, IntLiteralData { value: "1" })
+    val negBody = Node.StringLiteral(4, span, StringLiteralData { value: "negativo" })
+    val posBody = Node.StringLiteral(5, span, StringLiteralData { value: "positivo" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(2, span, "n"),
+        guard: Some(guardCond),
+        body: negBody
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(3, span),
+        guard: None,
+        body: posBody
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val node = Node.MatchExpr(6, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(4, StringType)
+    types.set(5, StringType)
+    types.set(6, StringType)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match when guard codegen")
+        Some(_) => {
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "match_arm_0_pattern_ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "guard pass targets body block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_next"), "guard fail targets next block")
+            match g.matchGuardCondValue {
+                None => assertMsg(false, "match guard condition value stub")
+                Some(v) => assertMsg(v.handle > 0, "guard cond br uses generated condition stub")
+            }
+        }
+    }
+}
+
 test fn testGenerateMatchExprCreatesBlocks() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
     val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
