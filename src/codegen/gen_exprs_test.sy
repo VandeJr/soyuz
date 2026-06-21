@@ -1211,6 +1211,32 @@ test fn testChannelNewCallExprCodegen() {
     }
 }
 
+// Port of m_channel_test.go TestChannelZeroCapacityEmitsSrtChanNew — Channel.new(0) rendezvous.
+test fn testChannelZeroCapacityNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    var args: List[Node] = []
+    args.append(capArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelClass))
+    types.set(2, Type.Class(channelClass))
+    types.set(3, IntType)
+    types.set(4, channelInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Channel.new(0) codegen")
+        Some(_) => {
+            assertMsg(g.channelNewStub != None, "channel new stub stored for zero capacity")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new for rendezvous")
+        }
+    }
+}
+
 // Port of m_channel_test.go TestChannelSendEmitsSrtChanSend — ch.send(42) call expr dispatch.
 test fn testChannelSendCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }

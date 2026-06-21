@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S7 bootstrap gate: channel codegen baseline (m9 channel subset).
+# S7 bootstrap gate: full m_channel_test.go (M9 channel + rendezvous zero-capacity).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestChannelNewEmitsSrtChanNew|TestChannelSendEmitsSrtChanSend|TestChannelRecvEmitsSrtChanRecv|TestChannelRecvWrapsOptionBranches|TestChannelTryRecvEmitsSrtChanTryRecv|TestChannelCloseEmitsSrtChanClose|TestChannelIsClosedEmitsSrtChanIsClosed' -count=1
+go test ./internal/codegen/ -run 'TestChannel' -count=1
 echo "→ codegen channel check (bootstrap) OK"
