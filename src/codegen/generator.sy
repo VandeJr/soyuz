@@ -132,6 +132,7 @@ pub class Generator {
     pub var channelIsClosedStub: Option[LlvmValue] = None
     pub var channelRuntimeSymbols: List[String] = []
     pub var mutexNewStub: Option[LlvmValue] = None
+    pub var mutexLockStub: Option[LlvmValue] = None
     pub var syncRuntimeSymbols: List[String] = []
 }
 

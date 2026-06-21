@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, mutexRuntimeNew, generateMutexNewStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, mutexRuntimeNew, mutexRuntimeLock, generateMutexNewStub, generateMutexLockStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -68,6 +68,30 @@ test fn testIsMutexNewCall() {
     val channelId = Node.Identifier(3, span, IdentifierData { name: "Channel" })
     val channelMember = Node.MemberExpr(4, span, MemberExprData { object: channelId, property: "new" })
     assertMsg(!isMutexNewCall(channelMember), "Channel.new not mutex new")
+}
+
+test fn testIsMutexLockCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexClass = syncEmptyClass("Mutex")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
+    val lockMember = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(mutexInt))
+    cr.nodeTypes.append(Some(mutexInt))
+    val g = newGenerator(cr)
+    assertMsg(isMutexLockCall(lockMember, g), "m.lock on Mutex[Int]")
+    val newMember = Node.MemberExpr(3, span, MemberExprData { object: mId, property: "new" })
+    assertMsg(!isMutexLockCall(newMember, g), "m.new not lock")
+}
+
+test fn testGenerateMutexLockStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateMutexLockStub(g) {
+        None => assertMsg(false, "mutex lock stub")
+        Some(_) => assertMsg(g.mutexLockStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeLock()), "srt_mutex_lock registered")
 }
 
 test fn testGenerateMutexNewStub() {
