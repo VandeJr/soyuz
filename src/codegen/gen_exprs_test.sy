@@ -10,7 +10,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
-    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -1260,6 +1260,31 @@ test fn testRwLockNewCallExprCodegen() {
         Some(_) => {
             assertMsg(g.rwLockNewStub != None, "rwlock new stub stored")
             assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeNew()), "srt_rwlock_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockReadEmitsSrtRwlockRead (read half) — rw.read() call expr dispatch.
+test fn testRwLockReadCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = channelTestClass("RwLock")
+    val readGuardClass = channelTestClass("ReadGuard")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val readGuardInt = Type.Specialized(Type.Class(readGuardClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, rwlockInt)
+    types.set(2, rwlockInt)
+    types.set(4, readGuardInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected rw.read() codegen")
+        Some(_) => {
+            assertMsg(g.rwLockReadStub != None, "rwlock read stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
         }
     }
 }

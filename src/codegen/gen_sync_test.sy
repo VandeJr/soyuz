@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, syncGuardKind, syncGuardValueAccess, mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, syncGuardKind, syncGuardValueAccess, mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -184,6 +184,15 @@ test fn testGenerateRwLockNewStub() {
         Some(_) => assertMsg(g.rwLockNewStub != None, "stub stored on generator")
     }
     assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeNew()), "srt_rwlock_new registered")
+}
+
+test fn testGenerateRwLockReadStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateRwLockReadStub(g) {
+        None => assertMsg(false, "rwlock read stub")
+        Some(_) => assertMsg(g.rwLockReadStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
 }
 
 test fn testGenerateMutexNewStub() {

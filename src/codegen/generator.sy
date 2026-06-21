@@ -137,6 +137,7 @@ pub class Generator {
     pub var syncGuardWriteStub: Option[LlvmValue] = None
     pub var syncGuardLastKind: Option[String] = None
     pub var rwLockNewStub: Option[LlvmValue] = None
+    pub var rwLockReadStub: Option[LlvmValue] = None
     pub var syncRuntimeSymbols: List[String] = []
 }
 
