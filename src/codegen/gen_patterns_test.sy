@@ -475,6 +475,7 @@ test fn testMatchPatternDispatchConstructorSomeWithSubjectPayloadLoads() {
     assertMsg(g.constructorTagLoad != None, "tag load with subject")
     assertMsg(g.constructorPayloadPtr != None, "payload ptr with subject")
     assertMsg(g.constructorArgLoads.size() == 1, "one payload arg load")
+    assertMsg(g.constructorArgStores.size() == 1, "one payload arg store into binding")
     assertMsg(g.valueHandleCounter > handlesBefore + 3, "subject access stubs allocate handles")
 }
 
@@ -490,6 +491,7 @@ test fn testMatchPatternDispatchConstructorWithBindingArg() {
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(n) dispatch")
     assertMsg(g.constructorTagLoad == None, "no tag load without subject")
     assertMsg(g.constructorPayloadPtr == None, "no payload ptr without subject")
+    assertMsg(g.constructorArgStores.size() == 0, "no arg stores without subject")
     assertMsg(blockNameRegistered(g, "match_Some_ok"), "constructor ok block")
     assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "binding then block")
 }
@@ -514,6 +516,7 @@ test fn testMatchPatternDispatchConstructorMultiFieldArgs() {
     assertMsg(generateEnumDecl(g2, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data g2")
     assertMsg(matchPatternDispatchWithSubject(g2, pat, dataType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Pair with subject dispatch")
     assertMsg(g2.constructorArgLoads.size() == 2, "two payload arg loads with subject")
+    assertMsg(g2.constructorArgStores.size() == 2, "two payload arg stores into bindings")
 }
 
 test fn testMatchPatternDispatchRecordShorthandFields() {

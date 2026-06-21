@@ -576,6 +576,7 @@ fn clearConstructorPayloadStubs(g: Generator) {
     g.constructorTagLoad = None
     g.constructorPayloadPtr = None
     g.constructorArgLoads = []
+    g.constructorArgStores = []
 }
 
 fn emitConstructorTagPayloadStubs(g: Generator, hasSubject: Bool) -> Bool {
@@ -701,9 +702,30 @@ pub fn constructorPatternArgSlotType(g: Generator, hasSubject: Bool, subjectType
     return constructorPatternArgSlotTypeFromVariant(g, hasSubject, subjectType, vi, variantName, argIndex)
 }
 
+fn appendConstructorArgStore(g: Generator, loaded: LlvmValue) {
+    var stores = g.constructorArgStores
+    stores.append(loaded)
+    g.constructorArgStores = stores
+}
+
+fn registerConstructorBindingFromLoad(g: Generator, name: String, loaded: LlvmValue, slotType: LlvmType) -> Bool {
+    val alloca = newAlloca(g, slotType)
+    emitStoreStub(g, loaded, alloca)
+    appendConstructorArgStore(g, loaded)
+    g.vars.set(name, alloca)
+    return true
+}
+
 fn matchPatternConstructorArgDispatch(g: Generator, variantName: String, vi: VariantInfo, pat: Pattern, argThen: String, nextBlockName: String, hasSubject: Bool, subjectType: Type, argIndex: Int) -> Bool = match pat {
     Binding(_, _, name) => {
-        if !registerPatternBinding(g, name, constructorPatternArgSlotType(g, hasSubject, subjectType, vi, variantName, argIndex)) { return false }
+        val slotType = constructorPatternArgSlotType(g, hasSubject, subjectType, vi, variantName, argIndex)
+        if hasSubject {
+            if argIndex >= g.constructorArgLoads.size() { return false }
+            val loaded = g.constructorArgLoads.get(argIndex)
+            if !registerConstructorBindingFromLoad(g, name, loaded, slotType) { return false }
+        } else {
+            if !registerPatternBinding(g, name, slotType) { return false }
+        }
         matchPatternAdvance(g, argThen)
     }
     _ => {
