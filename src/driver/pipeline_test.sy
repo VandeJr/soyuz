@@ -4,11 +4,11 @@ import (
     { newResolverWithStdlib } from @module/resolver
     { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
     { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts } from @driver/pipeline
-    { manifestContainsPath, manifestContainsMarkers } from @runtime/manifest
+    { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr } from @runtime/manifest
     { defaultLlFilePath } from @runtime/link
     { moduleIrHasTrace, moduleIrHeaderMarker } from @codegen/gen_emit
     { defaultDriverFullBuildCheckScript } from @driver/build
-    { codegenPlanHasHelloPrint } from @driver/codegen
+    { codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
     { assertMsg } from @soyuz/testing
 )
 
@@ -36,6 +36,8 @@ test fn testPlanFullBuildHello() {
     assertMsg(moduleIrHasTrace(plan.codegen.irContent), "codegen ir has trace section")
     assertMsg(plan.codegen.irContent.contains(moduleIrHeaderMarker()), "codegen ir header marker")
     assertMsg(codegenPlanHasHelloPrint(plan.codegen), "hello print in codegen ir")
+    assertMsg(codegenPlanIsLinkableHello(plan.codegen), "linkable hello codegen ir")
+    assertMsg(manifestHasHelloCodegenIr(fullBuildManifest(plan)), "manifest embeds linkable hello ir")
     val scripts = defaultFullBuildScripts()
     assertMsg(plan.scripts.applyManifestScript == scripts.applyManifestScript, "apply script on plan")
     assertMsg(plan.scripts.driverFullBuildCheckScript == defaultDriverFullBuildCheckScript(), "full build check script")

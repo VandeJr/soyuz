@@ -3,7 +3,7 @@ import (
     { newResolverWithStdlib } from @module/resolver
     { planFrontendBuild } from @driver/frontend
     { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
-    { planCodegenBuild, codegenBuildReady, stubModuleIr, codegenPlanHasMain, codegenPlanHasHelloPrint } from @driver/codegen
+    { planCodegenBuild, codegenBuildReady, stubModuleIr, codegenPlanHasMain, codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
     { assertMsg } from @soyuz/testing
 )
 
@@ -28,6 +28,7 @@ test fn testPlanCodegenBuildHello() {
     assertMsg(codegen.irContent.len() > 0, "ir produced")
     assertMsg(codegenPlanHasMain(codegen), "module ir has main")
     assertMsg(codegenPlanHasHelloPrint(codegen), "hello print in module ir")
+    assertMsg(codegenPlanIsLinkableHello(codegen), "linkable hello module ir")
     assertMsg(codegen.error.len() == 0, "no codegen error")
 }
 

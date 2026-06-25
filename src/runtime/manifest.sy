@@ -35,6 +35,12 @@ pub fn manifestContainsPath(manifest: String, path: String) -> Bool {
     return manifest.contains(path)
 }
 
+pub fn manifestHasHelloCodegenIr(manifest: String) -> Bool {
+    if !manifest.contains("c\"hello") { return false }
+    if !manifest.contains("call i32 (i8*, ...) @printf") { return false }
+    return manifest.contains("ret i32 0")
+}
+
 pub fn manifestContainsMarkers(manifest: String) -> Bool {
     if !manifest.contains(manifestMarkerFile()) { return false }
     if !manifest.contains(manifestMarkerBody()) { return false }

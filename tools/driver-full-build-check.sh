@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# S9 bootstrap gate: full-build manifest shape (traced IR + runtime) → clang link.
+# S9 bootstrap gate: full-build manifest (hello codegen IR + runtime) → clang link → prints hello.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 PREFIX="$TMP/rt"
 MANIFEST="$TMP/pipeline.manifest"
-STUB_LL="$TMP/stub.ll"
+HELLO_LL="$TMP/hello.ll"
 trap 'rm -rf "$TMP"' EXIT
 
-bash "$ROOT/tools/write-empty-module-ir.sh" 1 "$STUB_LL"
+bash "$ROOT/tools/write-hello-module-ir.sh" 1 "$HELLO_LL"
 
 # shellcheck source=manifest-format.sh
 source "$ROOT/tools/manifest-format.sh"
 : >"$MANIFEST"
-manifest_append_file "$MANIFEST" "$PREFIX/out.ll" "$STUB_LL"
+manifest_append_file "$MANIFEST" "$PREFIX/out.ll" "$HELLO_LL"
 bash "$ROOT/tools/runtime-export-runtime-manifest.sh" "$MANIFEST" "$PREFIX" --append >/dev/null
 
 count=$(grep -c '^===FILE===$' "$MANIFEST" || true)
@@ -26,5 +26,9 @@ fi
 bash "$ROOT/tools/apply-path-index-manifest.sh" "$MANIFEST" >/dev/null
 LINKED="$TMP/app"
 bash "$ROOT/tools/runtime-run-link.sh" "$PREFIX/out.ll" "$PREFIX" "$LINKED"
-"$LINKED"
+OUT="$("$LINKED")"
+if [[ "$OUT" != "hello" ]]; then
+  echo "esperado 'hello', obteve '$OUT'" >&2
+  exit 1
+fi
 echo "→ driver full-build check (bootstrap) OK"
