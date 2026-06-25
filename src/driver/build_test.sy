@@ -1,7 +1,7 @@
 import (
     { runtimeAssetNames, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, expectedFullBuildManifestEntries } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultLlFilePath } from @runtime/link
     { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -41,4 +41,5 @@ test fn testRuntimeSourcePathsAndDriverScripts() {
     assertMsg(expectedFullBuildManifestEntries() == 14, "full build manifest entry count")
     assertMsg(defaultDriverFullBuildCheckScript() == "tools/driver-full-build-check.sh", "driver full build check script")
     assertMsg(defaultExportDriverHelloIrScript() == "tools/export-driver-hello-ir.sh", "export driver hello ir script")
+    assertMsg(defaultDriverAppliedManifestLinkCheckScript() == "tools/driver-applied-manifest-link-check.sh", "applied manifest link check script")
 }

@@ -324,6 +324,13 @@ else
   echo "  tools/driver-export-codegen-ir-check.sh ausente"
 fi
 
+hr "Driver applied-manifest-link check (bootstrap, S9)"
+if [[ -x tools/driver-applied-manifest-link-check.sh ]]; then
+  bash tools/driver-applied-manifest-link-check.sh 2>&1 || echo "→ driver applied-manifest-link check FALHOU"
+else
+  echo "  tools/driver-applied-manifest-link-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

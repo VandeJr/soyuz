@@ -1,5 +1,5 @@
 import (
-    { helloCodegenIrExportReady, helloCodegenIrContent } from @driver/export
+    { helloCodegenIrExportReady, helloCodegenIrContent, helloFullBuildAppliedLinkPlanReady } from @driver/export
     { moduleIrHeaderMarker } from @codegen/gen_emit
     { assertMsg } from @soyuz/testing
 )
@@ -10,4 +10,8 @@ test fn testHelloCodegenIrExportReady() {
     assertMsg(ir.len() > 0, "exported ir non-empty")
     assertMsg(ir.contains(moduleIrHeaderMarker()), "exported ir has header marker")
     assertMsg(ir.contains("c\"hello"), "exported ir has hello c string")
+}
+
+test fn testHelloFullBuildAppliedLinkPlanReady() {
+    assertMsg(helloFullBuildAppliedLinkPlanReady(), "hello full build applied link plan ready")
 }

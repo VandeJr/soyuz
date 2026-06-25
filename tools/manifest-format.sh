@@ -22,3 +22,42 @@ manifest_append_body() {
   manifest_append_file "$manifest" "$path" "$body_file"
   rm -f "$body_file"
 }
+
+# Verify every ===FILE=== path in manifest exists on disk with non-zero size.
+manifest_verify_applied_paths() {
+  local manifest=$1
+  local state="" path="" count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$state" in
+      "")
+        if [[ "$line" == "===FILE===" ]]; then
+          state="file"
+        fi
+        ;;
+      file)
+        path="$line"
+        state="body_wait"
+        ;;
+      body_wait)
+        if [[ "$line" == "===BODY===" ]]; then
+          state="body"
+        else
+          echo "esperado ===BODY=== após path, obteve: $line" >&2
+          return 1
+        fi
+        ;;
+      body)
+        if [[ "$line" == "===END===" ]]; then
+          if [[ ! -s "$path" ]]; then
+            echo "arquivo ausente ou vazio após apply: $path" >&2
+            return 1
+          fi
+          count=$((count + 1))
+          path=""
+          state=""
+        fi
+        ;;
+    esac
+  done <"$manifest"
+  printf '%s' "$count"
+}

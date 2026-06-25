@@ -75,4 +75,6 @@ pub fn defaultExportDriverHelloIrScript() -> String = "tools/export-driver-hello
 
 pub fn defaultDriverExportCodegenIrCheckScript() -> String = "tools/driver-export-codegen-ir-check.sh"
 
+pub fn defaultDriverAppliedManifestLinkCheckScript() -> String = "tools/driver-applied-manifest-link-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

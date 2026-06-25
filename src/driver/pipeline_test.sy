@@ -1,7 +1,7 @@
 import (
     { emptyPathIndex, joinPathFile } from @module/paths
     { newResolverWithStdlib } from @module/resolver
-    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts, applyFullBuildManifest, fullBuildAppliedIndexReady, fullBuildAppliedLinkPlanReady } from @driver/pipeline
     { helloFixtureTmpDir, planHelloFullBuild } from @driver/export
     { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr, manifestEntryCount } from @runtime/manifest
@@ -32,6 +32,8 @@ test fn testPlanFullBuildHello() {
     assertMsg(plan.scripts.driverFullBuildCheckScript == defaultDriverFullBuildCheckScript(), "full build check script")
     assertMsg(plan.scripts.exportDriverHelloIrScript == defaultExportDriverHelloIrScript(), "export hello ir script on plan")
     assertMsg(plan.scripts.driverExportCodegenIrCheckScript == defaultDriverExportCodegenIrCheckScript(), "export codegen ir check script on plan")
+    assertMsg(plan.scripts.driverHelloIrLinkCheckScript == defaultDriverHelloIrLinkCheckScript(), "hello ir link check script on plan")
+    assertMsg(plan.scripts.driverAppliedManifestLinkCheckScript == defaultDriverAppliedManifestLinkCheckScript(), "applied manifest link check script on plan")
 }
 
 test fn testPlanFullBuildMissingRuntime() {
