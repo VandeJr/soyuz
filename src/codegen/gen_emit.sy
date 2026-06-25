@@ -29,3 +29,5 @@ pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
 pub fn moduleIrHasMain(ir: String) -> Bool = ir.contains("define i32 @main()")
 
 pub fn moduleIrHasTrace(ir: String) -> Bool = ir.contains("; ir trace:")
+
+pub fn moduleIrHeaderMarker() -> String = "; soyuz module ir"

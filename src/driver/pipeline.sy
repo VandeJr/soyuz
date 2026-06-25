@@ -1,21 +1,44 @@
 import (
-    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady } from @driver/build
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript } from @driver/build
     { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
     { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
     { Resolver } from @module/resolver
     { PathIndex } from @module/paths
+    { defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
+    { defaultRunLinkScript } from @runtime/link
 )
+
+pub record FullBuildScripts {
+    exportPipelineManifestScript: String,
+    runtimeExportManifestScript: String,
+    applyManifestScript: String,
+    runLinkScript: String,
+    driverLinkStubCheckScript: String,
+    driverFullBuildCheckScript: String
+}
+
+pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
+    exportPipelineManifestScript: defaultExportManifestScript(),
+    runtimeExportManifestScript: defaultRuntimeExportManifestScript(),
+    applyManifestScript: defaultApplyManifestScript(),
+    runLinkScript: defaultRunLinkScript(),
+    driverLinkStubCheckScript: defaultDriverLinkStubCheckScript(),
+    driverFullBuildCheckScript: defaultDriverFullBuildCheckScript()
+}
 
 pub record FullBuildPlan {
     cfg: BuildConfig,
     frontend: FrontendBuildPlan,
     codegen: CodegenBuildPlan,
     artifacts: BuildArtifacts,
+    scripts: FullBuildScripts,
     ready: Bool,
     error: String
 }
 
 pub fn fullBuildReady(plan: FullBuildPlan) -> Bool = plan.ready
+
+pub fn fullBuildManifest(plan: FullBuildPlan) -> String = plan.artifacts.manifest
 
 fn fullBuildError(frontend: FrontendBuildPlan, codegen: CodegenBuildPlan, artifacts: BuildArtifacts) -> String {
     if !frontendBuildReady(frontend) { return frontend.error }
@@ -43,6 +66,7 @@ pub fn planFullBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: Pa
         frontend: frontend,
         codegen: codegen,
         artifacts: artifacts,
+        scripts: defaultFullBuildScripts(),
         ready: ready,
         error: err
     }

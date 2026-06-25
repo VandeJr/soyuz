@@ -303,6 +303,13 @@ else
   echo "  tools/driver-link-stub-check.sh ausente"
 fi
 
+hr "Driver full-build check (bootstrap, S9)"
+if [[ -x tools/driver-full-build-check.sh ]]; then
+  bash tools/driver-full-build-check.sh 2>&1 || echo "→ driver full-build check FALHOU"
+else
+  echo "  tools/driver-full-build-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

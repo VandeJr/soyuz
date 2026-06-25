@@ -67,4 +67,6 @@ pub fn defaultRuntimeExportManifestScript() -> String = "tools/runtime-export-ru
 
 pub fn defaultDriverLinkStubCheckScript() -> String = "tools/driver-link-stub-check.sh"
 
+pub fn defaultDriverFullBuildCheckScript() -> String = "tools/driver-full-build-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()
