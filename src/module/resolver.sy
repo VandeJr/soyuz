@@ -25,6 +25,13 @@ pub fn newResolverWithProject(entryDir: String, cfg: ProjectConfig, stdlibDir: S
     packages: cfg.packages
 }
 
+pub fn newResolverWithStdlib(entryFile: String, stdlibDir: String) -> Resolver = Resolver {
+    root: parentDir(entryFile),
+    projectRoot: "",
+    stdlibDir: stdlibDir,
+    packages: Map[String, String]{}
+}
+
 pub fn projectBase(r: Resolver) -> String {
     if r.projectRoot.len() > 0 { return r.projectRoot }
     return r.root

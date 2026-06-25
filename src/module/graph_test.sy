@@ -1,6 +1,6 @@
 import (
     { emptyPathIndex, pathBaseName } from @module/paths
-    { newResolver } from @module/resolver
+    { newResolver, newResolverWithStdlib } from @module/resolver
     { collect, collectSucceeded } from @module/graph
     { assertMsg } from @soyuz/testing
 )
@@ -74,4 +74,28 @@ test fn testCollectTransitiveDependencies() {
     assertMsg(result.files.size() == 3, "three files")
     assertMsg(pathBaseName(result.files.get(0)) == "base.sy", "base first")
     assertMsg(pathBaseName(result.files.get(2)) == "main.sy", "main last")
+}
+
+// Port of module_test.go TestStdlibImport — @soyuz/mock resolves from StdlibDir.
+test fn testCollectStdlibImport() {
+    val dir = "/tmp/app"
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/mock.sy", "pub fn assert_eq(a: Int, b: Int, name: String) {}")
+    index.fileContents.set(entry, "import ( { assert_eq } from \"@soyuz/mock\" )\nfn main() { assert_eq(1, 1, \"ok\") }")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 2, "mock.sy and main.sy")
+}
+
+// Port of module_test.go TestStdlibImportSemStdlibDir — fails without stdlib configured.
+test fn testCollectStdlibImportNoStdlibDir() {
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(entry, "import ( { assert_eq } from \"@soyuz/mock\" )")
+    val r = newResolver("/tmp/app")
+    val result = collect(entry, r, index)
+    assertMsg(!collectSucceeded(result), "stdlib import without stdlib dir fails")
 }

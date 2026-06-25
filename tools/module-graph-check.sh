@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/module" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/module/ -run 'TestSingleFile$|TestSingleFileImport|TestDirectoryImport|TestTransitiveDependencies|TestCycleDetection' -count=1
+go test ./internal/module/ -run 'TestSingleFile$|TestSingleFileImport|TestDirectoryImport|TestTransitiveDependencies|TestCycleDetection|TestStdlibImport$|TestStdlibImportSemStdlibDir' -count=1
 echo "→ module graph check (bootstrap) OK"
