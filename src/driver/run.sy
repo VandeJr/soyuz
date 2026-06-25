@@ -2,9 +2,9 @@ import (
     { BuildConfig, linkConfigFromBuild, defaultDriverRunPlanLinkCheckScript } from @driver/build
     { Resolver } from @module/resolver
     { PathIndex, emptyPathIndex } from @module/paths
-    { FullBuildPlan, planFullBuild, fullBuildReady, fullBuildManifest, applyFullBuildManifest, fullBuildLinkPlanFromAppliedIndex, fullBuildAppliedLinkPlanReady } from @driver/pipeline
+    { FullBuildPlan, planFullBuild, fullBuildReady, fullBuildManifest, applyFullBuildManifest, fullBuildLinkPlanFromAppliedIndex, fullBuildAppliedLinkPlanReady, fullBuildAppliedIndexReady } from @driver/pipeline
     { defaultLlFilePath, defaultRunLinkScript } from @runtime/link
-    { defaultApplyManifestScript } from @runtime/manifest
+    { defaultApplyManifestScript, applyManifestToPathIndex, manifestEntryCount, expectedHelloPipelineManifestEntries } from @runtime/manifest
 )
 
 // Mirrors cmd/main.go cmdRun build phase (compile + link argv, without spawning clang/exec).
@@ -37,6 +37,19 @@ pub fn runBuildScripts(plan: RunBuildPlan) -> RunBuildScripts = RunBuildScripts 
 }
 
 pub fn runBuildManifest(plan: RunBuildPlan) -> String = fullBuildManifest(plan.fullBuild)
+
+pub fn runBuildManifestEntryCount(plan: RunBuildPlan) -> Int = manifestEntryCount(runBuildManifest(plan))
+
+pub fn runBuildManifestRoundTripReady(plan: RunBuildPlan) -> Bool {
+    if !runBuildReady(plan) { return false }
+    val roundTrip = applyManifestToPathIndex(emptyPathIndex(), runBuildManifest(plan))
+    if !fullBuildAppliedIndexReady(plan.fullBuild, roundTrip) { return false }
+    return fullBuildAppliedLinkPlanReady(plan.fullBuild, roundTrip)
+}
+
+pub fn runBuildManifestEntryCountReady(plan: RunBuildPlan) -> Bool {
+    return runBuildManifestEntryCount(plan) == expectedHelloPipelineManifestEntries()
+}
 
 pub fn runBuildOutputFile(plan: RunBuildPlan) -> String = plan.fullBuild.cfg.outputFile
 

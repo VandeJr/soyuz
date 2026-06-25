@@ -1,7 +1,7 @@
 import (
-    { planHelloRunBuild, helloRunBuildPlanReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts } from @driver/run
-    { defaultDriverRunPlanLinkCheckScript } from @driver/build
+    { planHelloRunBuild, helloRunBuildPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady } from @driver/run
+    { defaultDriverRunPlanLinkCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultRunLinkScript } from @runtime/link
     { defaultApplyManifestScript } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -21,4 +21,8 @@ test fn testPlanHelloRunBuild() {
     assertMsg(scripts.runLinkScript == defaultRunLinkScript(), "run link script on run plan")
     assertMsg(scripts.runPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script")
     assertMsg(defaults.runPlanLinkCheckScript == "tools/driver-run-plan-link-check.sh", "default run plan check script path")
+    assertMsg(runBuildManifestEntryCountReady(plan), "run manifest entry count")
+    assertMsg(runBuildManifestRoundTripReady(plan), "run manifest round trip")
+    assertMsg(helloRunBuildManifestRoundTripReady(), "hello run manifest round trip export helper")
+    assertMsg(runBuildManifestEntryCount(plan) == expectedFullBuildManifestEntries(), "run manifest has hello pipeline entries")
 }

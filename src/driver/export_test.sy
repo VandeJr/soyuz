@@ -1,5 +1,5 @@
 import (
-    { helloCodegenIrExportReady, helloCodegenIrContent, helloFullBuildAppliedLinkPlanReady } from @driver/export
+    { helloCodegenIrExportReady, helloCodegenIrContent, helloFullBuildAppliedLinkPlanReady, helloRunBuildManifestRoundTripReady } from @driver/export
     { moduleIrHeaderMarker } from @codegen/gen_emit
     { assertMsg } from @soyuz/testing
 )
@@ -14,4 +14,8 @@ test fn testHelloCodegenIrExportReady() {
 
 test fn testHelloFullBuildAppliedLinkPlanReady() {
     assertMsg(helloFullBuildAppliedLinkPlanReady(), "hello full build applied link plan ready")
+}
+
+test fn testHelloRunBuildManifestRoundTripReady() {
+    assertMsg(helloRunBuildManifestRoundTripReady(), "hello run manifest round trip ready")
 }
