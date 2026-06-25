@@ -1,3 +1,4 @@
 import @runtime/embed
 import @runtime/link
 import @runtime/embed_test
+import @runtime/link_test

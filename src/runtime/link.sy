@@ -1,5 +1,6 @@
 import (
-    { RuntimeAsset, isRuntimeCSource } from @runtime/embed
+    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex } from @runtime/embed
+    { PathIndex } from @module/paths
 )
 
 pub record LinkConfig {
@@ -7,6 +8,23 @@ pub record LinkConfig {
     outputFile: String,
     tmpDir: String,
     optimize: Bool
+}
+
+pub record LinkBundle {
+    assets: List[RuntimeAsset],
+    writePlan: List[RuntimeWriteEntry],
+    clangArgs: List[String]
+}
+
+pub fn prepareLinkBundle(cfg: LinkConfig, assets: List[RuntimeAsset]) -> LinkBundle = LinkBundle {
+    assets: assets,
+    writePlan: planRuntimeWrite(cfg.tmpDir, assets),
+    clangArgs: buildClangArgs(cfg, assets)
+}
+
+pub fn prepareLinkBundleFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> LinkBundle {
+    val assets = loadRuntimeAssetsFromIndex(srcDir, index)
+    return prepareLinkBundle(cfg, assets)
 }
 
 pub fn joinTmpAsset(tmpDir: String, fileName: String) -> String {

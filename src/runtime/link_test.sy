@@ -1,0 +1,41 @@
+import (
+    { loadRuntimeAssetsFromIndex } from @runtime/embed
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile } from @runtime/link
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testPrepareLinkBundle() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/build/out.ll",
+        outputFile: "/tmp/build/app",
+        tmpDir: "/tmp/build",
+        optimize: false
+    }
+    val srcDir = "/ref/runtime/src"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(srcDir, "soyuz.h"), "#ifndef SOYUZ_H\n")
+    index.fileContents.set(joinPathFile(srcDir, "rc.c"), "/* rc */\n")
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    assertMsg(bundle.writePlan.size() == 13, "write plan for all assets")
+    assertMsg(bundle.writePlan.get(1).path == "/tmp/build/rc.c", "rc.c planned path")
+    assertMsg(clangArgsIncludeLlFile(bundle.clangArgs, "/tmp/build/out.ll"), "clang args include ll")
+    assertMsg(bundle.clangArgs.get(bundle.clangArgs.size() - 1) == "/tmp/build/app", "output flag last")
+}
+
+test fn testPrepareLinkBundleMatchesPlanAndArgs() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/out.ll",
+        outputFile: "/tmp/bin",
+        tmpDir: "/tmp",
+        optimize: true
+    }
+    val srcDir = "/rt/src"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(srcDir, "std_io.c"), "void io() {}\n")
+    val fromIndex = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    val assets = loadRuntimeAssetsFromIndex(srcDir, index)
+    val direct = prepareLinkBundle(cfg, assets)
+    assertMsg(fromIndex.clangArgs.size() == direct.clangArgs.size(), "same clang arg count")
+    assertMsg(fromIndex.writePlan.size() == direct.writePlan.size(), "same write plan size")
+}
