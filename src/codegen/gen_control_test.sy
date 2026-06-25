@@ -5,7 +5,8 @@ import (
     { newGenerator } from @codegen/generator
     { LoopCtx } from @codegen/types
     { pushLoop, popLoop, currentLoop, loopDepth, loopNeedsResultAlloca, loopCtxHasResult, loopCtxResultAlloca, isControlFlowStmt, isLoopStmt, isBreakOrContinue, newLoopCtx, noneLlvmValueOption, generateStmtNode, hasTerminator } from @codegen/gen_control
-    { blockNameRegistered, emitBrToBlockStub, currentBlockHandle } from @codegen/gen_ir
+    { blockNameRegistered, emitBrToBlockStub, currentBlockHandle, newBlock, setCurrentBlock } from @codegen/gen_ir
+    { renderModuleIr, moduleIrHasInstruction } from @codegen/gen_emit
     { taskDropHandleRuntime, taskRuntimeSymbolRegistered } from @codegen/gen_task
     { arcRuntimeRelease, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { mutexRuntimeLock, mutexRuntimeUnlock, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, syncRuntimeSymbolRegistered } from @codegen/gen_sync
@@ -106,10 +107,13 @@ test fn testGenerateReturnStmt() {
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, UnitType)
     val g = newGenerator(controlCheckerWithNodeTypes(types))
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
     match generateStmtNode(g, ret) {
         None => assertMsg(false, "expected return result")
         Some(r) => assertMsg(hasTerminator(r), "return terminates")
     }
+    assertMsg(moduleIrHasInstruction(renderModuleIr(g, 1), "ret i32 0"), "unit return emits ret")
 }
 
 test fn testGenerateBreakOutsideLoop() {

@@ -1,6 +1,6 @@
 import (
     { Generator } from @codegen/generator
-    { LlvmValue } from @codegen/llvm_types
+    { LlvmValue, LlvmType, llvmTypeIrSyntax } from @codegen/llvm_types
 )
 
 pub fn llvmValueReg(v: LlvmValue) -> String = "%v$(v.handle)"
@@ -50,6 +50,11 @@ pub fn moduleIrHasInstruction(ir: String, instruction: String) -> Bool = ir.cont
 
 pub fn emitRetI32Stub(g: Generator, value: Int) -> Bool {
     emitIrLine(g, "  ret i32 $(value)")
+    return true
+}
+
+pub fn emitRetLlvmValueStub(g: Generator, retTy: LlvmType, value: LlvmValue) -> Bool {
+    emitIrLine(g, "  ret $(llvmTypeIrSyntax(retTy)) $(llvmValueReg(value))")
     return true
 }
 

@@ -12,6 +12,7 @@ import (
     { pushSyncGuardScope, popSyncGuardScope, emitSyncGuardDrops } from @codegen/gen_sync
     { mapTypeToLLVM } from @codegen/gen_types
     { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
+    { emitRetI32Stub, emitRetLlvmValueStub } from @codegen/gen_emit
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -460,12 +461,32 @@ fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtRe
     }
 }
 
+fn isUnitReturnType(t: Type) -> Bool = match t {
+    Basic(name) => name == "Unit"
+    _ => false
+}
+
+fn emitFuncReturnStub(g: Generator, hasValue: Bool, value: LlvmValue) -> Bool {
+    if isUnitReturnType(g.currentReturnType) {
+        return emitRetI32Stub(g, 0)
+    }
+    val retTy = mapTypeToLLVM(g, g.currentReturnType)
+    val retVal = match hasValue {
+        true => value
+        false => stubLlvmValue(g)
+    }
+    return emitRetLlvmValueStub(g, retTy, retVal)
+}
+
 fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {
     match data.value {
+        None => {
+            if !emitFuncReturnStub(g, false, stubLlvmValue(g)) { return None }
+        }
         Some(v) => {
             if !exprGeneratesOk(g, v) { return None }
+            if !emitFuncReturnStub(g, true, stubLlvmValue(g)) { return None }
         }
-        None => {}
     }
     return stmtResultFromNode(g, node, ReturnTerm)
 }
