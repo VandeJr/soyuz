@@ -1,7 +1,7 @@
 import (
     { ImportPathKind, ImportDeclData, importDeclPathSegments } from @ast/ast
     { PathIndex, parentDir, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
-    { ProjectConfig, ProjectMeta, defaultProjectMeta, resolveAliasPath } from @module/project
+    { ProjectConfig, ProjectMeta, defaultProjectMeta, resolveAliasPath, loadProjectConfigFromEntry } from @module/project
 )
 
 pub record Resolver {
@@ -30,6 +30,16 @@ pub fn newResolverWithStdlib(entryFile: String, stdlibDir: String) -> Resolver =
     projectRoot: "",
     stdlibDir: stdlibDir,
     packages: Map[String, String]{}
+}
+
+pub fn newResolverWithStdlibFromIndex(entryFile: String, stdlibDir: String, index: PathIndex) -> Resolver {
+    val cfg = loadProjectConfigFromEntry(entryFile, index)
+    return Resolver {
+        root: parentDir(entryFile),
+        projectRoot: cfg.root,
+        stdlibDir: stdlibDir,
+        packages: cfg.packages
+    }
 }
 
 pub fn projectBase(r: Resolver) -> String {

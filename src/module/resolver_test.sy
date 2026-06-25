@@ -1,8 +1,8 @@
 import (
     { ImportPathKind, ImportDeclData, ImportName } from @ast/ast
     { ProjectConfig, ProjectMeta, defaultProjectMeta, parseTomlIntoConfig, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
-    { emptyPathIndex } from @module/paths
-    { Resolver, newResolver, newResolverWithProject, projectBase, joinPathSegments, resolveImportBasePath, resolveFileOrDir, resolveIn, resolveImport, effectiveImportPathKind } from @module/resolver
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { Resolver, newResolver, newResolverWithProject, newResolverWithStdlibFromIndex, projectBase, joinPathSegments, resolveImportBasePath, resolveFileOrDir, resolveIn, resolveImport, effectiveImportPathKind } from @module/resolver
     { assertMsg } from @soyuz/testing
 )
 
@@ -203,4 +203,17 @@ test fn testResolveImportRelative() {
 test fn testEffectiveImportPathKindLegacyStdlib() {
     assertMsg(effectiveImportPathKind(ImportPathKind.Legacy, true) == ImportPathKind.Stdlib, "legacy stdlib promoted")
     assertMsg(effectiveImportPathKind(ImportPathKind.Legacy, false) == ImportPathKind.Legacy, "legacy unchanged")
+}
+
+test fn testNewResolverWithStdlibFromIndexLoadsProject() {
+    val root = "/tmp/proj"
+    val entry = "/tmp/proj/src/main.sy"
+    val toml = "[packages]\nlexer = \"lib/lexer\"\n"
+    var index = emptyPathIndex()
+    index.markerFiles.append(joinPathFile(root, "soyuz.toml"))
+    index.fileContents.set(joinPathFile(root, "soyuz.toml"), toml)
+    val r = newResolverWithStdlibFromIndex(entry, "/stdlib", index)
+    assertMsg(r.projectRoot == root, "project root from entry")
+    assertMsg(r.packages.get("lexer") == "lib/lexer", "packages from toml")
+    assertMsg(r.stdlibDir == "/stdlib", "stdlib dir set")
 }

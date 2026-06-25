@@ -99,3 +99,13 @@ test fn testCollectStdlibImportNoStdlibDir() {
     val result = collect(entry, r, index)
     assertMsg(!collectSucceeded(result), "stdlib import without stdlib dir fails")
 }
+
+// Port of module_test.go TestUnresolvedImport — missing module returns error.
+test fn testCollectUnresolvedImport() {
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(entry, "import inexistente.{ foo }\nfn main() = foo()")
+    val r = newResolver("/tmp/app")
+    val result = collect(entry, r, index)
+    assertMsg(!collectSucceeded(result), "unresolved import should fail")
+}
