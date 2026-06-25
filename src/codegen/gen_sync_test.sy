@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicType, atomicInnerType, isAtomicStaticNew, isAtomicNewCall, isAtomicStoreCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, atomicRuntimeNew, atomicRuntimeStore, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicType, atomicInnerType, isAtomicStaticNew, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -308,4 +308,28 @@ test fn testGenerateAtomicStoreStub() {
         Some(_) => assertMsg(g.atomicStoreStub != None, "stub stored on generator")
     }
     assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeStore()), "srt_atomic_store registered")
+}
+
+test fn testIsAtomicLoadCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val loadMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "load" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicLoadCall(loadMember, g), "a.load on Atomic[Int]")
+    val storeMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "store" })
+    assertMsg(!isAtomicLoadCall(storeMember, g), "a.store not load")
+}
+
+test fn testGenerateAtomicLoadStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicLoadStub(g) {
+        None => assertMsg(false, "atomic load stub")
+        Some(_) => assertMsg(g.atomicLoadStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeLoad()), "srt_atomic_load registered")
 }

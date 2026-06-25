@@ -60,6 +60,10 @@ pub fn atomicRuntimeStore() -> String {
     return "srt_atomic_store"
 }
 
+pub fn atomicRuntimeLoad() -> String {
+    return "srt_atomic_load"
+}
+
 pub fn isMutexType(t: Type) -> Bool = match t {
     Specialized(base, params) => match base {
         Class(ct) => ct.name == "Mutex" && params.size() > 0
@@ -213,6 +217,10 @@ pub fn isAtomicStoreCall(callee: Node, g: Generator) -> Bool {
     return isAtomicInstanceMethodCall(callee, g, "store")
 }
 
+pub fn isAtomicLoadCall(callee: Node, g: Generator) -> Bool {
+    return isAtomicInstanceMethodCall(callee, g, "load")
+}
+
 pub fn syncGuardKind(t: Type) -> Option[String] = match t {
     Specialized(base, params) => match base {
         Class(ct) => {
@@ -340,6 +348,13 @@ pub fn generateAtomicStoreStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeStore())
     val stub = stubLlvmValue(g)
     g.atomicStoreStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateAtomicLoadStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, atomicRuntimeLoad())
+    val stub = stubLlvmValue(g)
+    g.atomicLoadStub = Some(stub)
     return Some(stub)
 }
 
