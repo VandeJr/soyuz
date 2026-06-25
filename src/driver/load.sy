@@ -4,3 +4,5 @@ import @driver/frontend
 import @driver/frontend_test
 import @driver/codegen
 import @driver/codegen_test
+import @driver/pipeline
+import @driver/pipeline_test

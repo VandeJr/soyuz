@@ -1,0 +1,49 @@
+import (
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady } from @driver/build
+    { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
+    { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
+    { Resolver } from @module/resolver
+    { PathIndex } from @module/paths
+)
+
+pub record FullBuildPlan {
+    cfg: BuildConfig,
+    frontend: FrontendBuildPlan,
+    codegen: CodegenBuildPlan,
+    artifacts: BuildArtifacts,
+    ready: Bool,
+    error: String
+}
+
+pub fn fullBuildReady(plan: FullBuildPlan) -> Bool = plan.ready
+
+fn fullBuildError(frontend: FrontendBuildPlan, codegen: CodegenBuildPlan, artifacts: BuildArtifacts) -> String {
+    if !frontendBuildReady(frontend) { return frontend.error }
+    if !codegenBuildReady(codegen) { return codegen.error }
+    if !buildArtifactsReady(artifacts) { return "runtime assets incompletos para link" }
+    return ""
+}
+
+// Mirrors cmd/main.go buildInternal: collect+check → codegen → runtime materialize+link plan.
+pub fn planFullBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> FullBuildPlan {
+    val frontend = planFrontendBuild(entryFile, r, index)
+    val codegen = planCodegenBuild(frontend, cfg)
+    var ir = ""
+    if codegenBuildReady(codegen) {
+        ir = codegen.irContent
+    }
+    val artifacts = planPostCodegenBuild(cfg, sourceIndex, ir)
+    val ready = frontendBuildReady(frontend) && codegenBuildReady(codegen) && buildArtifactsReady(artifacts)
+    var err = ""
+    if !ready {
+        err = fullBuildError(frontend, codegen, artifacts)
+    }
+    return FullBuildPlan {
+        cfg: cfg,
+        frontend: frontend,
+        codegen: codegen,
+        artifacts: artifacts,
+        ready: ready,
+        error: err
+    }
+}
