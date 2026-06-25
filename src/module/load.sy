@@ -7,3 +7,4 @@ import @module/resolver_test
 import @module/graph
 import @module/graph_test
 import @module/prelude_test
+import @module/stdlib_import_test

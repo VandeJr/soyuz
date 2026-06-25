@@ -1,0 +1,31 @@
+import @parser/load
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { assertMsg } from @soyuz/testing
+)
+
+fn parseImportSnippetWithoutErrors(src: String) -> Bool {
+    val tokens = tokenize(src)
+    val p = Parser.new(tokens)
+    p.parse()
+    return !p.hasErrors()
+}
+
+// Port of stdlib_namespace_test.go TestStdlibFormatterImport — parser accepts import syntax variants.
+test fn testStdlibFormatterImportParseCases() {
+    assertMsg(parseImportSnippetWithoutErrors("import ( \"@soyuz/mock\" )"), "bare module import")
+    assertMsg(parseImportSnippetWithoutErrors("import ( { assert_true } from \"@soyuz/mock\" )"), "single named import")
+    assertMsg(parseImportSnippetWithoutErrors("import ( { assert_true, assert_eq } from \"@soyuz/mock\" )"), "multi named import")
+}
+
+test fn testStdlibFormatterImportResolverSmoke() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "mock.sy"), "pub fn assert_true(cond: Bool, name: String) {}")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    assertMsg(r.stdlibDir == stdlibDir, "resolver knows stdlib dir")
+}
