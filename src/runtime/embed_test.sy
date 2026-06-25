@@ -1,5 +1,5 @@
 import (
-    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent } from @runtime/embed
+    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
     { LinkConfig, buildClangArgs, clangArgsIncludeLlFile, joinTmpAsset } from @runtime/link
     { assertMsg } from @soyuz/testing
@@ -62,4 +62,19 @@ test fn testPlanRuntimeWrite() {
     assertMsg(plan.size() == 13, "plan all assets")
     assertMsg(plan.get(1).path == "/tmp/build/rc.c", "rc.c tmp path")
     assertMsg(plan.get(1).content == "int rc = 1;\n", "rc.c content preserved")
+}
+
+test fn testRuntimeAssetsFullyLoaded() {
+    val partial = loadRuntimeAssetsFromIndex("/rt/src", emptyPathIndex())
+    assertMsg(!runtimeAssetsFullyLoaded(partial), "empty index not fully loaded")
+    assertMsg(runtimeLoadedAssetCount(partial) == 0, "zero loaded from empty index")
+    var index = emptyPathIndex()
+    val srcDir = "/rt/src"
+    for name in runtimeAssetNames() {
+        index.fileContents.set(joinPathFile(srcDir, name), "x")
+    }
+    val full = loadRuntimeAssetsFromIndex(srcDir, index)
+    assertMsg(runtimeAssetsFullyLoaded(full), "all slots filled")
+    assertMsg(runtimeLoadedAssetCount(full) == 13, "thirteen loaded")
+    assertMsg(defaultRuntimeSrcSubdir() == "internal/runtime/src", "go runtime src subdir")
 }

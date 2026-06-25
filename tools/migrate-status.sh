@@ -240,6 +240,13 @@ else
   echo "  tools/runtime-embed-check.sh ausente"
 fi
 
+hr "Runtime index seed check (bootstrap, S9)"
+if [[ -x tools/runtime-index-seed.sh ]]; then
+  bash tools/runtime-index-seed.sh 2>&1 || echo "→ runtime index seed check FALHOU"
+else
+  echo "  tools/runtime-index-seed.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

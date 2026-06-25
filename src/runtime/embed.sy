@@ -86,3 +86,20 @@ pub fn planRuntimeWrite(tmpDir: String, assets: List[RuntimeAsset]) -> List[Runt
     }
     return entries
 }
+
+pub fn defaultRuntimeSrcSubdir() -> String = "internal/runtime/src"
+
+pub fn runtimeAssetsFullyLoaded(assets: List[RuntimeAsset]) -> Bool {
+    for asset in assets {
+        if asset.content.len() == 0 { return false }
+    }
+    return true
+}
+
+pub fn runtimeLoadedAssetCount(assets: List[RuntimeAsset]) -> Int {
+    var count = 0
+    for asset in assets {
+        if asset.content.len() > 0 { count = count + 1 }
+    }
+    return count
+}
