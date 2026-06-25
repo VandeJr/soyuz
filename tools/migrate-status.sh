@@ -247,6 +247,13 @@ else
   echo "  tools/runtime-index-seed.sh ausente"
 fi
 
+hr "Runtime link smoke check (bootstrap, S9)"
+if [[ -x tools/runtime-link-smoke.sh ]]; then
+  bash tools/runtime-link-smoke.sh 2>&1 || echo "→ runtime link smoke check FALHOU"
+else
+  echo "  tools/runtime-link-smoke.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 
