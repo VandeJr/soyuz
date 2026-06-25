@@ -217,3 +217,29 @@ test fn testNewResolverWithStdlibFromIndexLoadsProject() {
     assertMsg(r.packages.get("lexer") == "lib/lexer", "packages from toml")
     assertMsg(r.stdlibDir == "/stdlib", "stdlib dir set")
 }
+
+// Port of stdlib_namespace_test.go TestStdlibNestedPath — nested stdlib module path.
+test fn testResolveStdlibNestedPath() {
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/collections/list.sy", "pub fn length() -> Int = 0")
+    val r = Resolver {
+        root: "/tmp/app",
+        projectRoot: "",
+        stdlibDir: stdlibDir,
+        packages: Map[String, String]{}
+    }
+    val data = ImportDeclData {
+        path: "@soyuz/collections/list",
+        names: List[ImportName]{},
+        namespace: "",
+        pathKind: ImportPathKind.Stdlib,
+        packageAlias: "",
+        isStdlib: false,
+        resolvedFiles: List[String]{}
+    }
+    match resolveImport(r, data, "", index) {
+        None => assertMsg(false, "expected nested stdlib resolve")
+        Some(files) => assertMsg(files.get(0) == "/tmp/stdlib/collections/list.sy", "collections/list.sy")
+    }
+}

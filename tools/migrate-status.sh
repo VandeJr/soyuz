@@ -219,6 +219,13 @@ else
   echo "  tools/module-graph-check.sh ausente"
 fi
 
+hr "Module stdlib check (bootstrap, S8)"
+if [[ -x tools/module-stdlib-check.sh ]]; then
+  bash tools/module-stdlib-check.sh 2>&1 || echo "→ module stdlib check FALHOU"
+else
+  echo "  tools/module-stdlib-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

@@ -1,7 +1,7 @@
 import (
     { emptyPathIndex, pathBaseName } from @module/paths
-    { newResolver, newResolverWithStdlib } from @module/resolver
-    { collect, collectSucceeded } from @module/graph
+    { newResolver, newResolverWithStdlib, Resolver } from @module/resolver
+    { collect, collectSucceeded, resolvePrelude } from @module/graph
     { assertMsg } from @soyuz/testing
 )
 
@@ -108,4 +108,39 @@ test fn testCollectUnresolvedImport() {
     val r = newResolver("/tmp/app")
     val result = collect(entry, r, index)
     assertMsg(!collectSucceeded(result), "unresolved import should fail")
+}
+
+test fn testResolvePreludeFromIndex() {
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/prelude.sy", "pub fn range(from: Int, to: Int) -> List[Int] = []")
+    val r = Resolver {
+        root: "/tmp/app",
+        projectRoot: "",
+        stdlibDir: stdlibDir,
+        packages: Map[String, String]{}
+    }
+    val files = resolvePrelude(r, index)
+    assertMsg(files.size() == 1, "one prelude file")
+    assertMsg(files.get(0) == "/tmp/stdlib/prelude.sy", "prelude path")
+}
+
+// Collect auto-includes prelude when stdlib is configured (graph.go ResolvePrelude).
+test fn testCollectIncludesPrelude() {
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/prelude.sy", "pub fn print(x: String) {}")
+    index.fileContents.set(entry, "fn main() {}")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 2, "prelude plus main")
+    assertMsg(pathBaseName(result.files.get(0)) == "prelude.sy", "prelude before entry")
+}
+
+test fn testResolvePreludeNoStdlib() {
+    val r = newResolver("/tmp/app")
+    val files = resolvePrelude(r, emptyPathIndex())
+    assertMsg(files.size() == 0, "no prelude without stdlib dir")
 }
