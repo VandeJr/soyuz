@@ -1,2 +1,4 @@
 import @module/project
 import @module/project_test
+import @module/resolver
+import @module/resolver_test

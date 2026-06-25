@@ -142,3 +142,23 @@ pub fn resolveAliasPath(cfg: ProjectConfig, alias: String, rest: List[String]) -
     }
     return Some(segs)
 }
+
+pub fn applyLibraryEntryDefault(meta: ProjectMeta) -> ProjectMeta {
+    if meta.type == "library" && meta.entry == "main.sy" {
+        return ProjectMeta {
+            name: meta.name,
+            version: meta.version,
+            type: meta.type,
+            entry: "lib.sy"
+        }
+    }
+    return meta
+}
+
+pub fn loadProjectConfigFromContent(root: String, tomlContent: String) -> ProjectConfig {
+    var cfg = emptyProjectConfig()
+    cfg.root = root
+    cfg = parseTomlIntoConfig(tomlContent, cfg)
+    cfg.meta = applyLibraryEntryDefault(cfg.meta)
+    return cfg
+}

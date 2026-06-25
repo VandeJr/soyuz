@@ -1,5 +1,5 @@
 import (
-    { ProjectMeta, ProjectConfig, defaultProjectMeta, emptyProjectConfig, parseTomlIntoConfig, resolveAliasPath } from @module/project
+    { ProjectMeta, ProjectConfig, defaultProjectMeta, emptyProjectConfig, parseTomlIntoConfig, resolveAliasPath, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
     { assertMsg } from @soyuz/testing
 )
 

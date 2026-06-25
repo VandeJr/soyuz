@@ -1,0 +1,103 @@
+import (
+    { ImportPathKind } from @ast/ast
+    { ProjectConfig, ProjectMeta, defaultProjectMeta, parseTomlIntoConfig, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
+    { Resolver, newResolver, newResolverWithProject, projectBase, joinPathSegments, resolveImportBasePath } from @module/resolver
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testApplyLibraryEntryDefault() {
+    val libMeta = ProjectMeta {
+        name: "lib",
+        version: "0.1.0",
+        type: "library",
+        entry: "main.sy"
+    }
+    val adjusted = applyLibraryEntryDefault(libMeta)
+    assertMsg(adjusted.entry == "lib.sy", "library default entry becomes lib.sy")
+    val binMeta = ProjectMeta {
+        name: "app",
+        version: "0.1.0",
+        type: "binary",
+        entry: "main.sy"
+    }
+    assertMsg(applyLibraryEntryDefault(binMeta).entry == "main.sy", "binary entry unchanged")
+}
+
+test fn testLoadProjectConfigFromContentLibraryEntry() {
+    val content = "[project]\ntype = \"library\"\n"
+    val cfg = loadProjectConfigFromContent("/proj", content)
+    assertMsg(cfg.root == "/proj", "root set")
+    assertMsg(cfg.meta.entry == "lib.sy", "library entry default applied")
+}
+
+test fn testProjectBase() {
+    val r = newResolver("/entry/dir")
+    assertMsg(projectBase(r) == "/entry/dir", "falls back to root")
+    var packages: Map[String, String] = Map[String, String]{}
+    val cfg = ProjectConfig {
+        root: "/proj",
+        meta: defaultProjectMeta(),
+        packages: packages
+    }
+    val r2 = newResolverWithProject("/entry/dir", cfg, "")
+    assertMsg(projectBase(r2) == "/proj", "uses project root when set")
+}
+
+test fn testJoinPathSegments() {
+    var segs: List[String] = []
+    segs.append("lib")
+    segs.append("lexer")
+    segs.append("tokens")
+    assertMsg(joinPathSegments("/proj", segs) == "/proj/lib/lexer/tokens", "join segments")
+    assertMsg(joinPathSegments("", segs) == "lib/lexer/tokens", "join from empty base")
+}
+
+test fn testResolveImportBasePathPackageAlias() {
+    var packages: Map[String, String] = Map[String, String]{}
+    packages.set("lexer", "src/lexer")
+    val cfg = ProjectConfig {
+        root: "/proj",
+        meta: defaultProjectMeta(),
+        packages: packages
+    }
+    val r = newResolverWithProject("/proj/src", cfg, "")
+    var segs: List[String] = []
+    segs.append("tokens")
+    match resolveImportBasePath(r, ImportPathKind.PackageAlias, "@lexer/tokens", "lexer", segs, "") {
+        None => assertMsg(false, "expected package alias resolve")
+        Some(basePath) => assertMsg(basePath == "/proj/src/lexer/tokens", "alias path under project base")
+    }
+}
+
+test fn testResolveImportBasePathStdlib() {
+    val r = Resolver {
+        root: "/proj",
+        projectRoot: "/proj",
+        stdlibDir: "/stdlib",
+        packages: Map[String, String]{}
+    }
+    var segs: List[String] = []
+    segs.append("prelude")
+    match resolveImportBasePath(r, ImportPathKind.Stdlib, "@soyuz/prelude", "", segs, "") {
+        None => assertMsg(false, "expected stdlib resolve")
+        Some(basePath) => assertMsg(basePath == "/stdlib/prelude", "stdlib path")
+    }
+    val noStd = newResolver("/proj")
+    match resolveImportBasePath(noStd, ImportPathKind.Stdlib, "@soyuz/prelude", "", segs, "") {
+        None => assertMsg(true, "missing stdlib dir fails")
+        Some(_) => assertMsg(false, "should fail without stdlib")
+    }
+}
+
+test fn testResolveImportBasePathRelative() {
+    val r = newResolver("/proj")
+    var segs: List[String] = []
+    match resolveImportBasePath(r, ImportPathKind.Relative, "./math", "", segs, "/proj/src") {
+        None => assertMsg(false, "expected relative resolve")
+        Some(basePath) => assertMsg(basePath == "/proj/src/math", "relative import path")
+    }
+    match resolveImportBasePath(r, ImportPathKind.Relative, "./math", "", segs, "") {
+        None => assertMsg(true, "relative without importing dir fails")
+        Some(_) => assertMsg(false, "should fail without importing dir")
+    }
+}
