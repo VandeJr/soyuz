@@ -206,3 +206,34 @@ pub fn materializeCompileOutput(index: PathIndex, cfg: LinkConfig, srcDir: Strin
         irContent: irContent
     }
 }
+
+pub fn defaultLinkConfig(tmpDir: String, outputFile: String, optimize: Bool) -> LinkConfig = LinkConfig {
+    llFile: defaultLlFilePath(tmpDir),
+    outputFile: outputFile,
+    tmpDir: tmpDir,
+    optimize: optimize
+}
+
+pub record CompilePipeline {
+    output: CompileOutput,
+    linkPlan: CompileLinkPlan
+}
+
+pub fn compilePipelineReady(pipeline: CompilePipeline) -> Bool {
+    if !compileOutputReady(pipeline.output) { return false }
+    return compileLinkPlanReady(pipeline.linkPlan)
+}
+
+pub fn buildCompilePipeline(cfg: LinkConfig, output: CompileOutput) -> CompilePipeline = CompilePipeline {
+    output: output,
+    linkPlan: buildCompileLinkPlan(cfg, output.bundle)
+}
+
+pub fn buildCompilePipelineFromIndex(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex, irContent: String) -> CompilePipeline {
+    val output = materializeCompileOutput(index, cfg, srcDir, sourceIndex, irContent)
+    return buildCompilePipeline(cfg, output)
+}
+
+pub fn compilePipelineBundlesMatch(pipeline: CompilePipeline) -> Bool {
+    return pipeline.linkPlan.bundle.clangArgs.size() == pipeline.output.bundle.clangArgs.size()
+}
