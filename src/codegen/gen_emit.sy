@@ -42,6 +42,7 @@ pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
         result = "$(result);   $(line)\n"
     }
     result = "$(result)target triple = \"$(defaultTargetTriple())\"\n"
+    result = "$(result)$(renderModuleBuiltinDecls())"
     result = "$(result)define i32 @main() {\n$(renderMainBody(g))}\n"
     return result
 }
@@ -55,6 +56,20 @@ pub fn emitRetI32Stub(g: Generator, value: Int) -> Bool {
 
 pub fn emitRetLlvmValueStub(g: Generator, retTy: LlvmType, value: LlvmValue) -> Bool {
     emitIrLine(g, "  ret $(llvmTypeIrSyntax(retTy)) $(llvmValueReg(value))")
+    return true
+}
+
+fn renderModuleBuiltinDecls() -> String {
+    return "@fmt_print_str = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"\ndeclare i32 @printf(i8*, ...)\n"
+}
+
+pub fn emitCallVoidStub(g: Generator, funcName: String, argTy: LlvmType, arg: LlvmValue) -> Bool {
+    emitIrLine(g, "  call void @$(funcName)($(llvmTypeIrSyntax(argTy)) $(llvmValueReg(arg)))")
+    return true
+}
+
+pub fn emitPrintfStringStub(g: Generator, strArg: LlvmValue) -> Bool {
+    emitIrLine(g, "  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @fmt_print_str, i64 0, i64 0), i8* $(llvmValueReg(strArg)))")
     return true
 }
 

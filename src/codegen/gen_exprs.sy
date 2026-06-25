@@ -14,6 +14,7 @@ import (
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
+    { emitPrintfStringStub } from @codegen/gen_emit
 )
 
 pub enum ConstValue {
@@ -247,6 +248,19 @@ fn generateAllCallArgs(g: Generator, args: List[Node]) -> Bool {
     return true
 }
 
+fn isPrintBuiltinCall(callee: Node) -> Bool = match callee {
+    Identifier(_, _, idData) => idData.name == "print"
+    _ => false
+}
+
+fn generatePrintCallStub(g: Generator, args: List[Node]) -> Bool {
+    if args.size() == 0 { return false }
+    return match generateExprNode(g, args.get(0)) {
+        None => false
+        Some(_) => emitPrintfStringStub(g, stubLlvmValue(g))
+    }
+}
+
 fn clearEnumConstructorExprStubs(g: Generator) {
     g.constructorTagLoad = None
     g.constructorPayloadPtr = None
@@ -363,6 +377,10 @@ fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> O
 }
 
 fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Option[ExprResult] {
+    if isPrintBuiltinCall(data.callee) {
+        if !generatePrintCallStub(g, data.args) { return None }
+        return exprResultFromNode(g, node, NoConst)
+    }
     if isArcNewCall(data.callee) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
