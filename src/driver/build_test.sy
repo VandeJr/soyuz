@@ -1,7 +1,7 @@
 import (
     { runtimeAssetNames, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultLlFilePath } from @runtime/link
     { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -43,4 +43,6 @@ test fn testRuntimeSourcePathsAndDriverScripts() {
     assertMsg(defaultExportDriverHelloIrScript() == "tools/export-driver-hello-ir.sh", "export driver hello ir script")
     assertMsg(defaultDriverAppliedManifestLinkCheckScript() == "tools/driver-applied-manifest-link-check.sh", "applied manifest link check script")
     assertMsg(defaultDriverRunPlanLinkCheckScript() == "tools/driver-run-plan-link-check.sh", "run plan link check script")
+    assertMsg(defaultExportHelloRunManifestScript() == "tools/export-hello-run-manifest.sh", "export hello run manifest script")
+    assertMsg(defaultDriverRunManifestRoundTripCheckScript() == "tools/driver-run-manifest-round-trip-check.sh", "run manifest round trip check script")
 }

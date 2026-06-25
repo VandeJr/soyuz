@@ -1,10 +1,10 @@
 import (
-    { BuildConfig, linkConfigFromBuild, defaultDriverRunPlanLinkCheckScript } from @driver/build
+    { BuildConfig, linkConfigFromBuild, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript } from @driver/build
     { Resolver } from @module/resolver
     { PathIndex, emptyPathIndex } from @module/paths
     { FullBuildPlan, planFullBuild, fullBuildReady, fullBuildManifest, applyFullBuildManifest, fullBuildLinkPlanFromAppliedIndex, fullBuildAppliedLinkPlanReady, fullBuildAppliedIndexReady } from @driver/pipeline
     { defaultLlFilePath, defaultRunLinkScript } from @runtime/link
-    { defaultApplyManifestScript, applyManifestToPathIndex, manifestEntryCount, expectedHelloPipelineManifestEntries } from @runtime/manifest
+    { defaultApplyManifestScript, applyManifestToPathIndex, manifestEntryCount, manifestHasHelloCodegenIr, expectedHelloPipelineManifestEntries } from @runtime/manifest
 )
 
 // Mirrors cmd/main.go cmdRun build phase (compile + link argv, without spawning clang/exec).
@@ -19,18 +19,21 @@ pub record RunBuildPlan {
 pub fn runBuildReady(plan: RunBuildPlan) -> Bool = plan.ready
 
 pub record RunBuildScripts {
+    exportRunManifestScript: String,
     applyManifestScript: String,
     runLinkScript: String,
     runPlanLinkCheckScript: String
 }
 
 pub fn defaultRunBuildScripts() -> RunBuildScripts = RunBuildScripts {
+    exportRunManifestScript: defaultExportHelloRunManifestScript(),
     applyManifestScript: defaultApplyManifestScript(),
     runLinkScript: defaultRunLinkScript(),
     runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript()
 }
 
 pub fn runBuildScripts(plan: RunBuildPlan) -> RunBuildScripts = RunBuildScripts {
+    exportRunManifestScript: defaultExportHelloRunManifestScript(),
     applyManifestScript: plan.fullBuild.scripts.applyManifestScript,
     runLinkScript: plan.fullBuild.scripts.runLinkScript,
     runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript()
@@ -49,6 +52,10 @@ pub fn runBuildManifestRoundTripReady(plan: RunBuildPlan) -> Bool {
 
 pub fn runBuildManifestEntryCountReady(plan: RunBuildPlan) -> Bool {
     return runBuildManifestEntryCount(plan) == expectedHelloPipelineManifestEntries()
+}
+
+pub fn runBuildManifestHasHelloIr(plan: RunBuildPlan) -> Bool {
+    return manifestHasHelloCodegenIr(runBuildManifest(plan))
 }
 
 pub fn runBuildOutputFile(plan: RunBuildPlan) -> String = plan.fullBuild.cfg.outputFile

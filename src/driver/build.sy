@@ -79,4 +79,8 @@ pub fn defaultDriverAppliedManifestLinkCheckScript() -> String = "tools/driver-a
 
 pub fn defaultDriverRunPlanLinkCheckScript() -> String = "tools/driver-run-plan-link-check.sh"
 
+pub fn defaultExportHelloRunManifestScript() -> String = "tools/export-hello-run-manifest.sh"
+
+pub fn defaultDriverRunManifestRoundTripCheckScript() -> String = "tools/driver-run-manifest-round-trip-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

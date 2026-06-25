@@ -1,5 +1,5 @@
 import (
-    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript } from @driver/build
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript } from @driver/build
     { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
     { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
     { Resolver } from @module/resolver
@@ -20,7 +20,9 @@ pub record FullBuildScripts {
     driverExportCodegenIrCheckScript: String,
     driverHelloIrLinkCheckScript: String,
     driverAppliedManifestLinkCheckScript: String,
-    driverRunPlanLinkCheckScript: String
+    driverRunPlanLinkCheckScript: String,
+    exportHelloRunManifestScript: String,
+    driverRunManifestRoundTripCheckScript: String
 }
 
 pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
@@ -34,7 +36,9 @@ pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
     driverExportCodegenIrCheckScript: defaultDriverExportCodegenIrCheckScript(),
     driverHelloIrLinkCheckScript: defaultDriverHelloIrLinkCheckScript(),
     driverAppliedManifestLinkCheckScript: defaultDriverAppliedManifestLinkCheckScript(),
-    driverRunPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript()
+    driverRunPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
+    exportHelloRunManifestScript: defaultExportHelloRunManifestScript(),
+    driverRunManifestRoundTripCheckScript: defaultDriverRunManifestRoundTripCheckScript()
 }
 
 pub record FullBuildPlan {

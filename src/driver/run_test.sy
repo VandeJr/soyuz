@@ -1,7 +1,7 @@
 import (
     { planHelloRunBuild, helloRunBuildPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady } from @driver/run
-    { defaultDriverRunPlanLinkCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr } from @driver/run
+    { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultRunLinkScript } from @runtime/link
     { defaultApplyManifestScript } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -18,11 +18,13 @@ test fn testPlanHelloRunBuild() {
     val scripts = runBuildScripts(plan)
     val defaults = defaultRunBuildScripts()
     assertMsg(scripts.applyManifestScript == defaultApplyManifestScript(), "apply manifest script on run plan")
+    assertMsg(scripts.exportRunManifestScript == defaultExportHelloRunManifestScript(), "export run manifest script on run plan")
     assertMsg(scripts.runLinkScript == defaultRunLinkScript(), "run link script on run plan")
     assertMsg(scripts.runPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script")
     assertMsg(defaults.runPlanLinkCheckScript == "tools/driver-run-plan-link-check.sh", "default run plan check script path")
     assertMsg(runBuildManifestEntryCountReady(plan), "run manifest entry count")
     assertMsg(runBuildManifestRoundTripReady(plan), "run manifest round trip")
+    assertMsg(runBuildManifestHasHelloIr(plan), "run manifest has hello ir")
     assertMsg(helloRunBuildManifestRoundTripReady(), "hello run manifest round trip export helper")
     assertMsg(runBuildManifestEntryCount(plan) == expectedFullBuildManifestEntries(), "run manifest has hello pipeline entries")
 }
