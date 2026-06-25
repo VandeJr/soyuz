@@ -310,6 +310,13 @@ else
   echo "  tools/driver-full-build-check.sh ausente"
 fi
 
+hr "Driver hello-ir link check (bootstrap, S9)"
+if [[ -x tools/driver-hello-ir-link-check.sh ]]; then
+  bash tools/driver-hello-ir-link-check.sh 2>&1 || echo "→ driver hello-ir link check FALHOU"
+else
+  echo "  tools/driver-hello-ir-link-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

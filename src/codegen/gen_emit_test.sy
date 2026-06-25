@@ -117,5 +117,5 @@ test fn testRegisterCStrGlobalAndEmitPtr() {
     assertMsg(emitPrintfStringStub(g, ptr), "printf with c string ptr")
     val ir = renderModuleIr(g, 1)
     assertMsg(ir.contains("@str.1 = private unnamed_addr constant [6 x i8] c\"hello\\00\""), "c string global in ir")
-    assertMsg(moduleIrHasInstruction(ir, "getelementptr inbounds ([6 x i8]"), "gep for c string ptr")
+    assertMsg(moduleIrHasInstruction(ir, "getelementptr inbounds [6 x i8]"), "gep for c string ptr")
 }

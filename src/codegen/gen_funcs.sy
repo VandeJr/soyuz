@@ -4,7 +4,7 @@ import (
     { Span } from @lexer/tokens
     { FuncType, Type, UnitType, typeToString } from @checker/types
     { Generator } from @codegen/generator
-    { generateStmtNode } from @codegen/gen_control
+    { generateStmtNode, emitImplicitFuncReturn } from @codegen/gen_control
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl, generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol, extendSelfLLVM } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
@@ -45,9 +45,16 @@ pub fn generateFuncDeclNode(g: Generator, node: Node, data: FuncDeclData) -> Opt
             }
             match data.body {
                 None => Some(result)
-                Some(body) => match generateStmtNode(g, body) {
-                    None => None
-                    Some(_) => Some(result)
+                Some(body) => {
+                    g.currentReturnType = ft.returnType
+                    setCurrentBlock(g, newBlock(g, "entry"))
+                    match generateStmtNode(g, body) {
+                        None => None
+                        Some(_) => {
+                            if !emitImplicitFuncReturn(g) { return None }
+                            Some(result)
+                        }
+                    }
                 }
             }
         }

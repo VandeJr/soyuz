@@ -19,6 +19,11 @@ pub fn codegenBuildReady(plan: CodegenBuildPlan) -> Bool = plan.ready
 
 pub fn codegenPlanHasMain(plan: CodegenBuildPlan) -> Bool = moduleIrHasMain(plan.irContent)
 
+pub fn codegenPlanHasHelloPrint(plan: CodegenBuildPlan) -> Bool {
+    if !plan.irContent.contains("c\"hello") { return false }
+    return plan.irContent.contains("call i32 (i8*, ...) @printf")
+}
+
 // Legacy stub format kept for bash driver-link-stub-check.sh parity.
 pub fn stubModuleIr(funcCount: Int) -> String {
     return "; soyuz codegen stub ($(funcCount) top-level funcs)\ntarget triple = \"x86_64-unknown-linux-gnu\"\ndefine i32 @main() {\nentry:\n  ret i32 0\n}\n"

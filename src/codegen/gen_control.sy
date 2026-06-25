@@ -478,6 +478,10 @@ fn emitFuncReturnStub(g: Generator, hasValue: Bool, value: LlvmValue) -> Bool {
     return emitRetLlvmValueStub(g, retTy, retVal)
 }
 
+pub fn emitImplicitFuncReturn(g: Generator) -> Bool {
+    return emitFuncReturnStub(g, false, stubLlvmValue(g))
+}
+
 fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {
     match data.value {
         None => {

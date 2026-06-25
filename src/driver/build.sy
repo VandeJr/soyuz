@@ -69,4 +69,6 @@ pub fn defaultDriverLinkStubCheckScript() -> String = "tools/driver-link-stub-ch
 
 pub fn defaultDriverFullBuildCheckScript() -> String = "tools/driver-full-build-check.sh"
 
+pub fn defaultDriverHelloIrLinkCheckScript() -> String = "tools/driver-hello-ir-link-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

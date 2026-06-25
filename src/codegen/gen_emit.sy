@@ -95,17 +95,25 @@ pub fn registerCStrGlobal(g: Generator, text: String) -> String {
 pub fn emitCStrPtrStub(g: Generator, globalName: String, byteLen: Int) -> LlvmValue {
     val ptr = newIrValueHandle(g)
     g.valueTypes.set(ptr.handle, llvmI8Ptr())
-    emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds ([$(byteLen) x i8], [$(byteLen) x i8]* @$(globalName), i64 0, i64 0")
+    emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds [$(byteLen) x i8], [$(byteLen) x i8]* @$(globalName), i64 0, i64 0")
     return ptr
+}
+
+fn emitPrintfFmtPtrStub(g: Generator) -> LlvmValue {
+    val ptr = newIrValueHandle(g)
+    g.valueTypes.set(ptr.handle, llvmI8Ptr())
+    emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds [4 x i8], [4 x i8]* @fmt_print_str, i64 0, i64 0")
+    return ptr
+}
+
+pub fn emitPrintfStringStub(g: Generator, strArg: LlvmValue) -> Bool {
+    val fmt = emitPrintfFmtPtrStub(g)
+    emitIrLine(g, "  call i32 (i8*, ...) @printf(i8* $(llvmValueReg(fmt)), i8* $(llvmValueReg(strArg)))")
+    return true
 }
 
 pub fn emitCallVoidStub(g: Generator, funcName: String, argTy: LlvmType, arg: LlvmValue) -> Bool {
     emitIrLine(g, "  call void @$(funcName)($(llvmTypeIrSyntax(argTy)) $(llvmValueReg(arg)))")
-    return true
-}
-
-pub fn emitPrintfStringStub(g: Generator, strArg: LlvmValue) -> Bool {
-    emitIrLine(g, "  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @fmt_print_str, i64 0, i64 0), i8* $(llvmValueReg(strArg)))")
     return true
 }
 
