@@ -1,0 +1,73 @@
+pub record PathIndex {
+    markerFiles: List[String],
+    fileContents: Map[String, String]
+}
+
+pub fn emptyPathIndex() -> PathIndex = PathIndex {
+    markerFiles: List[String]{},
+    fileContents: Map[String, String]{}
+}
+
+pub fn joinPathFile(dir: String, fileName: String) -> String {
+    if dir.len() == 0 { return fileName }
+    if dir.endsWith("/") { return "$(dir)$(fileName)" }
+    return "$(dir)/$(fileName)"
+}
+
+pub fn parentDir(path: String) -> String {
+    if path.len() == 0 { return path }
+    var p = path
+    if p.endsWith("/") && p.len() > 1 {
+        p = p.substring(0, p.len() - 1)
+    }
+    match p.lastIndexOf("/") {
+        None => return p
+        Some(idx) => {
+            if idx == 0 { return "/" }
+            return p.substring(0, idx)
+        }
+    }
+}
+
+pub fn pathBaseName(path: String) -> String {
+    if path.len() == 0 { return path }
+    var p = path
+    if p.endsWith("/") && p.len() > 1 {
+        p = p.substring(0, p.len() - 1)
+    }
+    match p.lastIndexOf("/") {
+        None => return p
+        Some(idx) => return p.substring(idx + 1, p.len())
+    }
+}
+
+fn pathIndexListsFile(index: PathIndex, path: String) -> Bool {
+    for marker in index.markerFiles {
+        if marker == path { return true }
+    }
+    for key in index.fileContents.keys() {
+        if key == path { return true }
+    }
+    return false
+}
+
+fn isProjectRootMarker(index: PathIndex, dir: String) -> Bool {
+    if pathIndexListsFile(index, joinPathFile(dir, ".soyuz-root")) { return true }
+    if pathIndexListsFile(index, joinPathFile(dir, "soyuz.toml")) { return true }
+    return false
+}
+
+pub fn findProjectRoot(startDir: String, index: PathIndex) -> String {
+    var dir = startDir
+    loop {
+        if isProjectRootMarker(index, dir) {
+            return dir
+        }
+        val parent = parentDir(dir)
+        if parent == dir {
+            return startDir
+        }
+        dir = parent
+    }
+    return startDir
+}

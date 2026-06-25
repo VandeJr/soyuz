@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/module" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/module/ -run 'TestLoadFromTOML|TestResolveAliasPath' -count=1
+go test ./internal/module/ -run 'TestFindProjectRoot|TestLoadFromTOML|TestResolveAliasPath' -count=1
 echo "→ module project check (bootstrap) OK"

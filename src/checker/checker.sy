@@ -6,6 +6,7 @@ import (
     { buildPreludeScope } from @checker/type_builders
     { builtinTypeExtensions, builtinExtendSelfTypes } from @checker/builtins
     { mapHasStrBool, mapHasStrStr, mapHasStrStrBoolMap } from @checker/map_util
+    { pathBaseName } from @module/paths
 )
 
 pub class Checker {
@@ -92,12 +93,6 @@ pub fn contextInnerType(c: Checker, enumName: String) -> Type = match c.context.
         _ => Unknown
     }
     _ => Unknown
-}
-
-fn pathBaseName(path: String) -> String {
-    val parts = path.split("/")
-    if parts.size() == 0 { return path }
-    return parts.get(parts.size() - 1)
 }
 
 pub fn setNodeFiles(c: Checker, nf: Map[Int, String]) {
