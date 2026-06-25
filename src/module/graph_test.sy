@@ -1,0 +1,46 @@
+import (
+    { emptyPathIndex, pathBaseName } from @module/paths
+    { newResolver } from @module/resolver
+    { collect, collectSucceeded } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+// Port of module_test.go TestSingleFile — entry only, no imports.
+test fn testCollectSingleFile() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(entry, "fn hello() = \"oi\"")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 1, "one file")
+    assertMsg(result.files.get(0) == entry, "entry file only")
+}
+
+// Port of module_test.go TestSingleFileImport — math.sy before main.sy.
+test fn testCollectSingleFileImport() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set(entry, "import math.{ dobrar }\nfn main() = dobrar(5)")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 2, "two files")
+    assertMsg(pathBaseName(result.files.get(0)) == "math.sy", "math first")
+    assertMsg(pathBaseName(result.files.get(1)) == "main.sy", "main last")
+}
+
+// Port of module_test.go TestCycleDetection — cyclic imports return error.
+test fn testCollectCycleDetection() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/a.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/a.sy", "import b.{ foo }")
+    index.fileContents.set("/tmp/proj/b.sy", "import a.{ bar }")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(!collectSucceeded(result), "cycle should fail")
+}

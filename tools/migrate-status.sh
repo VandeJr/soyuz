@@ -212,6 +212,13 @@ else
   echo "  tools/module-project-check.sh ausente"
 fi
 
+hr "Module graph check (bootstrap, S8)"
+if [[ -x tools/module-graph-check.sh ]]; then
+  bash tools/module-graph-check.sh 2>&1 || echo "→ module graph check FALHOU"
+else
+  echo "  tools/module-graph-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

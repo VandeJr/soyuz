@@ -1,0 +1,145 @@
+import @parser/load
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { Node, ImportDeclData, ImportPathKind, ImportName } from @ast/ast
+    { PathIndex, pathIndexFileContent } from @module/paths
+    { Resolver, resolveImport } from @module/resolver
+)
+
+pub record CollectState {
+    visited: List[String],
+    visiting: List[String],
+    order: List[String],
+    error: String
+}
+
+pub record CollectResult {
+    files: List[String],
+    error: String
+}
+
+pub fn collectSucceeded(result: CollectResult) -> Bool = result.error.len() == 0
+
+fn emptyCollectState() -> CollectState = CollectState {
+    visited: List[String]{},
+    visiting: List[String]{},
+    order: List[String]{},
+    error: ""
+}
+
+fn listContains(items: List[String], item: String) -> Bool {
+    for x in items {
+        if x == item { return true }
+    }
+    return false
+}
+
+fn listRemove(items: List[String], item: String) -> List[String] {
+    var out: List[String] = []
+    for x in items {
+        if x != item { out.append(x) }
+    }
+    return out
+}
+
+fn extractImportDeclsFromSource(source: String) -> List[ImportDeclData] {
+    val tokens = tokenize(source)
+    val p = Parser.new(tokens)
+    val prog = p.parse()
+    var imports: List[ImportDeclData] = []
+    match prog {
+        Program(_, _, body) => {
+            for node in body {
+                match node {
+                    ImportDecl(_, _, data) => imports.append(data)
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    return imports
+}
+
+pub fn resolvePrelude(r: Resolver, index: PathIndex) -> List[String] {
+    if r.stdlibDir.len() == 0 { return List[String]{} }
+    val data = ImportDeclData {
+        path: "@soyuz/prelude",
+        names: List[ImportName]{},
+        namespace: "",
+        pathKind: ImportPathKind.Stdlib,
+        packageAlias: "",
+        isStdlib: false,
+        resolvedFiles: List[String]{}
+    }
+    match resolveImport(r, data, "", index) {
+        None => List[String]{}
+        Some(files) => files
+    }
+}
+
+fn collectVisitDeps(s: CollectState, deps: List[String], r: Resolver, index: PathIndex) -> CollectState {
+    var cur = s
+    for dep in deps {
+        cur = collectVisit(cur, dep, r, index)
+        if cur.error.len() > 0 { return cur }
+    }
+    return cur
+}
+
+fn collectVisitImport(s: CollectState, imp: ImportDeclData, file: String, r: Resolver, index: PathIndex) -> CollectState {
+    match resolveImport(r, imp, file, index) {
+        None => {
+            var err = s
+            err.error = "$(file): import não resolvido"
+            return err
+        }
+        Some(resolved) => collectVisitDeps(s, resolved, r, index)
+    }
+}
+
+fn collectVisit(state: CollectState, file: String, r: Resolver, index: PathIndex) -> CollectState {
+    if state.error.len() > 0 { return state }
+    if listContains(state.visiting, file) {
+        var cycle = state
+        cycle.error = "ciclo de import detectado em $(file)"
+        return cycle
+    }
+    if listContains(state.visited, file) { return state }
+    var s = state
+    s.visiting.append(file)
+    match pathIndexFileContent(index, file) {
+        None => {
+            s.error = "erro ao ler $(file)"
+            return s
+        }
+        Some(content) => {
+            val imports = extractImportDeclsFromSource(content)
+            for imp in imports {
+                s = collectVisitImport(s, imp, file, r, index)
+                if s.error.len() > 0 { return s }
+            }
+            s.visiting = listRemove(s.visiting, file)
+            s.visited.append(file)
+            s.order.append(file)
+            return s
+        }
+    }
+}
+
+pub fn collect(entryFile: String, r: Resolver, index: PathIndex) -> CollectResult {
+    var state = emptyCollectState()
+    val prelude = resolvePrelude(r, index)
+    for f in prelude {
+        state = collectVisit(state, f, r, index)
+        if state.error.len() > 0 {
+            return CollectResult { files: List[String]{}, error: state.error }
+        }
+    }
+    state = collectVisit(state, entryFile, r, index)
+    if state.error.len() > 0 {
+        return CollectResult { files: List[String]{}, error: state.error }
+    }
+    return CollectResult { files: state.order, error: "" }
+}

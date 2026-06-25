@@ -4,3 +4,5 @@ import @module/paths
 import @module/paths_test
 import @module/resolver
 import @module/resolver_test
+import @module/graph
+import @module/graph_test
