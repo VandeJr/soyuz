@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestMutexNewAndLockEmitsCalls|TestMutexGuardValueRead|TestMutexGuardValueWrite|TestRwLockReadEmitsSrtRwlockRead|TestRwLockWriteGuardUnlockedOnScopeExit' -count=1
+go test ./internal/codegen/ -run 'TestMutexNewAndLockEmitsCalls|TestMutexGuardUnlockedOnScopeExit|TestMutexGuardValueRead|TestMutexGuardValueWrite|TestRwLockReadEmitsSrtRwlockRead|TestRwLockWriteGuardUnlockedOnScopeExit' -count=1
 echo "→ codegen sync check (bootstrap) OK"

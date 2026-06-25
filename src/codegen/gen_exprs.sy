@@ -7,7 +7,7 @@ import (
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, extractChannelFromRecvCall, selectRecvArmCount, selectHasDefaultArm, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, generateSelectStub } from @codegen/gen_channel
-    { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, syncGuardValueAccess, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
+    { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, syncGuardValueAccess, syncGuardUnlockFn, ownSyncGuard, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
     { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCancelMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isTaskHandleCancelledMethodCall, isTaskHandleProgressMethodCall, isSelectTaskAwaitCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, isTaskHandleCurrentCall, taskFanFnArgsValid, ownTaskVar, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskCancelStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectTaskBridgeStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, generateTaskHandleCurrentStub, generateTaskHandleCancelledStub, generateTaskHandleProgressStub, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub } from @codegen/gen_task
@@ -755,6 +755,10 @@ fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[
                         Some(t) => {
                             if isArcType(t) { ownArcVar(g, data.name) }
                             if isTaskInstanceType(t) { ownTaskVar(g, data.name) }
+                            match syncGuardUnlockFn(t) {
+                                None => {}
+                                Some(unlockFn) => ownSyncGuard(g, data.name, unlockFn)
+                            }
                             exprResultFromNode(g, node, NoConst)
                         }
                     }

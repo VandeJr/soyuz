@@ -8,6 +8,7 @@ import (
     { blockNameRegistered, emitBrToBlockStub, currentBlockHandle } from @codegen/gen_ir
     { taskDropHandleRuntime, taskRuntimeSymbolRegistered } from @codegen/gen_task
     { arcRuntimeRelease, arcRuntimeSymbolRegistered } from @codegen/gen_arc
+    { mutexRuntimeLock, mutexRuntimeUnlock, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -680,6 +681,45 @@ test fn testBlockEmitsArcReleaseOnScopeExit() {
         Some(_) => {
             assertMsg(g.arcReleaseStub != None, "arc release stub stored at block exit")
             assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeRelease()), "srt_arc_release registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexGuardUnlockedOnScopeExit — block scope emits srt_mutex_unlock stub.
+test fn testBlockEmitsSyncGuardUnlockOnScopeExit() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexClass = controlArcClass("Mutex")
+    val guardClass = controlArcClass("MutexGuard")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
+    val lockCallee = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    val lockCall = Node.CallExpr(3, span, CallExprData { callee: lockCallee, args: [] })
+    val varDecl = Node.VarDecl(4, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Val,
+        name: "guard",
+        pattern: None,
+        typeExpr: None,
+        init: Some(lockCall)
+    })
+    var stmts: List[Node] = []
+    stmts.append(varDecl)
+    val block = Node.BlockStmt(5, span, BlockStmtData { statements: stmts })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, mutexInt)
+    types.set(2, mutexInt)
+    types.set(3, guardInt)
+    types.set(4, guardInt)
+    types.set(5, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, block) {
+        None => assertMsg(false, "expected block with mutex guard codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardUnlockStub != None, "sync guard unlock stub stored at block exit")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeUnlock()), "srt_mutex_unlock registered")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeLock()), "srt_mutex_lock registered")
         }
     }
 }
