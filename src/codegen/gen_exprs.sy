@@ -7,7 +7,7 @@ import (
     { LlvmType } from @codegen/llvm_types
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, extractChannelFromRecvCall, selectRecvArmCount, selectHasDefaultArm, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, generateSelectStub } from @codegen/gen_channel
-    { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, syncGuardValueAccess, syncGuardUnlockFn, ownSyncGuard, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
+    { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, isAtomicAddCall, syncGuardValueAccess, syncGuardUnlockFn, ownSyncGuard, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateAtomicAddStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
     { isArcType, isArcNewCall, isArcCloneCall, isArcGetCall, isArcRefcountCall, ownArcVar, generateArcNewStub, generateArcCloneStub, generateArcGetStub, generateArcRefcountStub } from @codegen/gen_arc
     { isTaskGatherCall, isTaskGatherFnArg, generateTaskGatherStub } from @codegen/gen_gather
     { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCancelMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isTaskHandleCancelledMethodCall, isTaskHandleProgressMethodCall, isSelectTaskAwaitCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, isTaskHandleCurrentCall, taskFanFnArgsValid, ownTaskVar, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskCancelStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectTaskBridgeStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, generateTaskHandleCurrentStub, generateTaskHandleCancelledStub, generateTaskHandleProgressStub, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub } from @codegen/gen_task
@@ -462,6 +462,20 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateAtomicLoadStub(g) {
+                    None => None
+                    Some(_) => exprResultFromNode(g, node, NoConst)
+                }
+            }
+            _ => None
+        }
+    }
+    if isAtomicAddCall(data.callee, g) {
+        if data.args.size() != 1 { return None }
+        if !generateAllCallArgs(g, data.args) { return None }
+        return match data.callee {
+            MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
+                None => None
+                Some(_) => match generateAtomicAddStub(g) {
                     None => None
                     Some(_) => exprResultFromNode(g, node, NoConst)
                 }
