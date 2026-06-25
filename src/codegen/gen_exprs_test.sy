@@ -10,7 +10,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
-    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
     { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
@@ -1288,6 +1288,30 @@ test fn testRwLockReadCallExprCodegen() {
         Some(_) => {
             assertMsg(g.rwLockReadStub != None, "rwlock read stub stored")
             assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockWriteGuardUnlockedOnScopeExit (write half) — rw.write() call expr dispatch.
+test fn testRwLockWriteCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = channelTestClass("RwLock")
+    val writeGuardClass = channelTestClass("WriteGuard")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, rwlockInt)
+    types.set(2, rwlockInt)
+    types.set(3, writeGuardInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected rw.write() codegen")
+        Some(_) => {
+            assertMsg(g.rwLockWriteStub != None, "rwlock write stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeWrite()), "srt_rwlock_write registered")
         }
     }
 }

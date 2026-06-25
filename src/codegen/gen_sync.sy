@@ -144,6 +144,10 @@ pub fn isRwLockReadCall(callee: Node, g: Generator) -> Bool {
     return isRwLockInstanceMethodCall(callee, g, "read")
 }
 
+pub fn isRwLockWriteCall(callee: Node, g: Generator) -> Bool {
+    return isRwLockInstanceMethodCall(callee, g, "write")
+}
+
 pub fn syncGuardKind(t: Type) -> Option[String] = match t {
     Specialized(base, params) => match base {
         Class(ct) => {
@@ -238,5 +242,12 @@ pub fn generateRwLockReadStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, rwlockRuntimeRead())
     val stub = stubLlvmValue(g)
     g.rwLockReadStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateRwLockWriteStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, rwlockRuntimeWrite())
+    val stub = stubLlvmValue(g)
+    g.rwLockWriteStub = Some(stub)
     return Some(stub)
 }

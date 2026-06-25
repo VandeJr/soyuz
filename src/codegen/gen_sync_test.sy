@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, syncGuardKind, syncGuardValueAccess, mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, syncGuardKind, syncGuardValueAccess, mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -177,6 +177,20 @@ test fn testIsRwLockReadCall() {
     assertMsg(isRwLockReadCall(readMember, g), "rw.read on RwLock[Int]")
 }
 
+test fn testIsRwLockWriteCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = syncEmptyClass("RwLock")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val writeMember = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(rwlockInt))
+    cr.nodeTypes.append(Some(rwlockInt))
+    val g = newGenerator(cr)
+    assertMsg(isRwLockWriteCall(writeMember, g), "rw.write on RwLock[Int]")
+    assertMsg(!isRwLockWriteCall(Node.MemberExpr(3, span, MemberExprData { object: rwId, property: "read" }), g), "rw.read not write")
+}
+
 test fn testGenerateRwLockNewStub() {
     val g = newGenerator(syncEmptyCheckResult())
     match generateRwLockNewStub(g) {
@@ -193,6 +207,15 @@ test fn testGenerateRwLockReadStub() {
         Some(_) => assertMsg(g.rwLockReadStub != None, "stub stored on generator")
     }
     assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
+}
+
+test fn testGenerateRwLockWriteStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateRwLockWriteStub(g) {
+        None => assertMsg(false, "rwlock write stub")
+        Some(_) => assertMsg(g.rwLockWriteStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeWrite()), "srt_rwlock_write registered")
 }
 
 test fn testGenerateMutexNewStub() {
