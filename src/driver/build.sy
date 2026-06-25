@@ -1,0 +1,64 @@
+import (
+    { defaultRuntimeSrcSubdir } from @runtime/embed
+    { PathIndex, joinPathFile, emptyPathIndex } from @module/paths
+    { LinkConfig, defaultLinkConfig, buildCompilePipelineFromIndex, compilePipelineReady, CompilePipeline } from @runtime/link
+    { compilePipelineManifest, manifestContainsMarkers, defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
+)
+
+// Mirrors cmd/main.go buildInternal parameters (without OS I/O).
+pub record BuildConfig {
+    inputFile: String,
+    outputFile: String,
+    release: Bool,
+    projectRoot: String,
+    isTestBuild: Bool,
+    testFilter: String,
+    tmpDir: String,
+    runtimeSrcDir: String
+}
+
+pub fn defaultBuildTmpPrefix() -> String = "/tmp/soyuz-"
+
+pub fn defaultRuntimeSrcDir(goRoot: String) -> String {
+    return joinPathFile(goRoot, defaultRuntimeSrcSubdir())
+}
+
+pub fn buildConfigForEntry(inputFile: String, outputFile: String, release: Bool, tmpDir: String, runtimeSrcDir: String) -> BuildConfig = BuildConfig {
+    inputFile: inputFile,
+    outputFile: outputFile,
+    release: release,
+    projectRoot: "",
+    isTestBuild: false,
+    testFilter: "",
+    tmpDir: tmpDir,
+    runtimeSrcDir: runtimeSrcDir
+}
+
+pub fn linkConfigFromBuild(cfg: BuildConfig) -> LinkConfig {
+    return defaultLinkConfig(cfg.tmpDir, cfg.outputFile, cfg.release)
+}
+
+pub record BuildArtifacts {
+    irContent: String,
+    pipeline: CompilePipeline,
+    manifest: String,
+    exportManifestScript: String,
+    applyManifestScript: String
+}
+
+pub fn planPostCodegenBuild(cfg: BuildConfig, sourceIndex: PathIndex, irContent: String) -> BuildArtifacts {
+    val linkCfg = linkConfigFromBuild(cfg)
+    val pipeline = buildCompilePipelineFromIndex(emptyPathIndex(), linkCfg, cfg.runtimeSrcDir, sourceIndex, irContent)
+    return BuildArtifacts {
+        irContent: irContent,
+        pipeline: pipeline,
+        manifest: compilePipelineManifest(pipeline),
+        exportManifestScript: defaultExportManifestScript(),
+        applyManifestScript: defaultApplyManifestScript()
+    }
+}
+
+pub fn buildArtifactsReady(artifacts: BuildArtifacts) -> Bool {
+    if !compilePipelineReady(artifacts.pipeline) { return false }
+    return manifestContainsMarkers(artifacts.manifest)
+}

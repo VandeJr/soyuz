@@ -1,0 +1,32 @@
+import (
+    { runtimeAssetNames } from @runtime/embed
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix } from @driver/build
+    { defaultLlFilePath } from @runtime/link
+    { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testLinkConfigFromBuild() {
+    val cfg = buildConfigForEntry("/proj/hello.sy", "/tmp/out/app", true, "/tmp/soyuz-abc", "/ref/runtime/src")
+    val linkCfg = linkConfigFromBuild(cfg)
+    assertMsg(linkCfg.optimize, "release maps to optimize")
+    assertMsg(linkCfg.llFile == defaultLlFilePath("/tmp/soyuz-abc"), "ll under tmp dir")
+    assertMsg(linkCfg.outputFile == "/tmp/out/app", "output file preserved")
+}
+
+test fn testPlanPostCodegenBuild() {
+    val goRoot = "/ref/soyuz-go"
+    val runtimeSrc = defaultRuntimeSrcDir(goRoot)
+    val cfg = buildConfigForEntry("/proj/hello.sy", "/tmp/soyuz-abc/app", false, "/tmp/soyuz-abc", runtimeSrc)
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(runtimeSrc, name), "// $(name)\n")
+    }
+    val ir = "define i32 @main() { ret i32 0 }\n"
+    val artifacts = planPostCodegenBuild(cfg, sourceIndex, ir)
+    assertMsg(buildArtifactsReady(artifacts), "artifacts ready after codegen plan")
+    assertMsg(artifacts.exportManifestScript == defaultExportManifestScript(), "export script on artifacts")
+    assertMsg(manifestContainsPath(artifacts.manifest, defaultLlFilePath("/tmp/soyuz-abc")), "manifest has ll path")
+    assertMsg(defaultBuildTmpPrefix() == "/tmp/soyuz-", "tmp prefix matches go MkdirTemp")
+}
