@@ -1,6 +1,9 @@
 import (
     { planHelloRunBuild, helloRunBuildPlanReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs } from @driver/run
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts } from @driver/run
+    { defaultDriverRunPlanLinkCheckScript } from @driver/build
+    { defaultRunLinkScript } from @runtime/link
+    { defaultApplyManifestScript } from @runtime/manifest
     { assertMsg } from @soyuz/testing
 )
 
@@ -12,4 +15,10 @@ test fn testPlanHelloRunBuild() {
     assertMsg(runBuildOutputFile(plan) == "$(helloFixtureTmpDir())/app", "run output under fixture tmp")
     assertMsg(runBuildClangCommandIncludesLinkInputs(plan), "clang command has link inputs")
     assertMsg(plan.clangCommand.contains("clang"), "clang driver in command")
+    val scripts = runBuildScripts(plan)
+    val defaults = defaultRunBuildScripts()
+    assertMsg(scripts.applyManifestScript == defaultApplyManifestScript(), "apply manifest script on run plan")
+    assertMsg(scripts.runLinkScript == defaultRunLinkScript(), "run link script on run plan")
+    assertMsg(scripts.runPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script")
+    assertMsg(defaults.runPlanLinkCheckScript == "tools/driver-run-plan-link-check.sh", "default run plan check script path")
 }

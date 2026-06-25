@@ -1,5 +1,5 @@
 import (
-    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript } from @driver/build
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript } from @driver/build
     { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
     { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
     { Resolver } from @module/resolver
@@ -19,7 +19,8 @@ pub record FullBuildScripts {
     exportDriverHelloIrScript: String,
     driverExportCodegenIrCheckScript: String,
     driverHelloIrLinkCheckScript: String,
-    driverAppliedManifestLinkCheckScript: String
+    driverAppliedManifestLinkCheckScript: String,
+    driverRunPlanLinkCheckScript: String
 }
 
 pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
@@ -32,7 +33,8 @@ pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
     exportDriverHelloIrScript: defaultExportDriverHelloIrScript(),
     driverExportCodegenIrCheckScript: defaultDriverExportCodegenIrCheckScript(),
     driverHelloIrLinkCheckScript: defaultDriverHelloIrLinkCheckScript(),
-    driverAppliedManifestLinkCheckScript: defaultDriverAppliedManifestLinkCheckScript()
+    driverAppliedManifestLinkCheckScript: defaultDriverAppliedManifestLinkCheckScript(),
+    driverRunPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript()
 }
 
 pub record FullBuildPlan {

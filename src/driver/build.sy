@@ -77,4 +77,6 @@ pub fn defaultDriverExportCodegenIrCheckScript() -> String = "tools/driver-expor
 
 pub fn defaultDriverAppliedManifestLinkCheckScript() -> String = "tools/driver-applied-manifest-link-check.sh"
 
+pub fn defaultDriverRunPlanLinkCheckScript() -> String = "tools/driver-run-plan-link-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()
