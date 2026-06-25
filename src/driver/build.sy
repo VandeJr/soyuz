@@ -87,4 +87,6 @@ pub fn defaultDriverRunPlanMaterializeCheckScript() -> String = "tools/driver-ru
 
 pub fn defaultDriverBootstrapHelloRunCheckScript() -> String = "tools/driver-bootstrap-hello-run-check.sh"
 
+pub fn defaultDriverCliRunDispatchCheckScript() -> String = "tools/driver-cli-run-dispatch-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

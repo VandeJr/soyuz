@@ -1,8 +1,9 @@
 // Mirrors soyuz-go/cmd/main.go CLI surface (command names + usage text).
 
 import (
-    { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady } from @driver/export
-    { RunPlan, runPlanReady } from @driver/run
+    { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady, helloFixtureCliRunTmpDir } from @driver/export
+    { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { defaultDriverCliRunDispatchCheckScript } from @driver/build
 )
 
 pub fn cliCommandNew() -> String = "new"
@@ -55,4 +56,33 @@ pub fn cliHelloMinimalRunDispatchReady() -> Bool {
 
 pub fn helloMinimalRunPlanReadyFromCli() -> Bool {
     return helloMinimalRunPlanReady()
+}
+
+pub fn defaultCliHelloMinimalManifestPath() -> String = "/tmp/soyuz-cli-run.manifest"
+
+pub fn defaultCliRunDispatchCheckScript() -> String = defaultDriverCliRunDispatchCheckScript()
+
+pub fn cliHelloMinimalMaterializePrefix() -> String = helloFixtureCliRunTmpDir()
+
+pub fn cliHelloMinimalBinaryPath() -> String = "$(helloFixtureCliRunTmpDir())/app"
+
+pub fn cliHelloMinimalRunMaterializeCommandsReady(manifestPath: String) -> Bool {
+    if !cliHelloMinimalRunDispatchReady() { return false }
+    return runPlanMaterializeCommandsReady(planHelloMinimalRunFromCli(), manifestPath)
+}
+
+pub fn cliHelloMinimalRunExportManifestCommand(manifestPath: String) -> String {
+    return runPlanExportManifestCommand(planHelloMinimalRunFromCli(), manifestPath)
+}
+
+pub fn cliHelloMinimalRunApplyManifestCommand(manifestPath: String) -> String {
+    return runPlanApplyManifestCommand(planHelloMinimalRunFromCli(), manifestPath)
+}
+
+pub fn cliHelloMinimalRunLinkCommand() -> String {
+    return runPlanLinkCommand(planHelloMinimalRunFromCli())
+}
+
+pub fn cliHelloMinimalRunExecCommand() -> String {
+    return runPlanExecCommand(planHelloMinimalRunFromCli())
 }

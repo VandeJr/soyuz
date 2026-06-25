@@ -1,5 +1,5 @@
 import (
-    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageHasRunCommand, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli } from @driver/cli
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageHasRunCommand, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
     { runPlanReady } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -22,4 +22,18 @@ test fn testCliRunDispatchHelloMinimal() {
     assertMsg(cliRunDispatchReady(cliCommandRun(), defaultHelloMinimalFixturePath()), "cli run dispatch ready")
     assertMsg(cliHelloMinimalRunDispatchReady(), "cli hello minimal dispatch helper")
     assertMsg(helloMinimalRunPlanReadyFromCli(), "cli hello minimal run plan ready helper")
+}
+
+test fn testCliHelloMinimalRunMaterializeCommands() {
+    val manifestPath = defaultCliHelloMinimalManifestPath()
+    val plan = planHelloMinimalRunFromCli()
+    assertMsg(cliHelloMinimalBinaryPath() == "$(cliHelloMinimalMaterializePrefix())/app", "cli binary under materialize prefix")
+    assertMsg(runPlanReady(plan), "cli hello minimal run plan ready")
+    assertMsg(cliHelloMinimalRunMaterializeCommandsReady(manifestPath), "cli materialize commands ready")
+    assertMsg(cliHelloMinimalRunExportManifestCommand(manifestPath).contains("export-hello-run-manifest.sh"), "cli export manifest command")
+    assertMsg(cliHelloMinimalRunApplyManifestCommand(manifestPath).contains("apply-path-index-manifest.sh"), "cli apply manifest command")
+    assertMsg(cliHelloMinimalRunLinkCommand().contains("runtime-run-link.sh"), "cli link command")
+    assertMsg(cliHelloMinimalRunLinkCommand().contains(cliHelloMinimalBinaryPath()), "cli link command has binary path")
+    assertMsg(cliHelloMinimalRunExecCommand() == cliHelloMinimalBinaryPath(), "cli exec command is binary path")
+    assertMsg(defaultCliRunDispatchCheckScript() == "tools/driver-cli-run-dispatch-check.sh", "cli run dispatch check script")
 }
