@@ -2,7 +2,7 @@ import (
     { runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
     { defaultLinkConfig, buildCompilePipelineFromIndex, materializeCompileOutput } from @runtime/link
-    { formatWritePlanManifest, compileOutputManifest, compilePipelineManifest, manifestContainsPath, manifestContainsMarkers, compileOutputManifestEntryCount, manifestMarkerFile } from @runtime/manifest
+    { formatWritePlanManifest, compileOutputManifest, compilePipelineManifest, manifestContainsPath, manifestContainsMarkers, compileOutputManifestEntryCount, manifestMarkerFile, defaultExportManifestScript, defaultApplyManifestScript, expectedHelloPipelineManifestEntries } from @runtime/manifest
     { planRuntimeWrite, loadRuntimeAssetsFromIndex } from @runtime/embed
     { assertMsg } from @soyuz/testing
 )
@@ -44,4 +44,10 @@ test fn testCompilePipelineManifest() {
     val manifest = compilePipelineManifest(pipeline)
     assertMsg(manifest.startsWith(manifestMarkerFile()), "starts with file marker")
     assertMsg(manifestContainsPath(manifest, "/tmp/build/std_io.c"), "runtime asset path")
+}
+
+test fn testManifestScriptDefaults() {
+    assertMsg(defaultExportManifestScript() == "tools/runtime-export-pipeline-manifest.sh", "export script")
+    assertMsg(defaultApplyManifestScript() == "tools/apply-path-index-manifest.sh", "apply script")
+    assertMsg(expectedHelloPipelineManifestEntries() == 14, "hello pipeline entry count")
 }

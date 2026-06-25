@@ -282,6 +282,13 @@ else
   echo "  tools/runtime-manifest-check.sh ausente"
 fi
 
+hr "Runtime export-pipeline-manifest check (bootstrap, S9)"
+if [[ -x tools/runtime-export-pipeline-manifest-check.sh ]]; then
+  bash tools/runtime-export-pipeline-manifest-check.sh 2>&1 || echo "→ runtime export-pipeline-manifest check FALHOU"
+else
+  echo "  tools/runtime-export-pipeline-manifest-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

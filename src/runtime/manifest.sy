@@ -49,3 +49,9 @@ pub fn writePlanManifestEntryCount(writePlan: List[RuntimeWriteEntry]) -> Int {
 pub fn compileOutputManifestEntryCount(output: CompileOutput) -> Int {
     return writePlanManifestEntryCount(output.bundle.writePlan) + 1
 }
+
+pub fn defaultExportManifestScript() -> String = "tools/runtime-export-pipeline-manifest.sh"
+
+pub fn defaultApplyManifestScript() -> String = "tools/apply-path-index-manifest.sh"
+
+pub fn expectedHelloPipelineManifestEntries() -> Int = 14
