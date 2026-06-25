@@ -1932,6 +1932,40 @@ test fn testTaskPipeExprCodegen() {
     }
 }
 
+// Port of m15_task_pipe_test.go TestTaskPipeAwaitResult — pipe task then t.await() dispatch.
+test fn testTaskPipeAwaitResultCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fnId = Node.Identifier(2, span, IdentifierData { name: "inc" })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: pipe })
+    val tId = Node.Identifier(5, span, IdentifierData { name: "t" })
+    val awaitCallee = Node.MemberExpr(6, span, MemberExprData { object: tId, property: "await" })
+    val awaitCall = Node.CallExpr(7, span, CallExprData { callee: awaitCallee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, Type.Basic("Unit"))
+    types.set(3, IntType)
+    types.set(4, taskInt)
+    types.set(5, taskInt)
+    types.set(6, taskInt)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task pipe expr codegen")
+        Some(_) => assertMsg(g.taskPipeMode, "pipe task enqueued first")
+    }
+    match generateExprNode(g, awaitCall) {
+        None => assertMsg(false, "expected await after pipe task codegen")
+        Some(_) => {
+            assertMsg(g.taskAwaitStub != None, "task await stub stored after pipe")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered after pipe")
+        }
+    }
+}
+
 // Port of m_task_test.go TestTaskAllEmitsSrtAwait — Task.all(t1, t2) call expr dispatch.
 test fn testTaskAllCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }

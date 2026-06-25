@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/codegen" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/codegen/ -run 'TestTaskPipeBasicIR|TestTaskPipeChainIR|TestTaskPipeCapturesVariable|TestTaskPipeLiteralIR' -count=1
+go test ./internal/codegen/ -run 'TestTaskPipeBasicIR|TestTaskPipeChainIR|TestTaskPipeCapturesVariable|TestTaskPipeLiteralIR|TestTaskPipeAwaitResult' -count=1
 echo "→ codegen task-pipe check (bootstrap) OK"
