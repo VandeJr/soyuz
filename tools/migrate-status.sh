@@ -345,6 +345,13 @@ else
   echo "  tools/driver-run-manifest-round-trip-check.sh ausente"
 fi
 
+hr "Driver run-plan-materialize check (bootstrap, S9)"
+if [[ -x tools/driver-run-plan-materialize-check.sh ]]; then
+  bash tools/driver-run-plan-materialize-check.sh 2>&1 || echo "→ driver run-plan-materialize check FALHOU"
+else
+  echo "  tools/driver-run-plan-materialize-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

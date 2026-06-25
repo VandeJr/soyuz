@@ -83,4 +83,6 @@ pub fn defaultExportHelloRunManifestScript() -> String = "tools/export-hello-run
 
 pub fn defaultDriverRunManifestRoundTripCheckScript() -> String = "tools/driver-run-manifest-round-trip-check.sh"
 
+pub fn defaultDriverRunPlanMaterializeCheckScript() -> String = "tools/driver-run-plan-materialize-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

@@ -1,7 +1,7 @@
 import (
     { emptyPathIndex, joinPathFile } from @module/paths
     { newResolverWithStdlib } from @module/resolver
-    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts, applyFullBuildManifest, fullBuildAppliedIndexReady, fullBuildAppliedLinkPlanReady } from @driver/pipeline
     { helloFixtureTmpDir, planHelloFullBuild } from @driver/export
     { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr, manifestEntryCount } from @runtime/manifest
@@ -37,6 +37,7 @@ test fn testPlanFullBuildHello() {
     assertMsg(plan.scripts.driverRunPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script on plan")
     assertMsg(plan.scripts.exportHelloRunManifestScript == defaultExportHelloRunManifestScript(), "export hello run manifest script on plan")
     assertMsg(plan.scripts.driverRunManifestRoundTripCheckScript == defaultDriverRunManifestRoundTripCheckScript(), "run manifest round trip check script on plan")
+    assertMsg(plan.scripts.driverRunPlanMaterializeCheckScript == defaultDriverRunPlanMaterializeCheckScript(), "run plan materialize check script on plan")
 }
 
 test fn testPlanFullBuildMissingRuntime() {

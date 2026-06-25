@@ -1,5 +1,5 @@
 import (
-    { BuildConfig, linkConfigFromBuild, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript } from @driver/build
+    { BuildConfig, linkConfigFromBuild, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunPlanMaterializeCheckScript } from @driver/build
     { Resolver } from @module/resolver
     { PathIndex, emptyPathIndex } from @module/paths
     { FullBuildPlan, planFullBuild, fullBuildReady, fullBuildManifest, applyFullBuildManifest, fullBuildLinkPlanFromAppliedIndex, fullBuildAppliedLinkPlanReady, fullBuildAppliedIndexReady } from @driver/pipeline
@@ -22,21 +22,24 @@ pub record RunBuildScripts {
     exportRunManifestScript: String,
     applyManifestScript: String,
     runLinkScript: String,
-    runPlanLinkCheckScript: String
+    runPlanLinkCheckScript: String,
+    runPlanMaterializeCheckScript: String
 }
 
 pub fn defaultRunBuildScripts() -> RunBuildScripts = RunBuildScripts {
     exportRunManifestScript: defaultExportHelloRunManifestScript(),
     applyManifestScript: defaultApplyManifestScript(),
     runLinkScript: defaultRunLinkScript(),
-    runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript()
+    runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
+    runPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript()
 }
 
 pub fn runBuildScripts(plan: RunBuildPlan) -> RunBuildScripts = RunBuildScripts {
     exportRunManifestScript: defaultExportHelloRunManifestScript(),
     applyManifestScript: plan.fullBuild.scripts.applyManifestScript,
     runLinkScript: plan.fullBuild.scripts.runLinkScript,
-    runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript()
+    runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
+    runPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript()
 }
 
 pub fn runBuildManifest(plan: RunBuildPlan) -> String = fullBuildManifest(plan.fullBuild)
@@ -153,6 +156,8 @@ pub fn runPlanLinkCommand(plan: RunPlan) -> String {
     val scripts = runBuildScripts(plan.build)
     return "bash $(scripts.runLinkScript) $(runBuildLlFile(plan.build)) $(runPlanMaterializePrefix(plan)) $(plan.binaryPath)"
 }
+
+pub fn runPlanExecCommand(plan: RunPlan) -> String = plan.binaryPath
 
 pub fn runPlanMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
     if !runPlanReady(plan) { return false }

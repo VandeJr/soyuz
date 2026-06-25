@@ -1,7 +1,7 @@
 import (
     { planHelloRunBuild, planHelloRun, helloRunBuildPlanReady, helloRunPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand } from @driver/run
-    { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, expectedFullBuildManifestEntries } from @driver/build
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunPlanMaterializeCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultRunLinkScript } from @runtime/link
     { defaultApplyManifestScript } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -21,6 +21,7 @@ test fn testPlanHelloRunBuild() {
     assertMsg(scripts.exportRunManifestScript == defaultExportHelloRunManifestScript(), "export run manifest script on run plan")
     assertMsg(scripts.runLinkScript == defaultRunLinkScript(), "run link script on run plan")
     assertMsg(scripts.runPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script")
+    assertMsg(scripts.runPlanMaterializeCheckScript == defaultDriverRunPlanMaterializeCheckScript(), "run plan materialize check script")
     assertMsg(defaults.runPlanLinkCheckScript == "tools/driver-run-plan-link-check.sh", "default run plan check script path")
     assertMsg(runBuildManifestEntryCountReady(plan), "run manifest entry count")
     assertMsg(runBuildManifestRoundTripReady(plan), "run manifest round trip")
@@ -40,4 +41,5 @@ test fn testPlanHelloRun() {
     assertMsg(runPlanApplyManifestCommand(run, manifestPath).contains("apply-path-index-manifest.sh"), "apply manifest command")
     assertMsg(runPlanLinkCommand(run).contains("runtime-run-link.sh"), "link command")
     assertMsg(runPlanLinkCommand(run).contains(run.binaryPath), "link command has binary path")
+    assertMsg(runPlanExecCommand(run) == run.binaryPath, "exec command is binary path")
 }
