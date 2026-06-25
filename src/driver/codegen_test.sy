@@ -4,6 +4,7 @@ import (
     { planFrontendBuild } from @driver/frontend
     { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
     { planCodegenBuild, codegenBuildReady, stubModuleIr, codegenPlanHasMain, codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
+    { planHelloCodegenBuild } from @driver/export
     { assertMsg } from @soyuz/testing
 )
 
@@ -14,15 +15,7 @@ test fn testStubModuleIr() {
 }
 
 test fn testPlanCodegenBuildHello() {
-    val entry = "/tmp/hello.sy"
-    val stdlibDir = "/tmp/stdlib"
-    var index = emptyPathIndex()
-    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
-    index.fileContents.set(entry, "fn main() {\n    print(\"hello\")\n}\n")
-    val r = newResolverWithStdlib(entry, stdlibDir)
-    val frontend = planFrontendBuild(entry, r, index)
-    val cfg = buildConfigForEntry(entry, "/tmp/soyuz-abc/app", false, "/tmp/soyuz-abc", defaultRuntimeSrcDir("/ref/soyuz-go"))
-    val codegen = planCodegenBuild(frontend, cfg)
+    val codegen = planHelloCodegenBuild()
     assertMsg(codegenBuildReady(codegen), "codegen plan ready")
     assertMsg(codegen.funcCount >= 1, "at least main func")
     assertMsg(codegen.irContent.len() > 0, "ir produced")

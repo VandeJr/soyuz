@@ -1,37 +1,22 @@
 import (
-    { runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
     { newResolverWithStdlib } from @module/resolver
-    { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript } from @driver/build
     { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts } from @driver/pipeline
+    { helloFixtureTmpDir, planHelloFullBuild } from @driver/export
     { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr } from @runtime/manifest
     { defaultLlFilePath } from @runtime/link
     { moduleIrHasTrace, moduleIrHeaderMarker } from @codegen/gen_emit
-    { defaultDriverFullBuildCheckScript } from @driver/build
     { codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
     { assertMsg } from @soyuz/testing
 )
 
 test fn testPlanFullBuildHello() {
-    val entry = "/tmp/hello.sy"
-    val stdlibDir = "/tmp/stdlib"
-    val goRoot = "/ref/soyuz-go"
-    val runtimeSrc = defaultRuntimeSrcDir(goRoot)
-    val tmpDir = "/tmp/soyuz-abc"
-    var index = emptyPathIndex()
-    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
-    index.fileContents.set(entry, "fn main() {\n    print(\"hello\")\n}\n")
-    var sourceIndex = emptyPathIndex()
-    for name in runtimeAssetNames() {
-        sourceIndex.fileContents.set(joinPathFile(runtimeSrc, name), "// $(name)\n")
-    }
-    val cfg = buildConfigForEntry(entry, "$(tmpDir)/app", false, tmpDir, runtimeSrc)
-    val r = newResolverWithStdlib(entry, stdlibDir)
-    val plan = planFullBuild(entry, cfg, r, index, sourceIndex)
+    val plan = planHelloFullBuild()
     assertMsg(fullBuildReady(plan), "full build plan ready")
     assertMsg(plan.error.len() == 0, "no build error")
     assertMsg(plan.codegen.funcCount >= 1, "codegen produced main")
-    assertMsg(manifestContainsPath(plan.artifacts.manifest, defaultLlFilePath(tmpDir)), "manifest includes ll")
+    assertMsg(manifestContainsPath(plan.artifacts.manifest, defaultLlFilePath(helloFixtureTmpDir())), "manifest includes ll")
     assertMsg(manifestContainsMarkers(fullBuildManifest(plan)), "full build manifest markers")
     assertMsg(moduleIrHasTrace(plan.codegen.irContent), "codegen ir has trace section")
     assertMsg(plan.codegen.irContent.contains(moduleIrHeaderMarker()), "codegen ir header marker")

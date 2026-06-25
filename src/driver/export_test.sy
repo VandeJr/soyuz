@@ -1,0 +1,13 @@
+import (
+    { helloCodegenIrExportReady, helloCodegenIrContent } from @driver/export
+    { moduleIrHeaderMarker } from @codegen/gen_emit
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testHelloCodegenIrExportReady() {
+    assertMsg(helloCodegenIrExportReady(), "hello codegen ir export ready")
+    val ir = helloCodegenIrContent()
+    assertMsg(ir.len() > 0, "exported ir non-empty")
+    assertMsg(ir.contains(moduleIrHeaderMarker()), "exported ir has header marker")
+    assertMsg(ir.contains("c\"hello"), "exported ir has hello c string")
+}

@@ -317,6 +317,13 @@ else
   echo "  tools/driver-hello-ir-link-check.sh ausente"
 fi
 
+hr "Driver export-codegen-ir check (bootstrap, S9)"
+if [[ -x tools/driver-export-codegen-ir-check.sh ]]; then
+  bash tools/driver-export-codegen-ir-check.sh 2>&1 || echo "→ driver export-codegen-ir check FALHOU"
+else
+  echo "  tools/driver-export-codegen-ir-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

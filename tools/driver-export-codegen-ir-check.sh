@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S9 bootstrap gate: full-build manifest (hello codegen IR + runtime) → clang link → prints hello.
+# S9 bootstrap gate: Soyuz-exported hello codegen IR → manifest → clang link → prints hello.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,11 +24,11 @@ if [[ "$count" -ne 14 ]]; then
 fi
 
 bash "$ROOT/tools/apply-path-index-manifest.sh" "$MANIFEST" >/dev/null
-LINKED="$TMP/app"
+LINKED="$TMP/hello"
 bash "$ROOT/tools/runtime-run-link.sh" "$PREFIX/out.ll" "$PREFIX" "$LINKED"
 OUT="$("$LINKED")"
 if [[ "$OUT" != "hello" ]]; then
   echo "esperado 'hello', obteve '$OUT'" >&2
   exit 1
 fi
-echo "→ driver full-build check (bootstrap) OK"
+echo "→ driver export-codegen-ir check (bootstrap) OK"
