@@ -1,5 +1,5 @@
 import (
-    { PathIndex, joinPathFile, pathIndexFileContent } from @module/paths
+    { PathIndex, joinPathFile, pathIndexFileContent, pathIndexWriteFile } from @module/paths
 )
 
 pub record RuntimeAsset {
@@ -102,4 +102,27 @@ pub fn runtimeLoadedAssetCount(assets: List[RuntimeAsset]) -> Int {
         if asset.content.len() > 0 { count = count + 1 }
     }
     return count
+}
+
+// Mirrors cmd/main.go os.WriteFile loop for embedded runtime sources.
+pub fn applyRuntimeWritePlan(index: PathIndex, writePlan: List[RuntimeWriteEntry]) -> PathIndex {
+    var result = index
+    for entry in writePlan {
+        result = pathIndexWriteFile(result, entry.path, entry.content)
+    }
+    return result
+}
+
+pub fn runtimeWriteEntryApplied(index: PathIndex, entry: RuntimeWriteEntry) -> Bool {
+    match pathIndexFileContent(index, entry.path) {
+        None => return false
+        Some(content) => return content == entry.content
+    }
+}
+
+pub fn runtimeWritePlanFullyApplied(index: PathIndex, writePlan: List[RuntimeWriteEntry]) -> Bool {
+    for entry in writePlan {
+        if !runtimeWriteEntryApplied(index, entry) { return false }
+    }
+    return true
 }

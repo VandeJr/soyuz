@@ -1,6 +1,6 @@
 import (
-    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir } from @runtime/embed
-    { emptyPathIndex, joinPathFile } from @module/paths
+    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir, applyRuntimeWritePlan, runtimeWriteEntryApplied, runtimeWritePlanFullyApplied } from @runtime/embed
+    { emptyPathIndex, joinPathFile, pathIndexFileContent, pathIndexWriteFile } from @module/paths
     { LinkConfig, buildClangArgs, clangArgsIncludeLlFile, joinTmpAsset } from @runtime/link
     { assertMsg } from @soyuz/testing
 )
@@ -77,4 +77,28 @@ test fn testRuntimeAssetsFullyLoaded() {
     assertMsg(runtimeAssetsFullyLoaded(full), "all slots filled")
     assertMsg(runtimeLoadedAssetCount(full) == 13, "thirteen loaded")
     assertMsg(defaultRuntimeSrcSubdir() == "internal/runtime/src", "go runtime src subdir")
+}
+
+test fn testPathIndexWriteFile() {
+    val index = pathIndexWriteFile(emptyPathIndex(), "/tmp/rc.c", "int rc = 1;\n")
+    match pathIndexFileContent(index, "/tmp/rc.c") {
+        None => assertMsg(false, "written file visible")
+        Some(content) => assertMsg(content == "int rc = 1;\n", "content preserved")
+    }
+}
+
+test fn testApplyRuntimeWritePlan() {
+    val srcDir = "/ref/runtime/src"
+    var sourceIndex = emptyPathIndex()
+    sourceIndex.fileContents.set(joinPathFile(srcDir, "rc.c"), "int rc = 1;\n")
+    sourceIndex.fileContents.set(joinPathFile(srcDir, "soyuz.h"), "#ifndef SOYUZ_H\n")
+    val assets = loadRuntimeAssetsFromIndex(srcDir, sourceIndex)
+    val plan = planRuntimeWrite("/tmp/build", assets)
+    val tmpIndex = applyRuntimeWritePlan(emptyPathIndex(), plan)
+    assertMsg(runtimeWritePlanFullyApplied(tmpIndex, plan), "all plan entries applied")
+    assertMsg(runtimeWriteEntryApplied(tmpIndex, plan.get(1)), "rc.c entry applied")
+    match pathIndexFileContent(tmpIndex, "/tmp/build/rc.c") {
+        None => assertMsg(false, "rc.c materialized")
+        Some(content) => assertMsg(content == "int rc = 1;\n", "rc.c content at tmp path")
+    }
 }

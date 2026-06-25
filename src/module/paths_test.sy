@@ -1,5 +1,5 @@
 import (
-    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot, pathIndexFileContent, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
+    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot, pathIndexFileContent, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir, pathIndexWriteFile } from @module/paths
     { assertMsg } from @soyuz/testing
 )
 

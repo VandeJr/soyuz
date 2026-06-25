@@ -1,5 +1,5 @@
 import (
-    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex } from @runtime/embed
+    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex, applyRuntimeWritePlan } from @runtime/embed
     { PathIndex } from @module/paths
 )
 
@@ -155,4 +155,13 @@ pub fn buildCompileLinkPlan(cfg: LinkConfig, bundle: LinkBundle) -> CompileLinkP
 pub fn buildCompileLinkPlanFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> CompileLinkPlan {
     val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
     return buildCompileLinkPlan(cfg, bundle)
+}
+
+pub fn applyLinkBundleWritePlan(index: PathIndex, bundle: LinkBundle) -> PathIndex {
+    return applyRuntimeWritePlan(index, bundle.writePlan)
+}
+
+pub fn materializeLinkBundleFromIndex(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex) -> PathIndex {
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, sourceIndex)
+    return applyLinkBundleWritePlan(index, bundle)
 }

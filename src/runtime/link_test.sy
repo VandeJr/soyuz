@@ -1,7 +1,8 @@
 import (
     { loadRuntimeAssetsFromIndex, runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult, clangLinkInvocationFromBundle, clangInvocationMatchesBundle, buildCompileLinkPlan, buildCompileLinkPlanFromIndex, compileLinkPlanReady, defaultMaterializeScript, defaultRunLinkScript, defaultLinkPipelineScript } from @runtime/link
+    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult, clangLinkInvocationFromBundle, clangInvocationMatchesBundle, buildCompileLinkPlan, buildCompileLinkPlanFromIndex, compileLinkPlanReady, defaultMaterializeScript, defaultRunLinkScript, defaultLinkPipelineScript, materializeLinkBundleFromIndex, applyLinkBundleWritePlan } from @runtime/link
+    { runtimeWritePlanFullyApplied } from @runtime/embed
     { assertMsg } from @soyuz/testing
 )
 
@@ -122,4 +123,21 @@ test fn testBuildCompileLinkPlan() {
     assertMsg(plan.runLinkScript == defaultRunLinkScript(), "run link script")
     assertMsg(plan.pipelineScript == defaultLinkPipelineScript(), "pipeline script")
     assertMsg(clangInvocationMatchesBundle(cfg, plan.bundle, plan.invocation), "invocation in plan")
+}
+
+test fn testMaterializeLinkBundleFromIndex() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/build/out.ll",
+        outputFile: "/tmp/build/app",
+        tmpDir: "/tmp/build",
+        optimize: false
+    }
+    val srcDir = "/ref/runtime/src"
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(srcDir, name), "// $(name)\n")
+    }
+    val tmpIndex = materializeLinkBundleFromIndex(emptyPathIndex(), cfg, srcDir, sourceIndex)
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, sourceIndex)
+    assertMsg(runtimeWritePlanFullyApplied(tmpIndex, bundle.writePlan), "bundle write plan materialized to index")
 }

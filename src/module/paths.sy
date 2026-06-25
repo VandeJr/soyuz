@@ -107,3 +107,8 @@ pub fn pathIndexFileContent(index: PathIndex, path: String) -> Option[String] {
     }
     return None
 }
+
+pub fn pathIndexWriteFile(index: PathIndex, path: String, content: String) -> PathIndex {
+    index.fileContents.set(path, content)
+    return index
+}
