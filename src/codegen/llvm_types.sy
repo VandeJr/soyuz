@@ -77,6 +77,20 @@ pub fn llvmTypeName(t: LlvmType) -> String = match t.kind {
     Struct(name, _) => name
 }
 
+// LLVM IR type syntax for instruction emission (incremental; full struct defs come later).
+pub fn llvmTypeIrSyntax(t: LlvmType) -> String = match t.kind {
+    Void => "void"
+    I1 => "i1"
+    I8 => "i8"
+    I32 => "i32"
+    I64 => "i64"
+    F64 => "double"
+    I8Ptr => "i8*"
+    Pointer(elem) => "$(llvmTypeIrSyntax(elem))*"
+    Array(elem, count) => "[$(count) x $(llvmTypeIrSyntax(elem))]"
+    Struct(name, _) => "%$(name)"
+}
+
 pub fn isHeapLlvmType(t: LlvmType) -> Bool = match t.kind {
     Pointer(elem) => match elem.kind {
         Struct(_, _) => true

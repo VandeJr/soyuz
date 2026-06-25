@@ -1,6 +1,9 @@
 import (
     { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
 )
+
+pub fn llvmValueReg(v: LlvmValue) -> String = "%v$(v.handle)"
 
 pub fn defaultTargetTriple() -> String = "x86_64-unknown-linux-gnu"
 

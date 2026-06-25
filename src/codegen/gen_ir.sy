@@ -1,9 +1,20 @@
 import (
     { Generator } from @codegen/generator
     { PhiIncoming } from @codegen/types
-    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, LlvmGlobal, llvmTypeHasDefaultZero } from @codegen/llvm_types
-    { traceIr, emitIrLine } from @codegen/gen_emit
+    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, LlvmGlobal, llvmI64, llvmTypeHasDefaultZero, llvmTypeIrSyntax } from @codegen/llvm_types
+    { traceIr, emitIrLine, llvmValueReg } from @codegen/gen_emit
 )
+
+fn recordValueType(g: Generator, value: LlvmValue, ty: LlvmType) {
+    g.valueTypes.set(value.handle, ty)
+}
+
+fn lookupValueType(g: Generator, handle: Int) -> Option[LlvmType] {
+    for k in g.valueTypes.keys() {
+        if k == handle { return Some(g.valueTypes.get(k)) }
+    }
+    return None
+}
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
     for k in g.blockNames.keys() {
@@ -55,6 +66,8 @@ pub fn blockNameRegistered(g: Generator, name: String) -> Bool {
 pub fn newAlloca(g: Generator, ty: LlvmType) -> LlvmValue {
     val value = LlvmValue { handle: g.valueHandleCounter + 1 }
     g.valueHandleCounter = g.valueHandleCounter + 1
+    recordValueType(g, value, ty)
+    emitIrLine(g, "  $(llvmValueReg(value)) = alloca $(llvmTypeIrSyntax(ty)), align 8")
     return value
 }
 
@@ -144,6 +157,11 @@ pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
 }
 
 pub fn emitStoreStub(g: Generator, value: LlvmValue, alloca: LlvmValue) -> Bool {
+    val storedTy = match lookupValueType(g, value.handle) {
+        None => llvmI64()
+        Some(ty) => ty
+    }
+    emitIrLine(g, "  store $(llvmTypeIrSyntax(storedTy)) $(llvmValueReg(value)), ptr $(llvmValueReg(alloca)), align 8")
     return true
 }
 
