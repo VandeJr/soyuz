@@ -1,7 +1,7 @@
 import (
-    { loadRuntimeAssetsFromIndex } from @runtime/embed
+    { loadRuntimeAssetsFromIndex, runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile } from @runtime/link
+    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult } from @runtime/link
     { assertMsg } from @soyuz/testing
 )
 
@@ -38,4 +38,50 @@ test fn testPrepareLinkBundleMatchesPlanAndArgs() {
     val direct = prepareLinkBundle(cfg, assets)
     assertMsg(fromIndex.clangArgs.size() == direct.clangArgs.size(), "same clang arg count")
     assertMsg(fromIndex.writePlan.size() == direct.writePlan.size(), "same write plan size")
+}
+
+test fn testFormatClangCommand() {
+    var args: List[String] = []
+    args.append("/tmp/out.ll")
+    args.append("/tmp/rc.c")
+    args.append("-o")
+    args.append("/tmp/app")
+    val cmd = formatClangCommand(args)
+    assertMsg(cmd.startsWith("clang "), "starts with clang")
+    assertMsg(cmd.contains("/tmp/out.ll"), "includes ll file")
+    assertMsg(cmd.contains("-o /tmp/app"), "includes output")
+}
+
+test fn testMakeLinkResultReady() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/out.ll",
+        outputFile: "/tmp/app",
+        tmpDir: "/tmp",
+        optimize: false
+    }
+    var index = emptyPathIndex()
+    val srcDir = "/rt/src"
+    for name in runtimeAssetNames() {
+        index.fileContents.set(joinPathFile(srcDir, name), "// $(name)\n")
+    }
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    assertMsg(linkBundleReady(bundle), "bundle ready when all assets loaded")
+    val result = makeLinkResult(bundle)
+    assertMsg(result.ready, "link result ready")
+    assertMsg(result.error.len() == 0, "no error")
+    assertMsg(result.command.startsWith("clang "), "formatted command")
+}
+
+test fn testMakeLinkResultIncomplete() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/out.ll",
+        outputFile: "/tmp/app",
+        tmpDir: "/tmp",
+        optimize: false
+    }
+    val bundle = prepareLinkBundleFromIndex(cfg, "/rt/src", emptyPathIndex())
+    assertMsg(!linkBundleReady(bundle), "empty assets not ready")
+    val result = makeLinkResult(bundle)
+    assertMsg(!result.ready, "not ready")
+    assertMsg(result.error.len() > 0, "error message set")
 }

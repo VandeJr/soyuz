@@ -58,3 +58,43 @@ pub fn clangArgsIncludeLlFile(args: List[String], llFile: String) -> Bool {
     }
     return false
 }
+
+pub fn formatClangCommand(args: List[String]) -> String {
+    var result = "clang"
+    for arg in args {
+        result = "$(result) $(arg)"
+    }
+    return result
+}
+
+pub fn linkBundleReady(bundle: LinkBundle) -> Bool {
+    if bundle.clangArgs.size() == 0 { return false }
+    for entry in bundle.writePlan {
+        if entry.path.endsWith(".c") && entry.content.len() == 0 {
+            return false
+        }
+    }
+    return true
+}
+
+pub record LinkResult {
+    command: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn makeLinkResult(bundle: LinkBundle) -> LinkResult {
+    val command = formatClangCommand(bundle.clangArgs)
+    if !linkBundleReady(bundle) {
+        return LinkResult {
+            command: command,
+            ready: false,
+            error: "runtime assets incompletos para link"
+        }
+    }
+    return LinkResult {
+        command: command,
+        ready: true,
+        error: ""
+    }
+}
