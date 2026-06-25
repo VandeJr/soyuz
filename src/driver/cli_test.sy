@@ -1,5 +1,5 @@
 import (
-    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageHasRunCommand, cliUsageRunLine, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageText, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliHelloMinimalRunFromArgvReady, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
     { runPlanReady } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -11,10 +11,32 @@ test fn testCliCommands() {
     assertMsg(defaultHelloMinimalFixturePath() == "tools/fixtures/hello_minimal.sy", "hello fixture path")
     assertMsg(defaultBootstrapHelloRunCommand().contains("soyuz run"), "bootstrap run command")
     assertMsg(defaultBootstrapHelloRunCommand().contains(defaultHelloMinimalFixturePath()), "bootstrap uses fixture")
-    val usage = "$(cliUsageHeader())\n$(cliUsageCommandsMarker())\n$(cliUsageRunLine())"
-    assertMsg(cliUsageHasRunCommand(usage), "usage mentions run")
+    val usage = cliUsageText()
+    assertMsg(usage.contains(cliUsageHeader()), "usage has header")
+    assertMsg(usage.contains(cliUsageCommandsMarker()), "usage has commands marker")
+    assertMsg(usage.contains(cliUsageNewLine()), "usage has new line")
+    assertMsg(usage.contains(cliUsageBuildLine()), "usage has build line")
+    assertMsg(usage.contains(cliUsageRunLine()), "usage has run line")
+    assertMsg(usage.contains(cliUsageTestLine()), "usage has test line")
     assertMsg(usage.contains(cliRunReleaseFlag()), "usage mentions release flag")
     assertMsg(usage.contains(cliRunArgsDelimiter()), "usage mentions program args delimiter")
+}
+
+test fn testCliDispatchFromArgv() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliArgvNeedsUsage(argv), "program name only needs usage")
+    val emptyDispatch = cliDispatchFromArgv(argv)
+    assertMsg(!emptyDispatch.known, "no command when argv too short")
+
+    argv.append(cliCommandRun())
+    argv.append(defaultHelloMinimalFixturePath())
+    val dispatch = cliDispatchFromArgv(argv)
+    assertMsg(dispatch.known, "run command known")
+    assertMsg(dispatch.command == cliCommandRun(), "dispatch command is run")
+    assertMsg(dispatch.args.size() == 1, "dispatch args after command")
+    assertMsg(cliRunReadyFromArgv(argv), "hello run ready from argv")
+    assertMsg(cliHelloMinimalRunFromArgvReady(), "hello minimal run from argv helper")
 }
 
 test fn testCliRunEntryFromArgs() {

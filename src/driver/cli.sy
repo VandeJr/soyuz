@@ -30,6 +30,55 @@ pub fn cliUsageHeader() -> String = "Uso: soyuz <comando> [argumentos]"
 
 pub fn cliUsageCommandsMarker() -> String = "Comandos:"
 
+pub fn cliUsageNewLine() -> String = "  new   [--lib] <nome>                        Cria um novo projeto Soyuz"
+
+pub fn cliUsageBuildLine() -> String = "  build [--release] [arquivo.sy]              Compila o projeto ou um arquivo"
+
+pub fn cliUsageTestLine() -> String = "  test  [--filter=nome] [arquivo.sy]          Executa os testes"
+
+pub fn cliUsageText() -> String {
+    return "$(cliUsageHeader())\n$(cliUsageCommandsMarker())\n$(cliUsageNewLine())\n$(cliUsageBuildLine())\n$(cliUsageRunLine())\n$(cliUsageTestLine())"
+}
+
+pub fn cliArgvNeedsUsage(argv: List[String]) -> Bool = argv.size() < 2
+
+// Mirrors main() os.Args dispatch (program name at argv[0], command at argv[1]).
+pub record CliDispatch {
+    command: String,
+    args: List[String],
+    known: Bool
+}
+
+pub fn cliDispatchFromArgv(argv: List[String]) -> CliDispatch {
+    if argv.size() < 2 {
+        return CliDispatch { command: "", args: List[String]{}, known: false }
+    }
+    val command = argv.get(1)
+    var args = List[String]{}
+    var i = 2
+    loop {
+        if i >= argv.size() { break }
+        args.append(argv.get(i))
+        i = i + 1
+    }
+    return CliDispatch { command: command, args: args, known: isKnownCliCommand(command) }
+}
+
+pub fn cliRunReadyFromArgv(argv: List[String]) -> Bool {
+    val dispatch = cliDispatchFromArgv(argv)
+    if !dispatch.known { return false }
+    if dispatch.command != cliCommandRun() { return false }
+    return cliRunEntryReadyForArgs(dispatch.command, dispatch.args)
+}
+
+pub fn cliHelloMinimalRunFromArgvReady() -> Bool {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandRun())
+    argv.append(defaultHelloMinimalFixturePath())
+    return cliRunReadyFromArgv(argv)
+}
+
 pub fn cliUsageHasRunCommand(usage: String) -> Bool {
     if !usage.contains(cliUsageCommandsMarker()) { return false }
     return usage.contains(cliCommandRun())
