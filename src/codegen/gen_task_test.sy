@@ -261,6 +261,18 @@ test fn testNullifyAfterAlwaysStub() {
     assertMsg(taskNullStoreRecorded(g, "t"), "always ownership transfer recorded")
 }
 
+test fn testNullifyAfterDetachStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    match generateTaskDetachStub(g) {
+        None => assertMsg(false, "detach stub")
+        Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "detach nulls source handle")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t"), "detach ownership transfer recorded")
+}
+
 test fn testIsSelectTaskAwaitCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })

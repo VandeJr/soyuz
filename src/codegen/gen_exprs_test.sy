@@ -13,7 +13,9 @@ import (
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, atomicRuntimeAdd, atomicRuntimeCas, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
-    { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
+    { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub, taskNullStoreRecorded } from @codegen/gen_task
+    { newAlloca } from @codegen/gen_ir
+    { llvmI8Ptr } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -1848,11 +1850,13 @@ test fn testTaskDetachCallExprCodegen() {
     types.set(2, taskInt)
     types.set(3, UnitType)
     val g = newGenerator(checkerWithNodeTypes(types))
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
     match generateExprNode(g, call) {
         None => assertMsg(false, "expected task detach call codegen")
         Some(_) => {
             assertMsg(g.taskDetachStub != None, "task detach stub stored")
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+            assertMsg(taskNullStoreRecorded(g, "t"), "detach nulls task handle")
         }
     }
 }
