@@ -1,10 +1,10 @@
 import (
-    { emptyPathIndex, joinPathFile } from @module/paths
+    { emptyPathIndex, joinPathFile, pathIndexFileContent } from @module/paths
     { newResolverWithStdlib } from @module/resolver
-    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, expectedFullBuildManifestEntries } from @driver/build
     { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts } from @driver/pipeline
     { helloFixtureTmpDir, planHelloFullBuild } from @driver/export
-    { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr } from @runtime/manifest
+    { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr, manifestEntryCount, applyManifestToPathIndex } from @runtime/manifest
     { defaultLlFilePath } from @runtime/link
     { moduleIrHasTrace, moduleIrHeaderMarker } from @codegen/gen_emit
     { codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
@@ -23,6 +23,12 @@ test fn testPlanFullBuildHello() {
     assertMsg(codegenPlanHasHelloPrint(plan.codegen), "hello print in codegen ir")
     assertMsg(codegenPlanIsLinkableHello(plan.codegen), "linkable hello codegen ir")
     assertMsg(manifestHasHelloCodegenIr(fullBuildManifest(plan)), "manifest embeds linkable hello ir")
+    assertMsg(manifestEntryCount(fullBuildManifest(plan)) == expectedFullBuildManifestEntries(), "full build manifest entry count")
+    val applied = applyManifestToPathIndex(emptyPathIndex(), fullBuildManifest(plan))
+    match pathIndexFileContent(applied, defaultLlFilePath(helloFixtureTmpDir())) {
+        None => assertMsg(false, "hello ll path in applied index")
+        Some(ll) => assertMsg(ll.contains("c\"hello"), "applied index has hello ir")
+    }
     val scripts = defaultFullBuildScripts()
     assertMsg(plan.scripts.applyManifestScript == scripts.applyManifestScript, "apply script on plan")
     assertMsg(plan.scripts.driverFullBuildCheckScript == defaultDriverFullBuildCheckScript(), "full build check script")
