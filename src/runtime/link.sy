@@ -125,3 +125,34 @@ pub fn clangInvocationMatchesBundle(cfg: LinkConfig, bundle: LinkBundle, invocat
     }
     return true
 }
+
+pub fn defaultMaterializeScript() -> String = "tools/runtime-materialize-plan.sh"
+
+pub fn defaultRunLinkScript() -> String = "tools/runtime-run-link.sh"
+
+pub fn defaultLinkPipelineScript() -> String = "tools/runtime-link-pipeline.sh"
+
+pub record CompileLinkPlan {
+    bundle: LinkBundle,
+    linkResult: LinkResult,
+    invocation: ClangLinkInvocation,
+    materializeScript: String,
+    runLinkScript: String,
+    pipelineScript: String
+}
+
+pub fn compileLinkPlanReady(plan: CompileLinkPlan) -> Bool = plan.linkResult.ready
+
+pub fn buildCompileLinkPlan(cfg: LinkConfig, bundle: LinkBundle) -> CompileLinkPlan = CompileLinkPlan {
+    bundle: bundle,
+    linkResult: makeLinkResult(bundle),
+    invocation: clangLinkInvocationFromBundle(cfg, bundle),
+    materializeScript: defaultMaterializeScript(),
+    runLinkScript: defaultRunLinkScript(),
+    pipelineScript: defaultLinkPipelineScript()
+}
+
+pub fn buildCompileLinkPlanFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> CompileLinkPlan {
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    return buildCompileLinkPlan(cfg, bundle)
+}

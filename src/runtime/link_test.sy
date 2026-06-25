@@ -1,7 +1,7 @@
 import (
     { loadRuntimeAssetsFromIndex, runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult, clangLinkInvocationFromBundle, clangInvocationMatchesBundle } from @runtime/link
+    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult, clangLinkInvocationFromBundle, clangInvocationMatchesBundle, buildCompileLinkPlan, buildCompileLinkPlanFromIndex, compileLinkPlanReady, defaultMaterializeScript, defaultRunLinkScript, defaultLinkPipelineScript } from @runtime/link
     { assertMsg } from @soyuz/testing
 )
 
@@ -102,4 +102,24 @@ test fn testClangLinkInvocationFromBundle() {
     val invocation = clangLinkInvocationFromBundle(cfg, bundle)
     assertMsg(clangInvocationMatchesBundle(cfg, bundle, invocation), "invocation mirrors bundle args")
     assertMsg(invocation.driver == "clang", "default driver")
+}
+
+test fn testBuildCompileLinkPlan() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/out.ll",
+        outputFile: "/tmp/app",
+        tmpDir: "/tmp",
+        optimize: false
+    }
+    var index = emptyPathIndex()
+    val srcDir = "/rt/src"
+    for name in runtimeAssetNames() {
+        index.fileContents.set(joinPathFile(srcDir, name), "// $(name)\n")
+    }
+    val plan = buildCompileLinkPlanFromIndex(cfg, srcDir, index)
+    assertMsg(compileLinkPlanReady(plan), "plan ready")
+    assertMsg(plan.materializeScript == defaultMaterializeScript(), "materialize script")
+    assertMsg(plan.runLinkScript == defaultRunLinkScript(), "run link script")
+    assertMsg(plan.pipelineScript == defaultLinkPipelineScript(), "pipeline script")
+    assertMsg(clangInvocationMatchesBundle(cfg, plan.bundle, plan.invocation), "invocation in plan")
 }
