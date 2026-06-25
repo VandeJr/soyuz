@@ -1,8 +1,8 @@
 import (
-    { ImportPathKind } from @ast/ast
+    { ImportPathKind, ImportDeclData, ImportName } from @ast/ast
     { ProjectConfig, ProjectMeta, defaultProjectMeta, parseTomlIntoConfig, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
     { emptyPathIndex } from @module/paths
-    { Resolver, newResolver, newResolverWithProject, projectBase, joinPathSegments, resolveImportBasePath, resolveFileOrDir, resolveIn } from @module/resolver
+    { Resolver, newResolver, newResolverWithProject, projectBase, joinPathSegments, resolveImportBasePath, resolveFileOrDir, resolveIn, resolveImport, effectiveImportPathKind } from @module/resolver
     { assertMsg } from @soyuz/testing
 )
 
@@ -146,4 +146,61 @@ test fn testResolveIn() {
             assertMsg(files.get(0) == "/stdlib/prelude.sy", "prelude path")
         }
     }
+}
+
+fn emptyImportDecl(path: String, kind: ImportPathKind) -> ImportDeclData = ImportDeclData {
+    path: path,
+    names: List[ImportName]{},
+    namespace: "",
+    pathKind: kind,
+    packageAlias: "",
+    isStdlib: false,
+    resolvedFiles: List[String]{}
+}
+
+// Port of resolver.go Resolve — full import decl to .sy file list.
+test fn testResolveImportLegacyFile() {
+    val r = newResolver("/proj")
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    val data = emptyImportDecl("math", ImportPathKind.Legacy)
+    match resolveImport(r, data, "", index) {
+        None => assertMsg(false, "expected legacy import resolve")
+        Some(files) => {
+            assertMsg(files.size() == 1, "one file")
+            assertMsg(files.get(0) == "/proj/math.sy", "math.sy")
+        }
+    }
+}
+
+test fn testResolveImportStdlib() {
+    val r = Resolver {
+        root: "/proj",
+        projectRoot: "/proj",
+        stdlibDir: "/stdlib",
+        packages: Map[String, String]{}
+    }
+    var index = emptyPathIndex()
+    index.fileContents.set("/stdlib/mock.sy", "pub fn assert_eq(a: Int, b: Int, name: String) {}")
+    val data = emptyImportDecl("@soyuz/mock", ImportPathKind.Stdlib)
+    match resolveImport(r, data, "", index) {
+        None => assertMsg(false, "expected stdlib resolve")
+        Some(files) => assertMsg(files.get(0) == "/stdlib/mock.sy", "mock.sy")
+    }
+}
+
+test fn testResolveImportRelative() {
+    val r = newResolver("/proj")
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/src/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    val data = emptyImportDecl("./math", ImportPathKind.Relative)
+    match resolveImport(r, data, "/proj/src/main.sy", index) {
+        None => assertMsg(false, "expected relative import resolve")
+        Some(files) => assertMsg(files.get(0) == "/proj/src/math.sy", "relative math.sy")
+    }
+}
+
+test fn testEffectiveImportPathKindLegacyStdlib() {
+    assertMsg(effectiveImportPathKind(ImportPathKind.Legacy, true) == ImportPathKind.Stdlib, "legacy stdlib promoted")
+    assertMsg(effectiveImportPathKind(ImportPathKind.Legacy, false) == ImportPathKind.Legacy, "legacy unchanged")
 }

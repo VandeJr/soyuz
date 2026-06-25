@@ -1,6 +1,6 @@
 import (
-    { ImportPathKind } from @ast/ast
-    { PathIndex, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
+    { ImportPathKind, ImportDeclData, importDeclPathSegments } from @ast/ast
+    { PathIndex, parentDir, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
     { ProjectConfig, ProjectMeta, defaultProjectMeta, resolveAliasPath } from @module/project
 )
 
@@ -104,4 +104,44 @@ pub fn resolveIn(base: String, segments: List[String], index: PathIndex) -> Opti
     if segments.size() == 0 { return None }
     val basePath = joinPathSegments(base, segments)
     return resolveFileOrDir(basePath, index)
+}
+
+pub fn effectiveImportPathKind(kind: ImportPathKind, isStdlib: Bool) -> ImportPathKind {
+    if kind == ImportPathKind.Legacy && isStdlib {
+        return ImportPathKind.Stdlib
+    }
+    return kind
+}
+
+pub fn resolveImport(r: Resolver, data: ImportDeclData, importingFile: String, index: PathIndex) -> Option[List[String]] {
+    val kind = effectiveImportPathKind(data.pathKind, data.isStdlib)
+    val segs = importDeclPathSegments(data.path, kind, data.packageAlias)
+    match kind {
+        Stdlib => {
+            if r.stdlibDir.len() == 0 { return None }
+            return resolveIn(r.stdlibDir, segs, index)
+        }
+        ProjectRoot => resolveIn(projectBase(r), segs, index)
+        PackageAlias => {
+            if r.projectRoot.len() == 0 && mapIsEmpty(r.packages) { return None }
+            val cfg = ProjectConfig {
+                root: r.projectRoot,
+                meta: defaultProjectMeta(),
+                packages: r.packages
+            }
+            match resolveAliasPath(cfg, data.packageAlias, segs) {
+                None => None
+                Some(aliasSegs) => resolveIn(projectBase(r), aliasSegs, index)
+            }
+        }
+        Relative => {
+            if importingFile.len() == 0 { return None }
+            val importingDir = parentDir(importingFile)
+            match resolveImportBasePath(r, ImportPathKind.Relative, data.path, data.packageAlias, segs, importingDir) {
+                None => None
+                Some(target) => resolveFileOrDir(target, index)
+            }
+        }
+        Legacy => resolveIn(projectBase(r), segs, index)
+    }
 }
