@@ -14,7 +14,7 @@ import (
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
-    { emitPrintfStringStub } from @codegen/gen_emit
+    { emitPrintfStringStub, registerCStrGlobal, emitCStrPtrStub, cStringByteLen } from @codegen/gen_emit
 )
 
 pub enum ConstValue {
@@ -255,9 +255,16 @@ fn isPrintBuiltinCall(callee: Node) -> Bool = match callee {
 
 fn generatePrintCallStub(g: Generator, args: List[Node]) -> Bool {
     if args.size() == 0 { return false }
-    return match generateExprNode(g, args.get(0)) {
-        None => false
-        Some(_) => emitPrintfStringStub(g, stubLlvmValue(g))
+    return match args.get(0) {
+        StringLiteral(_, _, data) => {
+            val globalName = registerCStrGlobal(g, data.value)
+            val ptr = emitCStrPtrStub(g, globalName, cStringByteLen(data.value))
+            emitPrintfStringStub(g, ptr)
+        }
+        _ => match generateExprNode(g, args.get(0)) {
+            None => false
+            Some(_) => emitPrintfStringStub(g, stubLlvmValue(g))
+        }
     }
 }
 

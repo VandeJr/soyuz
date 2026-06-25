@@ -200,6 +200,7 @@ pub class Generator {
     pub var taskHandleProgressStub: Option[LlvmValue] = None
     pub var irTrace: List[String] = []
     pub var irBodyLines: List[String] = []
+    pub var irGlobalLines: List[String] = []
     pub var valueTypes: Map[Int, LlvmType] = Map[Int, LlvmType]{}
 }
 

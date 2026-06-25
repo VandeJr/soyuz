@@ -1,7 +1,7 @@
 import (
     { newGenerator } from @codegen/generator
     { newBlock, setCurrentBlock, emitBrStub, newAlloca, emitStoreStub, emitLoadFromAlloca, stubLlvmValue } from @codegen/gen_ir
-    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub, emitRetLlvmValueStub, emitCallVoidStub, emitPrintfStringStub } from @codegen/gen_emit
+    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub, emitRetLlvmValueStub, emitCallVoidStub, emitPrintfStringStub, registerCStrGlobal, emitCStrPtrStub, cStringByteLen } from @codegen/gen_emit
     { llvmI64 } from @codegen/llvm_types
     { TypeError, TypeWarning, FuncType, FuncDeclData, CheckResult, Type } from @checker/types
     { Node } from @ast/ast
@@ -105,4 +105,17 @@ test fn testEmitPrintfStringStub() {
     val ir = renderModuleIr(g, 1)
     assertMsg(moduleIrHasInstruction(ir, "call i32 (i8*, ...) @printf"), "printf call in rendered ir")
     assertMsg(ir.contains("declare i32 @printf"), "printf declare in module ir")
+}
+
+test fn testRegisterCStrGlobalAndEmitPtr() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val globalName = registerCStrGlobal(g, "hello")
+    assertMsg(globalName == "str.1", "first c string global name")
+    val ptr = emitCStrPtrStub(g, globalName, cStringByteLen("hello"))
+    assertMsg(emitPrintfStringStub(g, ptr), "printf with c string ptr")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(ir.contains("@str.1 = private unnamed_addr constant [6 x i8] c\"hello\\00\""), "c string global in ir")
+    assertMsg(moduleIrHasInstruction(ir, "getelementptr inbounds ([6 x i8]"), "gep for c string ptr")
 }
