@@ -89,6 +89,20 @@ pub fn planRuntimeWrite(tmpDir: String, assets: List[RuntimeAsset]) -> List[Runt
 
 pub fn defaultRuntimeSrcSubdir() -> String = "internal/runtime/src"
 
+pub fn runtimeAssetPath(srcDir: String, name: String) -> String {
+    return joinPathFile(srcDir, name)
+}
+
+pub fn runtimeSourcePaths(srcDir: String) -> List[String] {
+    var paths: List[String] = []
+    for name in runtimeAssetNames() {
+        paths.append(runtimeAssetPath(srcDir, name))
+    }
+    return paths
+}
+
+pub fn runtimeSourcePathCount() -> Int = 13
+
 pub fn runtimeAssetsFullyLoaded(assets: List[RuntimeAsset]) -> Bool {
     for asset in assets {
         if asset.content.len() == 0 { return false }

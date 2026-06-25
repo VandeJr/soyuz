@@ -289,6 +289,20 @@ else
   echo "  tools/runtime-export-pipeline-manifest-check.sh ausente"
 fi
 
+hr "Runtime seed path-index check (bootstrap, S9)"
+if [[ -x tools/runtime-seed-path-index-check.sh ]]; then
+  bash tools/runtime-seed-path-index-check.sh 2>&1 || echo "→ runtime seed path-index check FALHOU"
+else
+  echo "  tools/runtime-seed-path-index-check.sh ausente"
+fi
+
+hr "Driver link stub check (bootstrap, S9)"
+if [[ -x tools/driver-link-stub-check.sh ]]; then
+  bash tools/driver-link-stub-check.sh 2>&1 || echo "→ driver link stub check FALHOU"
+else
+  echo "  tools/driver-link-stub-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

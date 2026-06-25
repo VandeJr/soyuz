@@ -1,7 +1,7 @@
 import (
-    { runtimeAssetNames } from @runtime/embed
+    { runtimeAssetNames, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultLlFilePath } from @runtime/link
     { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -29,4 +29,14 @@ test fn testPlanPostCodegenBuild() {
     assertMsg(artifacts.exportManifestScript == defaultExportManifestScript(), "export script on artifacts")
     assertMsg(manifestContainsPath(artifacts.manifest, defaultLlFilePath("/tmp/soyuz-abc")), "manifest has ll path")
     assertMsg(defaultBuildTmpPrefix() == "/tmp/soyuz-", "tmp prefix matches go MkdirTemp")
+}
+
+test fn testRuntimeSourcePathsAndDriverScripts() {
+    val srcDir = "/ref/runtime/src"
+    val paths = runtimeSourcePaths(srcDir)
+    assertMsg(paths.size() == runtimeSourcePathCount(), "thirteen runtime source paths")
+    assertMsg(runtimeAssetPath(srcDir, "rc.c") == "/ref/runtime/src/rc.c", "asset path join")
+    assertMsg(defaultRuntimeExportManifestScript() == "tools/runtime-export-runtime-manifest.sh", "runtime export script")
+    assertMsg(defaultDriverLinkStubCheckScript() == "tools/driver-link-stub-check.sh", "driver stub check script")
+    assertMsg(expectedFullBuildManifestEntries() == 14, "full build manifest entry count")
 }

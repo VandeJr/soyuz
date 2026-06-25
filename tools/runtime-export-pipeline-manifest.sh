@@ -37,14 +37,7 @@ fi
 
 : >"$MANIFEST"
 manifest_append_file "$MANIFEST" "$PREFIX/out.ll" /tmp/soyuz_debug.ll
-
-assets=(
-  soyuz.h rc.c std_io.c std_string.c std_fs.c std_os.c std_collections.c
-  soyuz_rt.h soyuz_rt.c std_sync.c std_channel.c std_arc.c std_test.c
-)
-for name in "${assets[@]}"; do
-  manifest_append_file "$MANIFEST" "$PREFIX/$name" "$SRC_DIR/$name"
-done
+bash "$ROOT/tools/runtime-export-runtime-manifest.sh" "$MANIFEST" "$PREFIX" --append >/dev/null
 
 count=$(grep -c '^===FILE===$' "$MANIFEST" || true)
 echo "→ pipeline manifest exported to $MANIFEST ($count arquivos)"

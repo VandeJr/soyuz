@@ -1,5 +1,5 @@
 import (
-    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir, applyRuntimeWritePlan, runtimeWriteEntryApplied, runtimeWritePlanFullyApplied } from @runtime/embed
+    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir, applyRuntimeWritePlan, runtimeWriteEntryApplied, runtimeWritePlanFullyApplied, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile, pathIndexFileContent, pathIndexWriteFile } from @module/paths
     { LinkConfig, buildClangArgs, clangArgsIncludeLlFile, joinTmpAsset } from @runtime/link
     { assertMsg } from @soyuz/testing
@@ -77,6 +77,9 @@ test fn testRuntimeAssetsFullyLoaded() {
     assertMsg(runtimeAssetsFullyLoaded(full), "all slots filled")
     assertMsg(runtimeLoadedAssetCount(full) == 13, "thirteen loaded")
     assertMsg(defaultRuntimeSrcSubdir() == "internal/runtime/src", "go runtime src subdir")
+    val paths = runtimeSourcePaths("/rt/src")
+    assertMsg(paths.size() == runtimeSourcePathCount(), "runtime source path list")
+    assertMsg(paths.get(1) == runtimeAssetPath("/rt/src", "rc.c"), "rc.c path")
 }
 
 test fn testPathIndexWriteFile() {

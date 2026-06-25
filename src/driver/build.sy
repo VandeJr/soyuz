@@ -2,7 +2,7 @@ import (
     { defaultRuntimeSrcSubdir } from @runtime/embed
     { PathIndex, joinPathFile, emptyPathIndex } from @module/paths
     { LinkConfig, defaultLinkConfig, buildCompilePipelineFromIndex, compilePipelineReady, CompilePipeline } from @runtime/link
-    { compilePipelineManifest, manifestContainsMarkers, defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
+    { compilePipelineManifest, manifestContainsMarkers, defaultExportManifestScript, defaultApplyManifestScript, expectedHelloPipelineManifestEntries } from @runtime/manifest
 )
 
 // Mirrors cmd/main.go buildInternal parameters (without OS I/O).
@@ -62,3 +62,9 @@ pub fn buildArtifactsReady(artifacts: BuildArtifacts) -> Bool {
     if !compilePipelineReady(artifacts.pipeline) { return false }
     return manifestContainsMarkers(artifacts.manifest)
 }
+
+pub fn defaultRuntimeExportManifestScript() -> String = "tools/runtime-export-runtime-manifest.sh"
+
+pub fn defaultDriverLinkStubCheckScript() -> String = "tools/driver-link-stub-check.sh"
+
+pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()
