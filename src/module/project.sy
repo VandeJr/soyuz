@@ -1,3 +1,7 @@
+import (
+    { PathIndex, findProjectRoot, joinPathFile, parentDir, pathBaseName, pathIndexFileContent } from @module/paths
+)
+
 pub record ProjectMeta {
     name: String,
     version: String,
@@ -155,10 +159,32 @@ pub fn applyLibraryEntryDefault(meta: ProjectMeta) -> ProjectMeta {
     return meta
 }
 
+pub fn defaultProjectMetaForRoot(root: String) -> ProjectMeta = ProjectMeta {
+    name: pathBaseName(root),
+    version: "0.1.0",
+    type: "binary",
+    entry: "main.sy"
+}
+
 pub fn loadProjectConfigFromContent(root: String, tomlContent: String) -> ProjectConfig {
     var cfg = emptyProjectConfig()
     cfg.root = root
     cfg = parseTomlIntoConfig(tomlContent, cfg)
     cfg.meta = applyLibraryEntryDefault(cfg.meta)
     return cfg
+}
+
+pub fn loadProjectConfigFromEntry(entryFile: String, index: PathIndex) -> ProjectConfig {
+    val entryDir = parentDir(entryFile)
+    val root = findProjectRoot(entryDir, index)
+    val tomlPath = joinPathFile(root, "soyuz.toml")
+    match pathIndexFileContent(index, tomlPath) {
+        Some(content) => loadProjectConfigFromContent(root, content)
+        None => {
+            var cfg = emptyProjectConfig()
+            cfg.root = root
+            cfg.meta = applyLibraryEntryDefault(defaultProjectMetaForRoot(root))
+            return cfg
+        }
+    }
 }

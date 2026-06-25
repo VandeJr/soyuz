@@ -71,3 +71,10 @@ pub fn findProjectRoot(startDir: String, index: PathIndex) -> String {
     }
     return startDir
 }
+
+pub fn pathIndexFileContent(index: PathIndex, path: String) -> Option[String] {
+    for key in index.fileContents.keys() {
+        if key == path { return Some(index.fileContents.get(key)) }
+    }
+    return None
+}

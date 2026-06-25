@@ -1,5 +1,5 @@
 import (
-    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot } from @module/paths
+    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot, pathIndexFileContent } from @module/paths
     { assertMsg } from @soyuz/testing
 )
 
@@ -30,4 +30,17 @@ test fn testParentDirAndBaseName() {
     assertMsg(parentDir("/tmp/proj/src/app") == "/tmp/proj/src", "parent dir")
     assertMsg(parentDir("/tmp") == "/", "parent of top-level")
     assertMsg(pathBaseName("/tmp/proj/src") == "src", "base name")
+}
+
+test fn testPathIndexFileContent() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/soyuz.toml", "[project]\nname = \"x\"\n")
+    match pathIndexFileContent(index, "/tmp/proj/soyuz.toml") {
+        None => assertMsg(false, "expected content")
+        Some(content) => assertMsg(content.startsWith("[project]"), "toml content")
+    }
+    match pathIndexFileContent(index, "/missing") {
+        None => assertMsg(true, "missing path")
+        Some(_) => assertMsg(false, "missing should be none")
+    }
 }

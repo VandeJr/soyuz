@@ -1,5 +1,6 @@
 import (
-    { ProjectMeta, ProjectConfig, defaultProjectMeta, emptyProjectConfig, parseTomlIntoConfig, resolveAliasPath, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
+    { ProjectMeta, ProjectConfig, defaultProjectMeta, emptyProjectConfig, parseTomlIntoConfig, resolveAliasPath, applyLibraryEntryDefault, loadProjectConfigFromContent, loadProjectConfigFromEntry } from @module/project
+    { emptyPathIndex, joinPathFile } from @module/paths
     { assertMsg } from @soyuz/testing
 )
 
@@ -45,4 +46,31 @@ test fn testResolveAliasPath() {
         None => assertMsg(true, "undefined alias returns none")
         Some(_) => assertMsg(false, "undefined alias should fail")
     }
+}
+
+// Mirrors LoadProjectConfig: discover root from entry file and load soyuz.toml via PathIndex.
+test fn testLoadProjectConfigFromEntry() {
+    val root = "/tmp/myapp"
+    val entry = "/tmp/myapp/src/main.sy"
+    val toml = "[project]\nname = \"myapp\"\nversion = \"2.0.0\"\ntype = \"library\"\n\n[packages]\nutil = \"lib/util\"\n"
+    var index = emptyPathIndex()
+    index.markerFiles.append(joinPathFile(root, "soyuz.toml"))
+    index.fileContents.set(joinPathFile(root, "soyuz.toml"), toml)
+    val cfg = loadProjectConfigFromEntry(entry, index)
+    assertMsg(cfg.root == root, "root from entry walk")
+    assertMsg(cfg.meta.name == "myapp", "name from toml")
+    assertMsg(cfg.meta.version == "2.0.0", "version from toml")
+    assertMsg(cfg.meta.entry == "lib.sy", "library default entry")
+    assertMsg(cfg.packages.get("util") == "lib/util", "packages from toml")
+}
+
+test fn testLoadProjectConfigFromEntryNoToml() {
+    val root = "/tmp/standalone"
+    val entry = "/tmp/standalone/main.sy"
+    var index = emptyPathIndex()
+    index.markerFiles.append(joinPathFile(root, ".soyuz-root"))
+    val cfg = loadProjectConfigFromEntry(entry, index)
+    assertMsg(cfg.root == root, "root with marker only")
+    assertMsg(cfg.meta.name == "standalone", "default name from root basename")
+    assertMsg(cfg.meta.entry == "main.sy", "binary default entry")
 }
