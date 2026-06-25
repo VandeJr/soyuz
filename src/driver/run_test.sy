@@ -1,6 +1,6 @@
 import (
-    { planHelloRunBuild, helloRunBuildPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr } from @driver/run
+    { planHelloRunBuild, planHelloRun, helloRunBuildPlanReady, helloRunPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand } from @driver/run
     { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultRunLinkScript } from @runtime/link
     { defaultApplyManifestScript } from @runtime/manifest
@@ -27,4 +27,17 @@ test fn testPlanHelloRunBuild() {
     assertMsg(runBuildManifestHasHelloIr(plan), "run manifest has hello ir")
     assertMsg(helloRunBuildManifestRoundTripReady(), "hello run manifest round trip export helper")
     assertMsg(runBuildManifestEntryCount(plan) == expectedFullBuildManifestEntries(), "run manifest has hello pipeline entries")
+}
+
+test fn testPlanHelloRun() {
+    val run = planHelloRun()
+    assertMsg(runPlanReady(run), "hello run plan ready")
+    assertMsg(helloRunPlanReady(), "hello run plan export helper")
+    assertMsg(run.binaryPath == "$(helloFixtureTmpDir())/app", "run binary path")
+    val manifestPath = "/tmp/soyuz-run.manifest"
+    assertMsg(runPlanMaterializeCommandsReady(run, manifestPath), "run materialize commands ready")
+    assertMsg(runPlanExportManifestCommand(run, manifestPath).contains("export-hello-run-manifest.sh"), "export manifest command")
+    assertMsg(runPlanApplyManifestCommand(run, manifestPath).contains("apply-path-index-manifest.sh"), "apply manifest command")
+    assertMsg(runPlanLinkCommand(run).contains("runtime-run-link.sh"), "link command")
+    assertMsg(runPlanLinkCommand(run).contains(run.binaryPath), "link command has binary path")
 }

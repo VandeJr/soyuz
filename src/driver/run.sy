@@ -105,3 +105,64 @@ pub fn runBuildClangCommandIncludesLinkInputs(plan: RunBuildPlan) -> Bool {
     if !cmd.contains(cfg.tmpDir) { return false }
     return true
 }
+
+// Mirrors cmd/main.go cmdRun after buildInternal (binary path + materialize scripts, no exec).
+pub record RunPlan {
+    build: RunBuildPlan,
+    binaryPath: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn runPlanReady(plan: RunPlan) -> Bool = plan.ready
+
+pub fn planRunFromRunBuild(build: RunBuildPlan) -> RunPlan {
+    if !runBuildReady(build) {
+        return RunPlan {
+            build: build,
+            binaryPath: "",
+            ready: false,
+            error: build.error
+        }
+    }
+    return RunPlan {
+        build: build,
+        binaryPath: runBuildOutputFile(build),
+        ready: true,
+        error: ""
+    }
+}
+
+pub fn planRun(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> RunPlan {
+    return planRunFromRunBuild(planRunBuild(entryFile, cfg, r, index, sourceIndex))
+}
+
+pub fn runPlanMaterializePrefix(plan: RunPlan) -> String = runBuildTmpDir(plan.build)
+
+pub fn runPlanExportManifestCommand(plan: RunPlan, manifestPath: String) -> String {
+    val scripts = runBuildScripts(plan.build)
+    return "bash $(scripts.exportRunManifestScript) $(manifestPath) $(runPlanMaterializePrefix(plan))"
+}
+
+pub fn runPlanApplyManifestCommand(plan: RunPlan, manifestPath: String) -> String {
+    val scripts = runBuildScripts(plan.build)
+    return "bash $(scripts.applyManifestScript) $(manifestPath)"
+}
+
+pub fn runPlanLinkCommand(plan: RunPlan) -> String {
+    val scripts = runBuildScripts(plan.build)
+    return "bash $(scripts.runLinkScript) $(runBuildLlFile(plan.build)) $(runPlanMaterializePrefix(plan)) $(plan.binaryPath)"
+}
+
+pub fn runPlanMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
+    if !runPlanReady(plan) { return false }
+    val scripts = runBuildScripts(plan.build)
+    val exportCmd = runPlanExportManifestCommand(plan, manifestPath)
+    val applyCmd = runPlanApplyManifestCommand(plan, manifestPath)
+    val linkCmd = runPlanLinkCommand(plan)
+    if !exportCmd.contains(scripts.exportRunManifestScript) { return false }
+    if !applyCmd.contains(scripts.applyManifestScript) { return false }
+    if !linkCmd.contains(scripts.runLinkScript) { return false }
+    if !linkCmd.contains(plan.binaryPath) { return false }
+    return runBuildClangCommandIncludesLinkInputs(plan.build)
+}
