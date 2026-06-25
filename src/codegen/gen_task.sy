@@ -291,6 +291,8 @@ pub fn taskRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
 pub fn generateTaskEnqueueStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
     registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    registerTaskRuntimeSymbol(g, taskFreeBuiltin())
     g.taskLastWrapperName = Some(nextTaskWrapperName(g))
     val stub = stubLlvmValue(g)
     g.taskEnqueueStub = Some(stub)

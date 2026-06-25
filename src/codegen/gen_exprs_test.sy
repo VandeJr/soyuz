@@ -13,7 +13,7 @@ import (
     { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, atomicRuntimeAdd, atomicRuntimeCas, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
-    { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub, taskNullStoreRecorded } from @codegen/gen_task
+    { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskFreeBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub, taskNullStoreRecorded } from @codegen/gen_task
     { newAlloca } from @codegen/gen_ir
     { llvmI8Ptr } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -1833,6 +1833,38 @@ test fn testTaskEnqueueExprCodegen() {
             assertMsg(g.taskLastWrapperName != None, "task wrapper name stored")
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
             assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskFreeBuiltin()), "free registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskWrapperFreeArgs — task add(3, 7) registers malloc/free for wrapper.
+test fn testTaskWrapperFreeArgsCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val callee = Node.Identifier(1, span, IdentifierData { name: "add" })
+    val argA = Node.IntLiteral(2, span, IntLiteralData { value: "3" })
+    val argB = Node.IntLiteral(3, span, IntLiteralData { value: "7" })
+    var args: List[Node] = []
+    args.append(argA)
+    args.append(argB)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val taskExpr = Node.TaskExpr(5, span, TaskExprData { inner: call })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Basic("Unit"))
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    types.set(5, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task wrapper free args codegen")
+        Some(_) => {
+            assertMsg(g.taskEnqueueStub != None, "task enqueue stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered for args buffer")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskFreeBuiltin()), "free registered for args buffer")
         }
     }
 }
