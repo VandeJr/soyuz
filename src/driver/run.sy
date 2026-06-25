@@ -1,0 +1,66 @@
+import (
+    { BuildConfig, linkConfigFromBuild } from @driver/build
+    { Resolver } from @module/resolver
+    { PathIndex, emptyPathIndex } from @module/paths
+    { FullBuildPlan, planFullBuild, fullBuildReady, applyFullBuildManifest, fullBuildLinkPlanFromAppliedIndex, fullBuildAppliedLinkPlanReady } from @driver/pipeline
+    { defaultLlFilePath } from @runtime/link
+)
+
+// Mirrors cmd/main.go cmdRun build phase (compile + link argv, without spawning clang/exec).
+pub record RunBuildPlan {
+    fullBuild: FullBuildPlan,
+    appliedIndex: PathIndex,
+    clangCommand: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn runBuildReady(plan: RunBuildPlan) -> Bool = plan.ready
+
+pub fn runBuildOutputFile(plan: RunBuildPlan) -> String = plan.fullBuild.cfg.outputFile
+
+pub fn runBuildTmpDir(plan: RunBuildPlan) -> String = plan.fullBuild.cfg.tmpDir
+
+pub fn runBuildLlFile(plan: RunBuildPlan) -> String = defaultLlFilePath(plan.fullBuild.cfg.tmpDir)
+
+pub fn planRunBuildFromFullBuild(full: FullBuildPlan) -> RunBuildPlan {
+    if !fullBuildReady(full) {
+        return RunBuildPlan {
+            fullBuild: full,
+            appliedIndex: emptyPathIndex(),
+            clangCommand: "",
+            ready: false,
+            error: full.error
+        }
+    }
+    val applied = applyFullBuildManifest(full)
+    val linkPlan = fullBuildLinkPlanFromAppliedIndex(full, applied)
+    val ready = fullBuildAppliedLinkPlanReady(full, applied)
+    var err = ""
+    if !ready {
+        err = "link plan incompleto após manifest apply"
+    }
+    return RunBuildPlan {
+        fullBuild: full,
+        appliedIndex: applied,
+        clangCommand: linkPlan.linkResult.command,
+        ready: ready,
+        error: err
+    }
+}
+
+pub fn planRunBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> RunBuildPlan {
+    return planRunBuildFromFullBuild(planFullBuild(entryFile, cfg, r, index, sourceIndex))
+}
+
+pub fn runBuildClangCommandIncludesLinkInputs(plan: RunBuildPlan) -> Bool {
+    if !runBuildReady(plan) { return false }
+    val cmd = plan.clangCommand
+    if !cmd.contains("clang") { return false }
+    if !cmd.contains(runBuildLlFile(plan)) { return false }
+    if !cmd.contains(runBuildOutputFile(plan)) { return false }
+    if !cmd.contains("-pthread") { return false }
+    val cfg = linkConfigFromBuild(plan.fullBuild.cfg)
+    if !cmd.contains(cfg.tmpDir) { return false }
+    return true
+}

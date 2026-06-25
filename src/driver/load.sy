@@ -6,5 +6,7 @@ import @driver/codegen
 import @driver/codegen_test
 import @driver/pipeline
 import @driver/pipeline_test
+import @driver/run
+import @driver/run_test
 import @driver/export
 import @driver/export_test

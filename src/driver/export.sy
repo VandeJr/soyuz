@@ -6,6 +6,7 @@ import (
     { planFrontendBuild } from @driver/frontend
     { planCodegenBuild, codegenBuildReady, codegenPlanIsLinkableHello, CodegenBuildPlan } from @driver/codegen
     { planFullBuild, FullBuildPlan, applyFullBuildManifest, fullBuildAppliedLinkPlanReady } from @driver/pipeline
+    { RunBuildPlan, planRunBuildFromFullBuild, runBuildReady } from @driver/run
 )
 
 pub fn helloFixtureEntryPath() -> String = "/tmp/soyuz-export-hello.sy"
@@ -76,4 +77,12 @@ pub fn helloCodegenIrExportReady() -> Bool {
 pub fn helloFullBuildAppliedLinkPlanReady() -> Bool {
     val plan = planHelloFullBuild()
     return fullBuildAppliedLinkPlanReady(plan, applyFullBuildManifest(plan))
+}
+
+pub fn planHelloRunBuild() -> RunBuildPlan {
+    return planRunBuildFromFullBuild(planHelloFullBuild())
+}
+
+pub fn helloRunBuildPlanReady() -> Bool {
+    return runBuildReady(planHelloRunBuild())
 }

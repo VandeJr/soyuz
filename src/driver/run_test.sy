@@ -1,0 +1,15 @@
+import (
+    { planHelloRunBuild, helloRunBuildPlanReady, helloFixtureTmpDir } from @driver/export
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs } from @driver/run
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testPlanHelloRunBuild() {
+    val plan = planHelloRunBuild()
+    assertMsg(runBuildReady(plan), "hello run build plan ready")
+    assertMsg(helloRunBuildPlanReady(), "hello run build export helper")
+    assertMsg(plan.error.len() == 0, "no run build error")
+    assertMsg(runBuildOutputFile(plan) == "$(helloFixtureTmpDir())/app", "run output under fixture tmp")
+    assertMsg(runBuildClangCommandIncludesLinkInputs(plan), "clang command has link inputs")
+    assertMsg(plan.clangCommand.contains("clang"), "clang driver in command")
+}
