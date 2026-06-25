@@ -8,7 +8,7 @@ import (
     { blockNameRegistered, emitBrToBlockStub, currentBlockHandle } from @codegen/gen_ir
     { taskDropHandleRuntime, taskRuntimeSymbolRegistered } from @codegen/gen_task
     { arcRuntimeRelease, arcRuntimeSymbolRegistered } from @codegen/gen_arc
-    { mutexRuntimeLock, mutexRuntimeUnlock, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { mutexRuntimeLock, mutexRuntimeUnlock, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { LlvmBasicBlock, llvmI64, llvmVoid, llvmI1 } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
@@ -720,6 +720,84 @@ test fn testBlockEmitsSyncGuardUnlockOnScopeExit() {
             assertMsg(g.syncGuardUnlockStub != None, "sync guard unlock stub stored at block exit")
             assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeUnlock()), "srt_mutex_unlock registered")
             assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeLock()), "srt_mutex_lock registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockWriteGuardUnlockedOnScopeExit — block scope emits srt_rwlock_unlock stub.
+test fn testBlockEmitsWriteGuardUnlockOnScopeExit() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = controlArcClass("RwLock")
+    val writeGuardClass = controlArcClass("WriteGuard")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val writeCallee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    val writeCall = Node.CallExpr(3, span, CallExprData { callee: writeCallee, args: [] })
+    val varDecl = Node.VarDecl(4, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Val,
+        name: "wg",
+        pattern: None,
+        typeExpr: None,
+        init: Some(writeCall)
+    })
+    var stmts: List[Node] = []
+    stmts.append(varDecl)
+    val block = Node.BlockStmt(5, span, BlockStmtData { statements: stmts })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, rwlockInt)
+    types.set(2, rwlockInt)
+    types.set(3, writeGuardInt)
+    types.set(4, writeGuardInt)
+    types.set(5, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, block) {
+        None => assertMsg(false, "expected block with write guard codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardUnlockStub != None, "write guard unlock stub at block exit")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeUnlock()), "srt_rwlock_unlock registered")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeWrite()), "srt_rwlock_write registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockReadEmitsSrtRwlockRead (scope half) — ReadGuard unlock at block exit.
+test fn testBlockEmitsReadGuardUnlockOnScopeExit() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = controlArcClass("RwLock")
+    val readGuardClass = controlArcClass("ReadGuard")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val readGuardInt = Type.Specialized(Type.Class(readGuardClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val readCallee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    val readCall = Node.CallExpr(3, span, CallExprData { callee: readCallee, args: [] })
+    val varDecl = Node.VarDecl(4, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Val,
+        name: "rg",
+        pattern: None,
+        typeExpr: None,
+        init: Some(readCall)
+    })
+    var stmts: List[Node] = []
+    stmts.append(varDecl)
+    val block = Node.BlockStmt(5, span, BlockStmtData { statements: stmts })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, rwlockInt)
+    types.set(2, rwlockInt)
+    types.set(3, readGuardInt)
+    types.set(4, readGuardInt)
+    types.set(5, UnitType)
+    val g = newGenerator(controlCheckerWithNodeTypes(types))
+    match generateStmtNode(g, block) {
+        None => assertMsg(false, "expected block with read guard codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardUnlockStub != None, "read guard unlock stub at block exit")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeUnlock()), "srt_rwlock_unlock registered")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
         }
     }
 }
