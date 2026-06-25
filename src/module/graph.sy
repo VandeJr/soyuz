@@ -62,6 +62,47 @@ fn extractImportDeclsFromSource(source: String) -> List[ImportDeclData] {
     return imports
 }
 
+pub fn fillImportResolvedFiles(data: ImportDeclData, files: List[String]) -> ImportDeclData = ImportDeclData {
+    path: data.path,
+    names: data.names,
+    namespace: data.namespace,
+    pathKind: data.pathKind,
+    packageAlias: data.packageAlias,
+    isStdlib: data.isStdlib,
+    resolvedFiles: files
+}
+
+pub fn resolveImportsForFile(file: String, r: Resolver, index: PathIndex) -> Option[List[ImportDeclData]] {
+    match pathIndexFileContent(index, file) {
+        None => None
+        Some(content) => resolveImportsFromContent(content, file, r, index)
+    }
+}
+
+fn resolveOneImport(imp: ImportDeclData, file: String, r: Resolver, index: PathIndex) -> Option[ImportDeclData] {
+    match resolveImport(r, imp, file, index) {
+        None => None
+        Some(files) => Some(fillImportResolvedFiles(imp, files))
+    }
+}
+
+fn resolveImportsFromContent(content: String, file: String, r: Resolver, index: PathIndex) -> Option[List[ImportDeclData]] {
+    val imports = extractImportDeclsFromSource(content)
+    return resolveImportsList(imports, file, r, index, List[ImportDeclData]{}, 0)
+}
+
+fn resolveImportsList(imports: List[ImportDeclData], file: String, r: Resolver, index: PathIndex, acc: List[ImportDeclData], idx: Int) -> Option[List[ImportDeclData]] {
+    if idx >= imports.size() { return Some(acc) }
+    match resolveOneImport(imports.get(idx), file, r, index) {
+        None => None
+        Some(filled) => {
+            var next = acc
+            next.append(filled)
+            return resolveImportsList(imports, file, r, index, next, idx + 1)
+        }
+    }
+}
+
 pub fn resolvePrelude(r: Resolver, index: PathIndex) -> List[String] {
     if r.stdlibDir.len() == 0 { return List[String]{} }
     val data = ImportDeclData {

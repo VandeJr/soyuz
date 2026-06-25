@@ -1,7 +1,8 @@
 import (
     { emptyPathIndex, pathBaseName } from @module/paths
     { newResolver, newResolverWithStdlib, Resolver } from @module/resolver
-    { collect, collectSucceeded, resolvePrelude } from @module/graph
+    { collect, collectSucceeded, resolvePrelude, resolveImportsForFile } from @module/graph
+    { importDeclIsModuleImport } from @ast/ast
     { assertMsg } from @soyuz/testing
 )
 
@@ -143,4 +144,24 @@ test fn testResolvePreludeNoStdlib() {
     val r = newResolver("/tmp/app")
     val files = resolvePrelude(r, emptyPathIndex())
     assertMsg(files.size() == 0, "no prelude without stdlib dir")
+}
+
+// Port of stdlib_namespace_test.go TestStdlibBareImportNamespace — bare @soyuz/mock module import.
+test fn testResolveImportsForFileBareStdlibModule() {
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/mock.sy", "pub fn assert_true(cond: Bool, name: String) {}")
+    index.fileContents.set(entry, "import ( \"@soyuz/mock\" )\nfn main() { mock.assert_true(true, \"ok\") }")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    match resolveImportsForFile(entry, r, index) {
+        None => assertMsg(false, "expected imports resolved")
+        Some(imports) => {
+            assertMsg(imports.size() == 1, "one import decl")
+            val imp = imports.get(0)
+            assertMsg(importDeclIsModuleImport(imp), "bare module import form")
+            assertMsg(imp.namespace == "mock", "mock namespace for qualified access")
+            assertMsg(imp.resolvedFiles.get(0) == "/tmp/stdlib/mock.sy", "resolved mock.sy")
+        }
+    }
 }
