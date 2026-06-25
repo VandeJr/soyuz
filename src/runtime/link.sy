@@ -1,5 +1,5 @@
 import (
-    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex, applyRuntimeWritePlan, runtimeWritePlanFullyApplied } from @runtime/embed
+    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex, loadRuntimeAssetsFromMaterializedIndex, applyRuntimeWritePlan, runtimeWritePlanFullyApplied } from @runtime/embed
     { PathIndex, pathIndexFileContent, pathIndexWriteFile } from @module/paths
 )
 
@@ -24,6 +24,11 @@ pub fn prepareLinkBundle(cfg: LinkConfig, assets: List[RuntimeAsset]) -> LinkBun
 
 pub fn prepareLinkBundleFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> LinkBundle {
     val assets = loadRuntimeAssetsFromIndex(srcDir, index)
+    return prepareLinkBundle(cfg, assets)
+}
+
+pub fn prepareLinkBundleFromMaterializedIndex(cfg: LinkConfig, index: PathIndex) -> LinkBundle {
+    val assets = loadRuntimeAssetsFromMaterializedIndex(cfg.tmpDir, index)
     return prepareLinkBundle(cfg, assets)
 }
 
@@ -170,6 +175,12 @@ pub fn buildCompileLinkPlan(cfg: LinkConfig, bundle: LinkBundle) -> CompileLinkP
 
 pub fn buildCompileLinkPlanFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> CompileLinkPlan {
     val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    return buildCompileLinkPlan(cfg, bundle)
+}
+
+// Rebuild link argv from tmpDir files after manifest apply (no runtime srcDir lookup).
+pub fn buildCompileLinkPlanFromMaterializedIndex(cfg: LinkConfig, index: PathIndex) -> CompileLinkPlan {
+    val bundle = prepareLinkBundleFromMaterializedIndex(cfg, index)
     return buildCompileLinkPlan(cfg, bundle)
 }
 

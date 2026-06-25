@@ -75,6 +75,19 @@ pub fn loadRuntimeAssetsFromIndex(srcDir: String, index: PathIndex) -> List[Runt
     return assets
 }
 
+// Reads runtime assets already written under tmpDir (post-manifest apply).
+pub fn loadRuntimeAssetsFromMaterializedIndex(tmpDir: String, index: PathIndex) -> List[RuntimeAsset] {
+    var assets: List[RuntimeAsset] = []
+    for name in runtimeAssetNames() {
+        val path = joinPathFile(tmpDir, name)
+        match pathIndexFileContent(index, path) {
+            None => assets.append(emptyRuntimeAsset(name))
+            Some(content) => assets.append(RuntimeAsset { name: name, content: content })
+        }
+    }
+    return assets
+}
+
 // Plans tmpDir file writes for link (mirrors cmd/main.go extract before clang).
 pub fn planRuntimeWrite(tmpDir: String, assets: List[RuntimeAsset]) -> List[RuntimeWriteEntry] {
     var entries: List[RuntimeWriteEntry] = []

@@ -2,7 +2,7 @@ import (
     { emptyPathIndex, joinPathFile } from @module/paths
     { newResolverWithStdlib } from @module/resolver
     { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, expectedFullBuildManifestEntries } from @driver/build
-    { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts, applyFullBuildManifest, fullBuildAppliedIndexReady } from @driver/pipeline
+    { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts, applyFullBuildManifest, fullBuildAppliedIndexReady, fullBuildAppliedLinkPlanReady } from @driver/pipeline
     { helloFixtureTmpDir, planHelloFullBuild } from @driver/export
     { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr, manifestEntryCount } from @runtime/manifest
     { defaultLlFilePath } from @runtime/link
@@ -26,6 +26,7 @@ test fn testPlanFullBuildHello() {
     assertMsg(manifestEntryCount(fullBuildManifest(plan)) == expectedFullBuildManifestEntries(), "full build manifest entry count")
     val applied = applyFullBuildManifest(plan)
     assertMsg(fullBuildAppliedIndexReady(plan, applied), "applied manifest index matches pipeline output")
+    assertMsg(fullBuildAppliedLinkPlanReady(plan, applied), "applied manifest rebuilds link plan")
     val scripts = defaultFullBuildScripts()
     assertMsg(plan.scripts.applyManifestScript == scripts.applyManifestScript, "apply script on plan")
     assertMsg(plan.scripts.driverFullBuildCheckScript == defaultDriverFullBuildCheckScript(), "full build check script")
