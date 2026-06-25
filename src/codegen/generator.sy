@@ -146,6 +146,7 @@ pub class Generator {
     pub var atomicStoreStub: Option[LlvmValue] = None
     pub var atomicLoadStub: Option[LlvmValue] = None
     pub var atomicAddStub: Option[LlvmValue] = None
+    pub var atomicCasStub: Option[LlvmValue] = None
     pub var syncGuardUnlockStub: Option[LlvmValue] = None
     pub var syncRuntimeSymbols: List[String] = []
     pub var arcNewStub: Option[LlvmValue] = None

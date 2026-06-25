@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicType, atomicInnerType, isAtomicStaticNew, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, isAtomicAddCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, atomicRuntimeAdd, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateAtomicAddStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicType, atomicInnerType, isAtomicStaticNew, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, isAtomicAddCall, isAtomicCasCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, atomicRuntimeAdd, atomicRuntimeCas, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateAtomicAddStub, generateAtomicCasStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -356,4 +356,28 @@ test fn testGenerateAtomicAddStub() {
         Some(_) => assertMsg(g.atomicAddStub != None, "stub stored on generator")
     }
     assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeAdd()), "srt_atomic_add registered")
+}
+
+test fn testIsAtomicCasCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val casMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "compareAndSwap" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicCasCall(casMember, g), "a.compareAndSwap on Atomic[Int]")
+    val addMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "add" })
+    assertMsg(!isAtomicCasCall(addMember, g), "a.add not cas")
+}
+
+test fn testGenerateAtomicCasStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicCasStub(g) {
+        None => assertMsg(false, "atomic cas stub")
+        Some(_) => assertMsg(g.atomicCasStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeCas()), "srt_atomic_cas registered")
 }

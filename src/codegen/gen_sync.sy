@@ -68,6 +68,10 @@ pub fn atomicRuntimeAdd() -> String {
     return "srt_atomic_add"
 }
 
+pub fn atomicRuntimeCas() -> String {
+    return "srt_atomic_cas"
+}
+
 pub fn isMutexType(t: Type) -> Bool = match t {
     Specialized(base, params) => match base {
         Class(ct) => ct.name == "Mutex" && params.size() > 0
@@ -229,6 +233,10 @@ pub fn isAtomicAddCall(callee: Node, g: Generator) -> Bool {
     return isAtomicInstanceMethodCall(callee, g, "add")
 }
 
+pub fn isAtomicCasCall(callee: Node, g: Generator) -> Bool {
+    return isAtomicInstanceMethodCall(callee, g, "compareAndSwap")
+}
+
 pub fn syncGuardKind(t: Type) -> Option[String] = match t {
     Specialized(base, params) => match base {
         Class(ct) => {
@@ -370,6 +378,13 @@ pub fn generateAtomicAddStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeAdd())
     val stub = stubLlvmValue(g)
     g.atomicAddStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateAtomicCasStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, atomicRuntimeCas())
+    val stub = stubLlvmValue(g)
+    g.atomicCasStub = Some(stub)
     return Some(stub)
 }
 
