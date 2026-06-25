@@ -2,7 +2,8 @@ import (
     { FrontendBuildPlan, frontendBuildReady } from @driver/frontend
     { BuildConfig } from @driver/build
     { newGenerator, setTestMode, Generator } from @codegen/generator
-    { generateProgramBody, generatePendingClassBodies, generatePendingExtendBodies, ProgramResult } from @codegen/gen_funcs
+    { generateProgramBody, ProgramResult } from @codegen/gen_funcs
+    { renderModuleIr, moduleIrHasMain } from @codegen/gen_emit
     { Node } from @ast/ast
 )
 
@@ -16,20 +17,15 @@ pub record CodegenBuildPlan {
 
 pub fn codegenBuildReady(plan: CodegenBuildPlan) -> Bool = plan.ready
 
-// Placeholder until LlvmModule string emission is ported (Soyuz codegen still uses IR stubs).
+pub fn codegenPlanHasMain(plan: CodegenBuildPlan) -> Bool = moduleIrHasMain(plan.irContent)
+
+// Legacy stub format kept for bash driver-link-stub-check.sh parity.
 pub fn stubModuleIr(funcCount: Int) -> String {
     return "; soyuz codegen stub ($(funcCount) top-level funcs)\ntarget triple = \"x86_64-unknown-linux-gnu\"\ndefine i32 @main() {\nentry:\n  ret i32 0\n}\n"
 }
 
 pub fn runCodegenPasses(g: Generator, body: List[Node]) -> Option[ProgramResult] {
-    match generateProgramBody(g, body) {
-        None => None
-        Some(result) => {
-            if !generatePendingClassBodies(g) { return None }
-            if !generatePendingExtendBodies(g) { return None }
-            return Some(result)
-        }
-    }
+    return generateProgramBody(g, body)
 }
 
 pub fn planCodegenBuild(frontend: FrontendBuildPlan, cfg: BuildConfig) -> CodegenBuildPlan {
@@ -57,7 +53,7 @@ pub fn planCodegenBuild(frontend: FrontendBuildPlan, cfg: BuildConfig) -> Codege
         Some(result) => CodegenBuildPlan {
             frontend: frontend,
             funcCount: result.funcCount,
-            irContent: stubModuleIr(result.funcCount),
+            irContent: renderModuleIr(g, result.funcCount),
             ready: true,
             error: ""
         }

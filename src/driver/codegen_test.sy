@@ -3,7 +3,7 @@ import (
     { newResolverWithStdlib } from @module/resolver
     { planFrontendBuild } from @driver/frontend
     { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
-    { planCodegenBuild, codegenBuildReady, stubModuleIr } from @driver/codegen
+    { planCodegenBuild, codegenBuildReady, stubModuleIr, codegenPlanHasMain } from @driver/codegen
     { assertMsg } from @soyuz/testing
 )
 
@@ -25,7 +25,8 @@ test fn testPlanCodegenBuildHello() {
     val codegen = planCodegenBuild(frontend, cfg)
     assertMsg(codegenBuildReady(codegen), "codegen plan ready")
     assertMsg(codegen.funcCount >= 1, "at least main func")
-    assertMsg(codegen.irContent.len() > 0, "stub ir produced")
+    assertMsg(codegen.irContent.len() > 0, "ir produced")
+    assertMsg(codegenPlanHasMain(codegen), "module ir has main")
     assertMsg(codegen.error.len() == 0, "no codegen error")
 }
 

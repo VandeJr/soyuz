@@ -1,0 +1,40 @@
+import (
+    { newGenerator } from @codegen/generator
+    { newBlock, setCurrentBlock } from @codegen/gen_ir
+    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple } from @codegen/gen_emit
+    { TypeError, TypeWarning, FuncType, FuncDeclData, CheckResult, Type } from @checker/types
+    { Node } from @ast/ast
+    { assertMsg } from @soyuz/testing
+)
+
+fn emitEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: List[TypeError]{},
+    warnings: List[TypeWarning]{},
+    nodeTypes: List[Option[Type]]{},
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: List[FuncDeclData]{},
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testRenderModuleIrIncludesTrace() {
+    val g = newGenerator(emitEmptyCheckResult())
+    traceIr(g, "block entry")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasMain(ir), "main function in ir")
+    assertMsg(moduleIrHasTrace(ir), "trace section")
+    assertMsg(ir.contains(defaultTargetTriple()), "target triple")
+    assertMsg(ir.contains("block entry"), "traced block line")
+}
+
+test fn testNewBlockTracesIr() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val block = newBlock(g, "entry")
+    setCurrentBlock(g, block)
+    assertMsg(irTraceLineCount(g) >= 1, "newBlock records trace")
+    val ir = renderModuleIr(g, 0)
+    assertMsg(ir.contains("block entry"), "traced entry block in module ir")
+}

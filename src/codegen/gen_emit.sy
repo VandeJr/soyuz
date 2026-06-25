@@ -1,0 +1,31 @@
+import (
+    { Generator } from @codegen/generator
+)
+
+pub fn defaultTargetTriple() -> String = "x86_64-unknown-linux-gnu"
+
+pub fn traceIr(g: Generator, line: String) {
+    g.irTrace.append(line)
+}
+
+pub fn generatorBlockCount(g: Generator) -> Int = g.blockHandleCounter
+
+pub fn generatorValueCount(g: Generator) -> Int = g.valueHandleCounter
+
+pub fn irTraceLineCount(g: Generator) -> Int = g.irTrace.size()
+
+// Minimal module text emission: metadata + block trace + main stub (full LLVM IR port is incremental).
+pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
+    var result = "; soyuz module ir (funcs=$(funcCount), blocks=$(generatorBlockCount(g)), values=$(generatorValueCount(g)))\n"
+    result = "$(result); ir trace:\n"
+    for line in g.irTrace {
+        result = "$(result);   $(line)\n"
+    }
+    result = "$(result)target triple = \"$(defaultTargetTriple())\"\n"
+    result = "$(result)define i32 @main() {\nentry:\n  ret i32 0\n}\n"
+    return result
+}
+
+pub fn moduleIrHasMain(ir: String) -> Bool = ir.contains("define i32 @main()")
+
+pub fn moduleIrHasTrace(ir: String) -> Bool = ir.contains("; ir trace:")

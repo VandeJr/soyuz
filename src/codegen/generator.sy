@@ -198,6 +198,7 @@ pub class Generator {
     pub var taskHandleCurrentPhiResult: Option[LlvmValue] = None
     pub var taskHandleCancelledStub: Option[LlvmValue] = None
     pub var taskHandleProgressStub: Option[LlvmValue] = None
+    pub var irTrace: List[String] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

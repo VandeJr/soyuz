@@ -27,3 +27,5 @@ import @codegen/gen_task
 import @codegen/gen_task_test
 import @codegen/gen_ir
 import @codegen/gen_ir_test
+import @codegen/gen_emit
+import @codegen/gen_emit_test
