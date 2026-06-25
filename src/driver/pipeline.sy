@@ -1,11 +1,12 @@
 import (
-    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript } from @driver/build
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript } from @driver/build
     { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
     { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
     { Resolver } from @module/resolver
-    { PathIndex } from @module/paths
-    { defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
-    { defaultRunLinkScript } from @runtime/link
+    { PathIndex, emptyPathIndex } from @module/paths
+    { applyManifestToPathIndex, defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
+    { defaultRunLinkScript, llFileWritten } from @runtime/link
+    { runtimeWritePlanFullyApplied } from @runtime/embed
 )
 
 pub record FullBuildScripts {
@@ -14,7 +15,9 @@ pub record FullBuildScripts {
     applyManifestScript: String,
     runLinkScript: String,
     driverLinkStubCheckScript: String,
-    driverFullBuildCheckScript: String
+    driverFullBuildCheckScript: String,
+    exportDriverHelloIrScript: String,
+    driverExportCodegenIrCheckScript: String
 }
 
 pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
@@ -23,7 +26,9 @@ pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
     applyManifestScript: defaultApplyManifestScript(),
     runLinkScript: defaultRunLinkScript(),
     driverLinkStubCheckScript: defaultDriverLinkStubCheckScript(),
-    driverFullBuildCheckScript: defaultDriverFullBuildCheckScript()
+    driverFullBuildCheckScript: defaultDriverFullBuildCheckScript(),
+    exportDriverHelloIrScript: defaultExportDriverHelloIrScript(),
+    driverExportCodegenIrCheckScript: defaultDriverExportCodegenIrCheckScript()
 }
 
 pub record FullBuildPlan {
@@ -39,6 +44,18 @@ pub record FullBuildPlan {
 pub fn fullBuildReady(plan: FullBuildPlan) -> Bool = plan.ready
 
 pub fn fullBuildManifest(plan: FullBuildPlan) -> String = plan.artifacts.manifest
+
+// Mirrors tools/apply-path-index-manifest.sh on a planned full-build manifest.
+pub fn applyFullBuildManifest(plan: FullBuildPlan) -> PathIndex {
+    return applyManifestToPathIndex(emptyPathIndex(), fullBuildManifest(plan))
+}
+
+pub fn fullBuildAppliedIndexReady(plan: FullBuildPlan, index: PathIndex) -> Bool {
+    if !fullBuildReady(plan) { return false }
+    val output = plan.artifacts.pipeline.output
+    if !runtimeWritePlanFullyApplied(index, output.bundle.writePlan) { return false }
+    return llFileWritten(index, output.cfg.llFile, output.irContent)
+}
 
 fn fullBuildError(frontend: FrontendBuildPlan, codegen: CodegenBuildPlan, artifacts: BuildArtifacts) -> String {
     if !frontendBuildReady(frontend) { return frontend.error }
