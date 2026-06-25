@@ -1,5 +1,6 @@
 import (
-    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageHasRunCommand } from @driver/cli
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageHasRunCommand, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli } from @driver/cli
+    { runPlanReady } from @driver/run
     { assertMsg } from @soyuz/testing
 )
 
@@ -12,4 +13,13 @@ test fn testCliCommands() {
     assertMsg(defaultBootstrapHelloRunCommand().contains(defaultHelloMinimalFixturePath()), "bootstrap uses fixture")
     val usage = "$(cliUsageHeader())\n$(cliUsageCommandsMarker())\n  run example"
     assertMsg(cliUsageHasRunCommand(usage), "usage mentions run")
+}
+
+test fn testCliRunDispatchHelloMinimal() {
+    val plan = planHelloMinimalRunFromCli()
+    assertMsg(runPlanReady(plan), "hello minimal cli run plan ready")
+    assertMsg(cliRunPlanReadyForEntry(cliCommandRun(), defaultHelloMinimalFixturePath()), "cli run plan ready for entry")
+    assertMsg(cliRunDispatchReady(cliCommandRun(), defaultHelloMinimalFixturePath()), "cli run dispatch ready")
+    assertMsg(cliHelloMinimalRunDispatchReady(), "cli hello minimal dispatch helper")
+    assertMsg(helloMinimalRunPlanReadyFromCli(), "cli hello minimal run plan ready helper")
 }

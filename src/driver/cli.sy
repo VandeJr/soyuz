@@ -1,5 +1,10 @@
 // Mirrors soyuz-go/cmd/main.go CLI surface (command names + usage text).
 
+import (
+    { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady } from @driver/export
+    { RunPlan, runPlanReady } from @driver/run
+)
+
 pub fn cliCommandNew() -> String = "new"
 
 pub fn cliCommandBuild() -> String = "build"
@@ -8,7 +13,7 @@ pub fn cliCommandRun() -> String = "run"
 
 pub fn cliCommandTest() -> String = "test"
 
-pub fn defaultHelloMinimalFixturePath() -> String = "tools/fixtures/hello_minimal.sy"
+pub fn defaultHelloMinimalFixturePath() -> String = helloMinimalFixturePath()
 
 pub fn defaultBootstrapHelloRunCommand() -> String = "soyuz run tools/fixtures/hello_minimal.sy"
 
@@ -27,4 +32,27 @@ pub fn cliUsageCommandsMarker() -> String = "Comandos:"
 pub fn cliUsageHasRunCommand(usage: String) -> Bool {
     if !usage.contains(cliUsageCommandsMarker()) { return false }
     return usage.contains(cliCommandRun())
+}
+
+// Mirrors cmdRun entry resolution for known hello fixture (in-memory plan only).
+pub fn cliRunPlanReadyForEntry(command: String, entryFile: String) -> Bool {
+    if command != cliCommandRun() { return false }
+    if entryFile != helloMinimalFixturePath() { return false }
+    return runPlanReady(planHelloMinimalRun())
+}
+
+pub fn planHelloMinimalRunFromCli() -> RunPlan {
+    return planHelloMinimalRun()
+}
+
+pub fn cliRunDispatchReady(command: String, entryFile: String) -> Bool {
+    return cliRunPlanReadyForEntry(command, entryFile)
+}
+
+pub fn cliHelloMinimalRunDispatchReady() -> Bool {
+    return cliRunDispatchReady(cliCommandRun(), helloMinimalFixturePath())
+}
+
+pub fn helloMinimalRunPlanReadyFromCli() -> Bool {
+    return helloMinimalRunPlanReady()
 }
