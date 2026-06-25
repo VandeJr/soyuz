@@ -35,6 +35,68 @@ pub fn cliUsageHasRunCommand(usage: String) -> Bool {
     return usage.contains(cliCommandRun())
 }
 
+pub fn cliUsageRunLine() -> String = "  run   [--release] [arquivo.sy] [-- args...] Compila e executa"
+
+pub fn cliRunArgsDelimiter() -> String = "--"
+
+pub fn cliRunReleaseFlag() -> String = "--release"
+
+fn cliRunArgIsFlag(arg: String) -> Bool = arg.startsWith("-")
+
+// Mirrors cmdRun positional entry resolution (flags + "--" delimiter, no project-aware cwd).
+pub fn cliRunEntryFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        if a == cliRunArgsDelimiter() { break }
+        if a == cliRunReleaseFlag() {
+            i = i + 1
+            continue
+        }
+        if !cliRunArgIsFlag(a) {
+            return a
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+pub fn cliRunProgramArgsFromArgs(args: List[String]) -> List[String] {
+    var i = 0
+    var afterDelimiter = false
+    var result = List[String]{}
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        if !afterDelimiter {
+            if a == cliRunArgsDelimiter() {
+                afterDelimiter = true
+                i = i + 1
+                continue
+            }
+            i = i + 1
+            continue
+        }
+        result.append(a)
+        i = i + 1
+    }
+    return result
+}
+
+pub fn cliRunEntryReadyForArgs(command: String, args: List[String]) -> Bool {
+    if command != cliCommandRun() { return false }
+    val entry = cliRunEntryFromArgs(args)
+    if entry.len() == 0 { return false }
+    return cliRunPlanReadyForEntry(command, entry)
+}
+
+pub fn cliHelloMinimalRunFromArgsReady() -> Bool {
+    var args = List[String]{}
+    args.append(defaultHelloMinimalFixturePath())
+    return cliRunEntryReadyForArgs(cliCommandRun(), args)
+}
+
 // Mirrors cmdRun entry resolution for known hello fixture (in-memory plan only).
 pub fn cliRunPlanReadyForEntry(command: String, entryFile: String) -> Bool {
     if command != cliCommandRun() { return false }
