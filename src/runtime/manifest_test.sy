@@ -1,0 +1,47 @@
+import (
+    { runtimeAssetNames } from @runtime/embed
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { defaultLinkConfig, buildCompilePipelineFromIndex, materializeCompileOutput } from @runtime/link
+    { formatWritePlanManifest, compileOutputManifest, compilePipelineManifest, manifestContainsPath, manifestContainsMarkers, compileOutputManifestEntryCount, manifestMarkerFile } from @runtime/manifest
+    { planRuntimeWrite, loadRuntimeAssetsFromIndex } from @runtime/embed
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testFormatWritePlanManifest() {
+    val assets = loadRuntimeAssetsFromIndex("/rt/src", emptyPathIndex())
+    val plan = planRuntimeWrite("/tmp/build", assets)
+    val manifest = formatWritePlanManifest(plan)
+    assertMsg(manifestContainsMarkers(manifest), "manifest markers present")
+    assertMsg(manifestContainsPath(manifest, "/tmp/build/soyuz.h"), "header path in manifest")
+    assertMsg(manifestContainsPath(manifest, "/tmp/build/rc.c"), "rc.c path in manifest")
+}
+
+test fn testCompileOutputManifest() {
+    val cfg = defaultLinkConfig("/tmp/build", "/tmp/build/app", false)
+    val srcDir = "/ref/runtime/src"
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(srcDir, name), "// $(name)\n")
+    }
+    val ir = "define i32 @main() { ret i32 0 }\n"
+    val output = materializeCompileOutput(emptyPathIndex(), cfg, srcDir, sourceIndex, ir)
+    val manifest = compileOutputManifest(output)
+    assertMsg(manifestContainsMarkers(manifest), "output manifest markers")
+    assertMsg(manifestContainsPath(manifest, cfg.llFile), "ll path in manifest")
+    assertMsg(manifest.contains(ir), "ir content in manifest")
+    assertMsg(compileOutputManifestEntryCount(output) == 14, "13 runtime files plus ll")
+}
+
+test fn testCompilePipelineManifest() {
+    val cfg = defaultLinkConfig("/tmp/build", "/tmp/build/app", false)
+    val srcDir = "/ref/runtime/src"
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(srcDir, name), "// $(name)\n")
+    }
+    val ir = "target triple = \"x86_64-unknown-linux-gnu\"\n"
+    val pipeline = buildCompilePipelineFromIndex(emptyPathIndex(), cfg, srcDir, sourceIndex, ir)
+    val manifest = compilePipelineManifest(pipeline)
+    assertMsg(manifest.startsWith(manifestMarkerFile()), "starts with file marker")
+    assertMsg(manifestContainsPath(manifest, "/tmp/build/std_io.c"), "runtime asset path")
+}

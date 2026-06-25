@@ -275,6 +275,13 @@ else
   echo "  tools/runtime-hello-world-check.sh ausente"
 fi
 
+hr "Runtime manifest check (bootstrap, S9)"
+if [[ -x tools/runtime-manifest-check.sh ]]; then
+  bash tools/runtime-manifest-check.sh 2>&1 || echo "→ runtime manifest check FALHOU"
+else
+  echo "  tools/runtime-manifest-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

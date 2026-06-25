@@ -1,0 +1,51 @@
+import (
+    { RuntimeWriteEntry } from @runtime/embed
+    { CompileOutput, CompilePipeline } from @runtime/link
+)
+
+pub fn manifestMarkerFile() -> String = "===FILE==="
+
+pub fn manifestMarkerBody() -> String = "===BODY==="
+
+pub fn manifestMarkerEnd() -> String = "===END==="
+
+pub fn formatManifestEntry(path: String, content: String) -> String {
+    return "$(manifestMarkerFile())\n$(path)\n$(manifestMarkerBody())\n$(content)\n$(manifestMarkerEnd())\n"
+}
+
+pub fn formatWritePlanManifest(writePlan: List[RuntimeWriteEntry]) -> String {
+    var result = ""
+    for entry in writePlan {
+        result = "$(result)$(formatManifestEntry(entry.path, entry.content))"
+    }
+    return result
+}
+
+pub fn compileOutputManifest(output: CompileOutput) -> String {
+    var result = formatWritePlanManifest(output.bundle.writePlan)
+    result = "$(result)$(formatManifestEntry(output.cfg.llFile, output.irContent))"
+    return result
+}
+
+pub fn compilePipelineManifest(pipeline: CompilePipeline) -> String {
+    return compileOutputManifest(pipeline.output)
+}
+
+pub fn manifestContainsPath(manifest: String, path: String) -> Bool {
+    return manifest.contains(path)
+}
+
+pub fn manifestContainsMarkers(manifest: String) -> Bool {
+    if !manifest.contains(manifestMarkerFile()) { return false }
+    if !manifest.contains(manifestMarkerBody()) { return false }
+    if !manifest.contains(manifestMarkerEnd()) { return false }
+    return true
+}
+
+pub fn writePlanManifestEntryCount(writePlan: List[RuntimeWriteEntry]) -> Int {
+    return writePlan.size()
+}
+
+pub fn compileOutputManifestEntryCount(output: CompileOutput) -> Int {
+    return writePlanManifestEntryCount(output.bundle.writePlan) + 1
+}
