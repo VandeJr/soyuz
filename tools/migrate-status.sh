@@ -226,6 +226,13 @@ else
   echo "  tools/module-stdlib-check.sh ausente"
 fi
 
+hr "Module prelude check (bootstrap, S8)"
+if [[ -x tools/module-prelude-check.sh ]]; then
+  bash tools/module-prelude-check.sh 2>&1 || echo "→ module prelude check FALHOU"
+else
+  echo "  tools/module-prelude-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 
