@@ -1,7 +1,7 @@
 import (
     { emptyPathIndex, pathBaseName } from @module/paths
     { newResolver, newResolverWithStdlib, Resolver } from @module/resolver
-    { collect, collectSucceeded, resolvePrelude, resolveImportsForFile } from @module/graph
+    { collect, collectSucceeded, resolvePrelude, resolveImportsForFile, collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
     { importDeclIsModuleImport } from @ast/ast
     { assertMsg } from @soyuz/testing
 )
@@ -164,4 +164,18 @@ test fn testResolveImportsForFileBareStdlibModule() {
             assertMsg(imp.resolvedFiles.get(0) == "/tmp/stdlib/mock.sy", "resolved mock.sy")
         }
     }
+}
+
+// End-to-end: collectProgram + checker for bare @soyuz/mock namespace (stdlib_namespace_test.go).
+test fn testCheckStdlibBareModuleImport() {
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/mock.sy", "extern fn soyuz_print_str(s: String)\npub fn assert_true(cond: Bool, name: String) { soyuz_print_str(name) }")
+    index.fileContents.set(entry, "import ( \"@soyuz/mock\" )\nfn main() { mock.assert_true(true, \"ok\") }")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect program ok")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "no checker errors for mock namespace import")
 }

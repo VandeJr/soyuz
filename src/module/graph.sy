@@ -1,10 +1,16 @@
 import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
+    { Span } from @lexer/tokens
     { Parser } from @parser/parser
     { Node, ImportDeclData, ImportPathKind, ImportName } from @ast/ast
+    { nodeId } from @ast/ast_helpers
     { PathIndex, pathIndexFileContent } from @module/paths
     { Resolver, resolveImport } from @module/resolver
+    { newChecker, setNodeFiles, setPreludeFiles } from @checker/checker
+    { CheckResult } from @checker/types
+    { check } from @checker/dispatch
 )
 
 pub record CollectState {
@@ -19,7 +25,17 @@ pub record CollectResult {
     error: String
 }
 
+pub record CollectedProgram {
+    files: List[String],
+    preludeFiles: List[String],
+    body: List[Node],
+    nodeFile: Map[Int, String],
+    error: String
+}
+
 pub fn collectSucceeded(result: CollectResult) -> Bool = result.error.len() == 0
+
+pub fn collectProgramSucceeded(result: CollectedProgram) -> Bool = result.error.len() == 0
 
 fn emptyCollectState() -> CollectState = CollectState {
     visited: List[String]{},
@@ -43,23 +59,113 @@ fn listRemove(items: List[String], item: String) -> List[String] {
     return out
 }
 
-fn extractImportDeclsFromSource(source: String) -> List[ImportDeclData] {
+fn parseBodyFromSource(source: String) -> List[Node] {
     val tokens = tokenize(source)
     val p = Parser.new(tokens)
     val prog = p.parse()
-    var imports: List[ImportDeclData] = []
     match prog {
-        Program(_, _, body) => {
-            for node in body {
-                match node {
-                    ImportDecl(_, _, data) => imports.append(data)
-                    _ => {}
-                }
-            }
+        Program(_, _, body) => body
+        _ => List[Node]{}
+    }
+}
+
+fn extractImportDeclsFromSource(source: String) -> List[ImportDeclData] {
+    val body = parseBodyFromSource(source)
+    var imports: List[ImportDeclData] = []
+    for node in body {
+        match node {
+            ImportDecl(_, _, data) => imports.append(data)
+            _ => {}
         }
-        _ => {}
     }
     return imports
+}
+
+fn parseBodyFromFile(index: PathIndex, file: String) -> Option[List[Node]] {
+    match pathIndexFileContent(index, file) {
+        None => None
+        Some(content) => Some(parseBodyFromSource(content))
+    }
+}
+
+fn applyResolvedImports(body: List[Node], resolved: List[ImportDeclData]) -> List[Node] {
+    var impIdx = 0
+    var out: List[Node] = []
+    for node in body {
+        match node {
+            ImportDecl(id, span, data) => {
+                if impIdx < resolved.size() {
+                    out.append(Node.ImportDecl(id, span, resolved.get(impIdx)))
+                    impIdx = impIdx + 1
+                } else {
+                    out.append(node)
+                }
+            }
+            _ => out.append(node)
+        }
+    }
+    return out
+}
+
+fn collectProgramFailed(error: String) -> CollectedProgram = CollectedProgram {
+    files: List[String]{},
+    preludeFiles: List[String]{},
+    body: List[Node]{},
+    nodeFile: Map[Int, String]{},
+    error: error
+}
+
+fn collectProgramAppendFile(collected: CollectResult, prelude: List[String], r: Resolver, index: PathIndex, fileIdx: Int, body: List[Node], nodeFile: Map[Int, String], file: String, patched: List[Node]) -> CollectedProgram {
+    var nextBody = body
+    var nextNodeFile = nodeFile
+    for node in patched {
+        nextNodeFile.set(nodeId(node), file)
+        nextBody.append(node)
+    }
+    return collectProgramBuild(collected, prelude, r, index, fileIdx + 1, nextBody, nextNodeFile)
+}
+
+fn collectProgramBuild(collected: CollectResult, prelude: List[String], r: Resolver, index: PathIndex, fileIdx: Int, body: List[Node], nodeFile: Map[Int, String]) -> CollectedProgram {
+    if fileIdx >= collected.files.size() {
+        return CollectedProgram {
+            files: collected.files,
+            preludeFiles: prelude,
+            body: body,
+            nodeFile: nodeFile,
+            error: ""
+        }
+    }
+    val file = collected.files.get(fileIdx)
+    match parseBodyFromFile(index, file) {
+        None => collectProgramFailed("erro ao ler $(file)")
+        Some(fileBody) => match resolveImportsForFile(file, r, index) {
+            None => collectProgramFailed("$(file): import não resolvido")
+            Some(resolved) => {
+                val patched = applyResolvedImports(fileBody, resolved)
+                return collectProgramAppendFile(collected, prelude, r, index, fileIdx, body, nodeFile, file, patched)
+            }
+        }
+    }
+}
+
+pub fn collectProgram(entryFile: String, r: Resolver, index: PathIndex) -> CollectedProgram {
+    val collected = collect(entryFile, r, index)
+    if !collectSucceeded(collected) {
+        return collectProgramFailed(collected.error)
+    }
+    val prelude = resolvePrelude(r, index)
+    return collectProgramBuild(collected, prelude, r, index, 0, List[Node]{}, Map[Int, String]{})
+}
+
+pub fn checkCollectedProgram(collected: CollectedProgram) -> CheckResult {
+    val c = newChecker()
+    if collected.nodeFile.size() > 0 {
+        setNodeFiles(c, collected.nodeFile)
+    }
+    setPreludeFiles(c, collected.preludeFiles)
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 0 }
+    val prog = Node.Program(0, span, collected.body)
+    return check(c, prog)
 }
 
 pub fn fillImportResolvedFiles(data: ImportDeclData, files: List[String]) -> ImportDeclData = ImportDeclData {

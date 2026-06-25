@@ -99,6 +99,12 @@ pub fn setNodeFiles(c: Checker, nf: Map[Int, String]) {
     c.nodeFile = Some(nf)
 }
 
+pub fn setPreludeFiles(c: Checker, files: List[String]) {
+    for f in files {
+        c.preludeFiles.set(f, true)
+    }
+}
+
 pub fn registerGlobalSymbol(c: Checker, name: String, nodeId: Int, isPub: Bool) {
     match c.nodeFile {
         None => return

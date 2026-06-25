@@ -11,5 +11,5 @@ if [[ ! -d "$GO_REF/internal/module" ]]; then
 fi
 
 cd "$GO_REF"
-go test ./internal/module/ -run 'TestStdlibNestedPath|TestStdlibBareImportNamespace|TestStdlibSingleNameImport' -count=1
+go test ./internal/module/ -run 'TestStdlibNestedPath|TestStdlibBareImportNamespace|TestStdlibSingleNameImport|TestStdlibBothImportForms' -count=1
 echo "→ module stdlib check (bootstrap) OK"
