@@ -1,5 +1,14 @@
+import (
+    { PathIndex, joinPathFile, pathIndexFileContent } from @module/paths
+)
+
 pub record RuntimeAsset {
     name: String,
+    content: String
+}
+
+pub record RuntimeWriteEntry {
+    path: String,
     content: String
 }
 
@@ -45,4 +54,35 @@ pub fn runtimeCSourceCount(assets: List[RuntimeAsset]) -> Int {
         if isRuntimeCSource(asset.name) { count = count + 1 }
     }
     return count
+}
+
+pub fn runtimeAssetContent(assets: List[RuntimeAsset], name: String) -> String {
+    for asset in assets {
+        if asset.name == name { return asset.content }
+    }
+    return ""
+}
+
+pub fn loadRuntimeAssetsFromIndex(srcDir: String, index: PathIndex) -> List[RuntimeAsset] {
+    var assets: List[RuntimeAsset] = []
+    for name in runtimeAssetNames() {
+        val path = joinPathFile(srcDir, name)
+        match pathIndexFileContent(index, path) {
+            None => assets.append(emptyRuntimeAsset(name))
+            Some(content) => assets.append(RuntimeAsset { name: name, content: content })
+        }
+    }
+    return assets
+}
+
+// Plans tmpDir file writes for link (mirrors cmd/main.go extract before clang).
+pub fn planRuntimeWrite(tmpDir: String, assets: List[RuntimeAsset]) -> List[RuntimeWriteEntry] {
+    var entries: List[RuntimeWriteEntry] = []
+    for asset in assets {
+        entries.append(RuntimeWriteEntry {
+            path: joinPathFile(tmpDir, asset.name),
+            content: asset.content
+        })
+    }
+    return entries
 }

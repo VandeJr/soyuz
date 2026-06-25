@@ -1,5 +1,6 @@
 import (
-    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource } from @runtime/embed
+    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent } from @runtime/embed
+    { emptyPathIndex, joinPathFile } from @module/paths
     { LinkConfig, buildClangArgs, clangArgsIncludeLlFile, joinTmpAsset } from @runtime/link
     { assertMsg } from @soyuz/testing
 )
@@ -38,4 +39,27 @@ test fn testBuildClangArgs() {
         if arg.endsWith(".c") { cCount = cCount + 1 }
     }
     assertMsg(cCount == 11, "clang args include all C sources")
+}
+
+test fn testLoadRuntimeAssetsFromIndex() {
+    val srcDir = "/ref/runtime/src"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(srcDir, "soyuz.h"), "#ifndef SOYUZ_H\n")
+    index.fileContents.set(joinPathFile(srcDir, "rc.c"), "/* rc */\n")
+    val assets = loadRuntimeAssetsFromIndex(srcDir, index)
+    assertMsg(assets.size() == 13, "all runtime asset slots")
+    assertMsg(runtimeAssetContent(assets, "soyuz.h").startsWith("#ifndef"), "header loaded from index")
+    assertMsg(runtimeAssetContent(assets, "rc.c").len() > 0, "rc.c loaded")
+    assertMsg(runtimeAssetContent(assets, "std_io.c").len() == 0, "missing file stays empty")
+}
+
+test fn testPlanRuntimeWrite() {
+    val srcDir = "/ref/runtime/src"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(srcDir, "rc.c"), "int rc = 1;\n")
+    val assets = loadRuntimeAssetsFromIndex(srcDir, index)
+    val plan = planRuntimeWrite("/tmp/build", assets)
+    assertMsg(plan.size() == 13, "plan all assets")
+    assertMsg(plan.get(1).path == "/tmp/build/rc.c", "rc.c tmp path")
+    assertMsg(plan.get(1).content == "int rc = 1;\n", "rc.c content preserved")
 }
