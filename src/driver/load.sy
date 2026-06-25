@@ -10,3 +10,5 @@ import @driver/run
 import @driver/run_test
 import @driver/export
 import @driver/export_test
+import @driver/cli
+import @driver/cli_test

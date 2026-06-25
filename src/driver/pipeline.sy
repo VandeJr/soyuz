@@ -1,5 +1,5 @@
 import (
-    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript } from @driver/build
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript } from @driver/build
     { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
     { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
     { Resolver } from @module/resolver
@@ -23,7 +23,8 @@ pub record FullBuildScripts {
     driverRunPlanLinkCheckScript: String,
     exportHelloRunManifestScript: String,
     driverRunManifestRoundTripCheckScript: String,
-    driverRunPlanMaterializeCheckScript: String
+    driverRunPlanMaterializeCheckScript: String,
+    driverBootstrapHelloRunCheckScript: String
 }
 
 pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
@@ -40,7 +41,8 @@ pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
     driverRunPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
     exportHelloRunManifestScript: defaultExportHelloRunManifestScript(),
     driverRunManifestRoundTripCheckScript: defaultDriverRunManifestRoundTripCheckScript(),
-    driverRunPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript()
+    driverRunPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript(),
+    driverBootstrapHelloRunCheckScript: defaultDriverBootstrapHelloRunCheckScript()
 }
 
 pub record FullBuildPlan {

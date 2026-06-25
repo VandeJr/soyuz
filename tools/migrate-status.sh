@@ -352,6 +352,13 @@ else
   echo "  tools/driver-run-plan-materialize-check.sh ausente"
 fi
 
+hr "Driver bootstrap-hello-run check (bootstrap, S9)"
+if [[ -x tools/driver-bootstrap-hello-run-check.sh ]]; then
+  bash tools/driver-bootstrap-hello-run-check.sh 2>&1 || echo "→ driver bootstrap-hello-run check FALHOU"
+else
+  echo "  tools/driver-bootstrap-hello-run-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

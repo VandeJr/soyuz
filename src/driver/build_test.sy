@@ -1,7 +1,7 @@
 import (
     { runtimeAssetNames, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultLlFilePath } from @runtime/link
     { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -46,4 +46,5 @@ test fn testRuntimeSourcePathsAndDriverScripts() {
     assertMsg(defaultExportHelloRunManifestScript() == "tools/export-hello-run-manifest.sh", "export hello run manifest script")
     assertMsg(defaultDriverRunManifestRoundTripCheckScript() == "tools/driver-run-manifest-round-trip-check.sh", "run manifest round trip check script")
     assertMsg(defaultDriverRunPlanMaterializeCheckScript() == "tools/driver-run-plan-materialize-check.sh", "run plan materialize check script")
+    assertMsg(defaultDriverBootstrapHelloRunCheckScript() == "tools/driver-bootstrap-hello-run-check.sh", "bootstrap hello run check script")
 }

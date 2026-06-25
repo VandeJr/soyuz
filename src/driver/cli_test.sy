@@ -1,0 +1,15 @@
+import (
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageHasRunCommand } from @driver/cli
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliCommands() {
+    assertMsg(isKnownCliCommand("run"), "run is known")
+    assertMsg(isKnownCliCommand("build"), "build is known")
+    assertMsg(!isKnownCliCommand("unknown"), "unknown rejected")
+    assertMsg(defaultHelloMinimalFixturePath() == "tools/fixtures/hello_minimal.sy", "hello fixture path")
+    assertMsg(defaultBootstrapHelloRunCommand().contains("soyuz run"), "bootstrap run command")
+    assertMsg(defaultBootstrapHelloRunCommand().contains(defaultHelloMinimalFixturePath()), "bootstrap uses fixture")
+    val usage = "$(cliUsageHeader())\n$(cliUsageCommandsMarker())\n  run example"
+    assertMsg(cliUsageHasRunCommand(usage), "usage mentions run")
+}
