@@ -1,7 +1,7 @@
 import (
     { loadRuntimeAssetsFromIndex, runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult } from @runtime/link
+    { LinkConfig, prepareLinkBundle, prepareLinkBundleFromIndex, clangArgsIncludeLlFile, formatClangCommand, linkBundleReady, makeLinkResult, clangLinkInvocationFromBundle, clangInvocationMatchesBundle } from @runtime/link
     { assertMsg } from @soyuz/testing
 )
 
@@ -84,4 +84,22 @@ test fn testMakeLinkResultIncomplete() {
     val result = makeLinkResult(bundle)
     assertMsg(!result.ready, "not ready")
     assertMsg(result.error.len() > 0, "error message set")
+}
+
+test fn testClangLinkInvocationFromBundle() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/out.ll",
+        outputFile: "/tmp/app",
+        tmpDir: "/tmp",
+        optimize: true
+    }
+    var index = emptyPathIndex()
+    val srcDir = "/rt/src"
+    for name in runtimeAssetNames() {
+        index.fileContents.set(joinPathFile(srcDir, name), "// $(name)\n")
+    }
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    val invocation = clangLinkInvocationFromBundle(cfg, bundle)
+    assertMsg(clangInvocationMatchesBundle(cfg, bundle, invocation), "invocation mirrors bundle args")
+    assertMsg(invocation.driver == "clang", "default driver")
 }

@@ -254,6 +254,13 @@ else
   echo "  tools/runtime-link-smoke.sh ausente"
 fi
 
+hr "Runtime run-link check (bootstrap, S9)"
+if [[ -x tools/runtime-run-link-check.sh ]]; then
+  bash tools/runtime-run-link-check.sh 2>&1 || echo "→ runtime run-link check FALHOU"
+else
+  echo "  tools/runtime-run-link-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

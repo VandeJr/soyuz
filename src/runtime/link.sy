@@ -98,3 +98,30 @@ pub fn makeLinkResult(bundle: LinkBundle) -> LinkResult {
         error: ""
     }
 }
+
+pub fn defaultClangDriver() -> String = "clang"
+
+pub record ClangLinkInvocation {
+    driver: String,
+    args: List[String],
+    outputFile: String
+}
+
+pub fn clangLinkInvocationFromBundle(cfg: LinkConfig, bundle: LinkBundle) -> ClangLinkInvocation = ClangLinkInvocation {
+    driver: defaultClangDriver(),
+    args: bundle.clangArgs,
+    outputFile: cfg.outputFile
+}
+
+pub fn clangInvocationMatchesBundle(cfg: LinkConfig, bundle: LinkBundle, invocation: ClangLinkInvocation) -> Bool {
+    if invocation.driver != defaultClangDriver() { return false }
+    if invocation.outputFile != cfg.outputFile { return false }
+    if invocation.args.size() != bundle.clangArgs.size() { return false }
+    var i = 0
+    loop {
+        if i >= bundle.clangArgs.size() { break }
+        if invocation.args.get(i) != bundle.clangArgs.get(i) { return false }
+        i = i + 1
+    }
+    return true
+}
