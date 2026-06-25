@@ -10,7 +10,7 @@ import (
     { mapTypeToLLVM } from @codegen/gen_types
     { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
-    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, atomicRuntimeNew, atomicRuntimeStore, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
     { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
     { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub } from @codegen/gen_task
@@ -1263,6 +1263,58 @@ test fn testRwLockNewCallExprCodegen() {
         Some(_) => {
             assertMsg(g.rwLockNewStub != None, "rwlock new stub stored")
             assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeNew()), "srt_rwlock_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicNewEmitsSrtAtomicNew — Atomic.new(0) call expr dispatch.
+test fn testAtomicNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicId = Node.Identifier(1, span, IdentifierData { name: "Atomic" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: atomicId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(atomicClass))
+    types.set(2, Type.Class(atomicClass))
+    types.set(3, IntType)
+    types.set(4, atomicInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Atomic.new(0) codegen")
+        Some(_) => {
+            assertMsg(g.atomicNewStub != None, "atomic new stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeNew()), "srt_atomic_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicNewEmitsSrtAtomicNew (store half) — a.store(1) call expr dispatch.
+test fn testAtomicStoreCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "store" })
+    val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    var args: List[Node] = []
+    args.append(valArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, atomicInt)
+    types.set(2, atomicInt)
+    types.set(3, IntType)
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected a.store(1) codegen")
+        Some(_) => {
+            assertMsg(g.atomicStoreStub != None, "atomic store stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeStore()), "srt_atomic_store registered")
         }
     }
 }

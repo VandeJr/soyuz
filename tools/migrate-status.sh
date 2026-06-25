@@ -107,6 +107,13 @@ else
   echo "  tools/codegen-sync-check.sh ausente"
 fi
 
+hr "Codegen atomic check (bootstrap, S7)"
+if [[ -x tools/codegen-atomic-check.sh ]]; then
+  bash tools/codegen-atomic-check.sh 2>&1 || echo "→ codegen atomic check FALHOU"
+else
+  echo "  tools/codegen-atomic-check.sh ausente"
+fi
+
 hr "Codegen arc check (bootstrap, S7)"
 if [[ -x tools/codegen-arc-check.sh ]]; then
   bash tools/codegen-arc-check.sh 2>&1 || echo "→ codegen arc check FALHOU"

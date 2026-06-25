@@ -52,6 +52,14 @@ pub fn rwlockRuntimeUnlock() -> String {
     return "srt_rwlock_unlock"
 }
 
+pub fn atomicRuntimeNew() -> String {
+    return "srt_atomic_new"
+}
+
+pub fn atomicRuntimeStore() -> String {
+    return "srt_atomic_store"
+}
+
 pub fn isMutexType(t: Type) -> Bool = match t {
     Specialized(base, params) => match base {
         Class(ct) => ct.name == "Mutex" && params.size() > 0
@@ -155,6 +163,54 @@ pub fn isRwLockReadCall(callee: Node, g: Generator) -> Bool {
 
 pub fn isRwLockWriteCall(callee: Node, g: Generator) -> Bool {
     return isRwLockInstanceMethodCall(callee, g, "write")
+}
+
+pub fn isAtomicType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "Atomic" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn atomicInnerType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "Atomic" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn isAtomicStaticNew(typeName: String, methodName: String) -> Bool {
+    return typeName == "Atomic" && methodName == "new"
+}
+
+pub fn isAtomicNewCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isAtomicStaticNew(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isAtomicInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match syncCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isAtomicType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isAtomicStoreCall(callee: Node, g: Generator) -> Bool {
+    return isAtomicInstanceMethodCall(callee, g, "store")
 }
 
 pub fn syncGuardKind(t: Type) -> Option[String] = match t {
@@ -270,6 +326,20 @@ pub fn generateRwLockWriteStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, rwlockRuntimeWrite())
     val stub = stubLlvmValue(g)
     g.rwLockWriteStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateAtomicNewStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, atomicRuntimeNew())
+    val stub = stubLlvmValue(g)
+    g.atomicNewStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateAtomicStoreStub(g: Generator) -> Option[LlvmValue] {
+    registerSyncRuntimeSymbol(g, atomicRuntimeStore())
+    val stub = stubLlvmValue(g)
+    g.atomicStoreStub = Some(stub)
     return Some(stub)
 }
 

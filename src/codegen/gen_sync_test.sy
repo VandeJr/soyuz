@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
     { newGenerator } from @codegen/generator
-    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicType, atomicInnerType, isAtomicStaticNew, isAtomicNewCall, isAtomicStoreCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, atomicRuntimeNew, atomicRuntimeStore, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
     { assertMsg } from @soyuz/testing
 )
 
@@ -258,4 +258,54 @@ test fn testGenerateMutexNewStub() {
         Some(_) => assertMsg(g.mutexNewStub != None, "stub stored on generator")
     }
     assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeNew()), "srt_mutex_new registered")
+}
+
+test fn testIsAtomicType() {
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    assertMsg(isAtomicType(atomicInt), "Atomic[Int] is atomic")
+    assertMsg(!isAtomicType(IntType), "Int not atomic")
+}
+
+test fn testIsAtomicNewCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicId = Node.Identifier(1, span, IdentifierData { name: "Atomic" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: atomicId, property: "new" })
+    assertMsg(isAtomicNewCall(member), "Atomic.new member is atomic new call")
+    val mutexId = Node.Identifier(3, span, IdentifierData { name: "Mutex" })
+    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: mutexId, property: "new" })
+    assertMsg(!isAtomicNewCall(mutexMember), "Mutex.new not atomic new")
+}
+
+test fn testIsAtomicStoreCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val storeMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "store" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicStoreCall(storeMember, g), "a.store on Atomic[Int]")
+    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "load" })
+    assertMsg(!isAtomicStoreCall(loadMember, g), "a.load not store")
+}
+
+test fn testGenerateAtomicNewStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicNewStub(g) {
+        None => assertMsg(false, "atomic new stub")
+        Some(_) => assertMsg(g.atomicNewStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeNew()), "srt_atomic_new registered")
+}
+
+test fn testGenerateAtomicStoreStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicStoreStub(g) {
+        None => assertMsg(false, "atomic store stub")
+        Some(_) => assertMsg(g.atomicStoreStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeStore()), "srt_atomic_store registered")
 }
