@@ -2,7 +2,7 @@ import (
     { Generator } from @codegen/generator
     { PhiIncoming } from @codegen/types
     { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, LlvmGlobal, llvmTypeHasDefaultZero } from @codegen/llvm_types
-    { traceIr } from @codegen/gen_emit
+    { traceIr, emitIrLine } from @codegen/gen_emit
 )
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
@@ -27,10 +27,12 @@ pub fn uniqueBlockName(g: Generator, name: String) -> String {
 }
 
 pub fn newBlock(g: Generator, name: String) -> LlvmBasicBlock {
+    val unique = uniqueBlockName(g, name)
     val block = LlvmBasicBlock { handle: g.blockHandleCounter + 1 }
     g.blockHandleCounter = g.blockHandleCounter + 1
     recordBlockNameUse(g, name)
     traceIr(g, "block $(name)")
+    emitIrLine(g, "$(unique):")
     return block
 }
 
@@ -68,6 +70,7 @@ pub fn emitCondBrToBlockStub(g: Generator, thenBlock: LlvmBasicBlock, elseBlock:
 }
 
 pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
+    emitIrLine(g, "  br label %$(targetBlockName)")
     newBlock(g, targetBlockName)
     return true
 }

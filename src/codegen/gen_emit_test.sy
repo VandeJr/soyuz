@@ -1,7 +1,7 @@
 import (
     { newGenerator } from @codegen/generator
-    { newBlock, setCurrentBlock } from @codegen/gen_ir
-    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple } from @codegen/gen_emit
+    { newBlock, setCurrentBlock, emitBrStub } from @codegen/gen_ir
+    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub } from @codegen/gen_emit
     { TypeError, TypeWarning, FuncType, FuncDeclData, CheckResult, Type } from @checker/types
     { Node } from @ast/ast
     { assertMsg } from @soyuz/testing
@@ -37,4 +37,16 @@ test fn testNewBlockTracesIr() {
     assertMsg(irTraceLineCount(g) >= 1, "newBlock records trace")
     val ir = renderModuleIr(g, 0)
     assertMsg(ir.contains("block entry"), "traced entry block in module ir")
+}
+
+test fn testRenderModuleIrIncludesBrInstruction() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    assertMsg(emitBrStub(g, "done"), "emit br stub")
+    assertMsg(emitRetI32Stub(g, 0), "emit ret stub")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "br label %done"), "br in rendered ir")
+    assertMsg(moduleIrHasInstruction(ir, "ret i32 0"), "ret in rendered ir")
+    assertMsg(irBodyLineCount(g) >= 4, "block labels and instructions recorded")
 }

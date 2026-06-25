@@ -8,13 +8,30 @@ pub fn traceIr(g: Generator, line: String) {
     g.irTrace.append(line)
 }
 
+pub fn emitIrLine(g: Generator, line: String) {
+    g.irBodyLines.append(line)
+}
+
+pub fn irBodyLineCount(g: Generator) -> Int = g.irBodyLines.size()
+
 pub fn generatorBlockCount(g: Generator) -> Int = g.blockHandleCounter
 
 pub fn generatorValueCount(g: Generator) -> Int = g.valueHandleCounter
 
 pub fn irTraceLineCount(g: Generator) -> Int = g.irTrace.size()
 
-// Minimal module text emission: metadata + block trace + main stub (full LLVM IR port is incremental).
+fn renderMainBody(g: Generator) -> String {
+    if irBodyLineCount(g) == 0 {
+        return "entry:\n  ret i32 0\n"
+    }
+    var body = ""
+    for line in g.irBodyLines {
+        body = "$(body)$(line)\n"
+    }
+    return body
+}
+
+// Minimal module text emission: metadata + block trace + main body lines (full LLVM IR port is incremental).
 pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
     var result = "; soyuz module ir (funcs=$(funcCount), blocks=$(generatorBlockCount(g)), values=$(generatorValueCount(g)))\n"
     result = "$(result); ir trace:\n"
@@ -22,8 +39,15 @@ pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
         result = "$(result);   $(line)\n"
     }
     result = "$(result)target triple = \"$(defaultTargetTriple())\"\n"
-    result = "$(result)define i32 @main() {\nentry:\n  ret i32 0\n}\n"
+    result = "$(result)define i32 @main() {\n$(renderMainBody(g))}\n"
     return result
+}
+
+pub fn moduleIrHasInstruction(ir: String, instruction: String) -> Bool = ir.contains(instruction)
+
+pub fn emitRetI32Stub(g: Generator, value: Int) -> Bool {
+    emitIrLine(g, "  ret i32 $(value)")
+    return true
 }
 
 pub fn moduleIrHasMain(ir: String) -> Bool = ir.contains("define i32 @main()")
