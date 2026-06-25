@@ -1,0 +1,48 @@
+import (
+    { ProjectMeta, ProjectConfig, defaultProjectMeta, emptyProjectConfig, parseTomlIntoConfig, resolveAliasPath } from @module/project
+    { assertMsg } from @soyuz/testing
+)
+
+// Port of project_test.go TestLoadFromTOML — parse [project] and [packages] from content.
+test fn testLoadFromToml() {
+    val content = "[project]\nname = \"meu-app\"\nversion = \"1.2.3\"\ntype = \"binary\"\nentry = \"src/main.sy\"\n\n[packages]\nlexer = \"lib/lexer\"\napp = \"src\"\n"
+    var cfg = emptyProjectConfig()
+    cfg.meta = ProjectMeta {
+        name: "default",
+        version: "0.1.0",
+        type: "binary",
+        entry: "main.sy"
+    }
+    val parsed = parseTomlIntoConfig(content, cfg)
+    assertMsg(parsed.meta.name == "meu-app", "name")
+    assertMsg(parsed.meta.version == "1.2.3", "version")
+    assertMsg(parsed.meta.entry == "src/main.sy", "entry")
+    assertMsg(parsed.packages.get("lexer") == "lib/lexer", "lexer package")
+    assertMsg(parsed.packages.get("app") == "src", "app package")
+}
+
+// Port of project_test.go TestResolveAliasPath — @alias/rest → filesystem segments.
+test fn testResolveAliasPath() {
+    var packages: Map[String, String] = Map[String, String]{}
+    packages.set("lexer", "lib/lexer")
+    val cfg = ProjectConfig {
+        root: "",
+        meta: defaultProjectMeta(),
+        packages: packages
+    }
+    var rest: List[String] = []
+    rest.append("tokens")
+    match resolveAliasPath(cfg, "lexer", rest) {
+        None => assertMsg(false, "expected lexer alias resolve")
+        Some(segs) => {
+            assertMsg(segs.size() == 3, "three segments")
+            assertMsg(segs.get(0) == "lib", "seg0 lib")
+            assertMsg(segs.get(1) == "lexer", "seg1 lexer")
+            assertMsg(segs.get(2) == "tokens", "seg2 tokens")
+        }
+    }
+    match resolveAliasPath(cfg, "missing", rest) {
+        None => assertMsg(true, "undefined alias returns none")
+        Some(_) => assertMsg(false, "undefined alias should fail")
+    }
+}

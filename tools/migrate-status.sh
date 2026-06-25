@@ -205,6 +205,13 @@ else
   echo "  tools/codegen-async-pipe-quest-check.sh ausente"
 fi
 
+hr "Module project check (bootstrap, S8)"
+if [[ -x tools/module-project-check.sh ]]; then
+  bash tools/module-project-check.sh 2>&1 || echo "→ module project check FALHOU"
+else
+  echo "  tools/module-project-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 
