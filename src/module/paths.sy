@@ -41,7 +41,7 @@ pub fn pathBaseName(path: String) -> String {
     }
 }
 
-fn pathIndexListsFile(index: PathIndex, path: String) -> Bool {
+pub fn pathIndexHasPath(index: PathIndex, path: String) -> Bool {
     for marker in index.markerFiles {
         if marker == path { return true }
     }
@@ -51,9 +51,38 @@ fn pathIndexListsFile(index: PathIndex, path: String) -> Bool {
     return false
 }
 
+fn pathPrefixWithSlash(dir: String) -> String {
+    if dir.endsWith("/") { return dir }
+    return "$(dir)/"
+}
+
+pub fn pathIndexIsDir(index: PathIndex, dirPath: String) -> Bool {
+    val prefix = pathPrefixWithSlash(dirPath)
+    for key in index.fileContents.keys() {
+        if key.startsWith(prefix) { return true }
+    }
+    return false
+}
+
+pub fn pathIndexListSyFilesInDir(index: PathIndex, dirPath: String) -> List[String] {
+    val prefix = pathPrefixWithSlash(dirPath)
+    var files: List[String] = []
+    for key in index.fileContents.keys() {
+        if !key.startsWith(prefix) { continue }
+        val rel = key.substring(prefix.len(), key.len())
+        match rel.indexOf("/") {
+            Some(_) => {}
+            None => {
+                if rel.endsWith(".sy") { files.append(key) }
+            }
+        }
+    }
+    return files
+}
+
 fn isProjectRootMarker(index: PathIndex, dir: String) -> Bool {
-    if pathIndexListsFile(index, joinPathFile(dir, ".soyuz-root")) { return true }
-    if pathIndexListsFile(index, joinPathFile(dir, "soyuz.toml")) { return true }
+    if pathIndexHasPath(index, joinPathFile(dir, ".soyuz-root")) { return true }
+    if pathIndexHasPath(index, joinPathFile(dir, "soyuz.toml")) { return true }
     return false
 }
 

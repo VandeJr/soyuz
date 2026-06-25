@@ -1,5 +1,5 @@
 import (
-    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot, pathIndexFileContent } from @module/paths
+    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot, pathIndexFileContent, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
     { assertMsg } from @soyuz/testing
 )
 
@@ -43,4 +43,14 @@ test fn testPathIndexFileContent() {
         None => assertMsg(true, "missing path")
         Some(_) => assertMsg(false, "missing should be none")
     }
+}
+
+test fn testPathIndexIsDirAndListSy() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math/ops.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set("/proj/math/trig.sy", "pub fn cos(x: Float) = x")
+    assertMsg(pathIndexIsDir(index, "/proj/math"), "math is a directory")
+    assertMsg(!pathIndexIsDir(index, "/proj/missing"), "missing is not a directory")
+    val files = pathIndexListSyFilesInDir(index, "/proj/math")
+    assertMsg(files.size() == 2, "two sy files in math dir")
 }

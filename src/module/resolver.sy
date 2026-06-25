@@ -1,5 +1,6 @@
 import (
     { ImportPathKind } from @ast/ast
+    { PathIndex, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
     { ProjectConfig, ProjectMeta, defaultProjectMeta, resolveAliasPath } from @module/project
 )
 
@@ -82,4 +83,25 @@ pub fn resolveImportBasePath(r: Resolver, kind: ImportPathKind, path: String, pa
         return Some(joinPathSegments(importingDir, rel.split("/")))
     }
     Legacy => Some(joinPathSegments(projectBase(r), segments))
+}
+
+pub fn resolveFileOrDir(basePath: String, index: PathIndex) -> Option[List[String]] {
+    val singleFile = "$(basePath).sy"
+    if pathIndexHasPath(index, singleFile) {
+        var out: List[String] = []
+        out.append(singleFile)
+        return Some(out)
+    }
+    if pathIndexIsDir(index, basePath) {
+        val files = pathIndexListSyFilesInDir(index, basePath)
+        if files.size() > 0 { return Some(files) }
+        return None
+    }
+    return None
+}
+
+pub fn resolveIn(base: String, segments: List[String], index: PathIndex) -> Option[List[String]] {
+    if segments.size() == 0 { return None }
+    val basePath = joinPathSegments(base, segments)
+    return resolveFileOrDir(basePath, index)
 }

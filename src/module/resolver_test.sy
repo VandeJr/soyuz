@@ -1,7 +1,8 @@
 import (
     { ImportPathKind } from @ast/ast
     { ProjectConfig, ProjectMeta, defaultProjectMeta, parseTomlIntoConfig, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
-    { Resolver, newResolver, newResolverWithProject, projectBase, joinPathSegments, resolveImportBasePath } from @module/resolver
+    { emptyPathIndex } from @module/paths
+    { Resolver, newResolver, newResolverWithProject, projectBase, joinPathSegments, resolveImportBasePath, resolveFileOrDir, resolveIn } from @module/resolver
     { assertMsg } from @soyuz/testing
 )
 
@@ -99,5 +100,50 @@ test fn testResolveImportBasePathRelative() {
     match resolveImportBasePath(r, ImportPathKind.Relative, "./math", "", segs, "") {
         None => assertMsg(true, "relative without importing dir fails")
         Some(_) => assertMsg(false, "should fail without importing dir")
+    }
+}
+
+// Port of resolver.go resolveFileOrDir — single .sy file or directory of .sy files.
+test fn testResolveFileOrDirSingleFile() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    match resolveFileOrDir("/proj/math", index) {
+        None => assertMsg(false, "expected single file resolve")
+        Some(files) => {
+            assertMsg(files.size() == 1, "one file")
+            assertMsg(files.get(0) == "/proj/math.sy", "math.sy path")
+        }
+    }
+}
+
+test fn testResolveFileOrDirDirectory() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math/ops.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set("/proj/math/trig.sy", "pub fn cos(x: Float) = x")
+    match resolveFileOrDir("/proj/math", index) {
+        None => assertMsg(false, "expected directory resolve")
+        Some(files) => assertMsg(files.size() == 2, "two files in math package dir")
+    }
+}
+
+test fn testResolveFileOrDirMissing() {
+    val index = emptyPathIndex()
+    match resolveFileOrDir("/proj/missing", index) {
+        None => assertMsg(true, "unresolved import")
+        Some(_) => assertMsg(false, "should not resolve missing path")
+    }
+}
+
+test fn testResolveIn() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/stdlib/prelude.sy", "pub fn print(x: String) {}")
+    var segs: List[String] = []
+    segs.append("prelude")
+    match resolveIn("/stdlib", segs, index) {
+        None => assertMsg(false, "expected resolveIn")
+        Some(files) => {
+            assertMsg(files.size() == 1, "one prelude file")
+            assertMsg(files.get(0) == "/stdlib/prelude.sy", "prelude path")
+        }
     }
 }
