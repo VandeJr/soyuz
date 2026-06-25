@@ -1,6 +1,6 @@
 import (
     { newGenerator } from @codegen/generator
-    { newBlock, setCurrentBlock, emitBrStub, newAlloca, emitStoreStub, stubLlvmValue } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, emitBrStub, newAlloca, emitStoreStub, emitLoadFromAlloca, stubLlvmValue } from @codegen/gen_ir
     { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub } from @codegen/gen_emit
     { llvmI64 } from @codegen/llvm_types
     { TypeError, TypeWarning, FuncType, FuncDeclData, CheckResult, Type } from @checker/types
@@ -62,4 +62,17 @@ test fn testRenderModuleIrIncludesAllocaStoreInstructions() {
     val ir = renderModuleIr(g, 1)
     assertMsg(moduleIrHasInstruction(ir, "alloca i64"), "alloca in rendered ir")
     assertMsg(moduleIrHasInstruction(ir, "store i64"), "store in rendered ir")
+}
+
+test fn testRenderModuleIrIncludesLoadInstruction() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val slot = newAlloca(g, llvmI64())
+    val stored = stubLlvmValue(g)
+    assertMsg(emitStoreStub(g, stored, slot), "emit store stub")
+    val loaded = emitLoadFromAlloca(g, slot)
+    assertMsg(loaded.handle > stored.handle, "load result handle")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "load i64"), "load in rendered ir")
 }

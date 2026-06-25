@@ -11,7 +11,7 @@ import (
     { pushArcScope, popArcScope, emitArcDrops } from @codegen/gen_arc
     { pushSyncGuardScope, popSyncGuardScope, emitSyncGuardDrops } from @codegen/gen_sync
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
 
@@ -233,8 +233,8 @@ fn emitForRangeCondStub(g: Generator, inclusive: Bool, bodyBlock: LlvmBasicBlock
     if g.forRangeToValue == None { return false }
     return match g.forRangeCounterAlloca {
         None => false
-        Some(_alloca) => {
-            val counter = emitLoadStub(g)
+        Some(alloca) => {
+            val counter = emitLoadFromAlloca(g, alloca)
             g.forRangeCondLoad = Some(counter)
             g.forRangeCondInclusive = inclusive
             emitCondBrToBlockStub(g, bodyBlock, afterBlock)
@@ -246,7 +246,7 @@ fn emitForRangeIncrStub(g: Generator) -> Bool {
     return match g.forRangeCounterAlloca {
         None => false
         Some(alloca) => {
-            val cur = emitLoadStub(g)
+            val cur = emitLoadFromAlloca(g, alloca)
             g.forRangeIncrLoad = Some(cur)
             val next = stubLlvmValue(g)
             emitStoreStub(g, next, alloca)
@@ -298,8 +298,8 @@ fn emitForListCondStub(g: Generator, bodyBlock: LlvmBasicBlock, afterBlock: Llvm
     if g.forListSizeLoad == None { return false }
     return match g.forListIndexAlloca {
         None => false
-        Some(_alloca) => {
-            val counter = emitLoadStub(g)
+        Some(alloca) => {
+            val counter = emitLoadFromAlloca(g, alloca)
             g.forListCondLoad = Some(counter)
             emitCondBrToBlockStub(g, bodyBlock, afterBlock)
         }
@@ -310,7 +310,7 @@ fn emitForListIncrStub(g: Generator) -> Bool {
     return match g.forListIndexAlloca {
         None => false
         Some(alloca) => {
-            val cur = emitLoadStub(g)
+            val cur = emitLoadFromAlloca(g, alloca)
             g.forListIncrLoad = Some(cur)
             val next = stubLlvmValue(g)
             emitStoreStub(g, next, alloca)
