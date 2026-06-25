@@ -268,6 +268,13 @@ else
   echo "  tools/runtime-link-pipeline-check.sh ausente"
 fi
 
+hr "Runtime hello-world check (bootstrap, S9)"
+if [[ -x tools/runtime-hello-world-check.sh ]]; then
+  bash tools/runtime-hello-world-check.sh 2>&1 || echo "→ runtime hello-world check FALHOU"
+else
+  echo "  tools/runtime-hello-world-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

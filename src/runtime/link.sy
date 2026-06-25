@@ -1,6 +1,6 @@
 import (
-    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex, applyRuntimeWritePlan } from @runtime/embed
-    { PathIndex } from @module/paths
+    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex, applyRuntimeWritePlan, runtimeWritePlanFullyApplied } from @runtime/embed
+    { PathIndex, pathIndexFileContent, pathIndexWriteFile } from @module/paths
 )
 
 pub record LinkConfig {
@@ -30,6 +30,22 @@ pub fn prepareLinkBundleFromIndex(cfg: LinkConfig, srcDir: String, index: PathIn
 pub fn joinTmpAsset(tmpDir: String, fileName: String) -> String {
     if tmpDir.endsWith("/") { return "$(tmpDir)$(fileName)" }
     return "$(tmpDir)/$(fileName)"
+}
+
+pub fn defaultLlFileName() -> String = "out.ll"
+
+pub fn defaultLlFilePath(tmpDir: String) -> String = joinTmpAsset(tmpDir, defaultLlFileName())
+
+// Mirrors cmd/main.go os.WriteFile(llFile, []byte(irStr), 0644).
+pub fn writeLlToIndex(index: PathIndex, llPath: String, irContent: String) -> PathIndex {
+    return pathIndexWriteFile(index, llPath, irContent)
+}
+
+pub fn llFileWritten(index: PathIndex, llPath: String, irContent: String) -> Bool {
+    match pathIndexFileContent(index, llPath) {
+        None => return false
+        Some(content) => return content == irContent
+    }
 }
 
 // Mirrors cmd/main.go clang link argv assembly (without spawning clang).
@@ -164,4 +180,29 @@ pub fn applyLinkBundleWritePlan(index: PathIndex, bundle: LinkBundle) -> PathInd
 pub fn materializeLinkBundleFromIndex(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex) -> PathIndex {
     val bundle = prepareLinkBundleFromIndex(cfg, srcDir, sourceIndex)
     return applyLinkBundleWritePlan(index, bundle)
+}
+
+pub record CompileOutput {
+    tmpIndex: PathIndex,
+    cfg: LinkConfig,
+    bundle: LinkBundle,
+    irContent: String
+}
+
+pub fn compileOutputReady(output: CompileOutput) -> Bool {
+    if !linkBundleReady(output.bundle) { return false }
+    if !runtimeWritePlanFullyApplied(output.tmpIndex, output.bundle.writePlan) { return false }
+    return llFileWritten(output.tmpIndex, output.cfg.llFile, output.irContent)
+}
+
+pub fn materializeCompileOutput(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex, irContent: String) -> CompileOutput {
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, sourceIndex)
+    var tmpIndex = applyLinkBundleWritePlan(index, bundle)
+    tmpIndex = writeLlToIndex(tmpIndex, cfg.llFile, irContent)
+    return CompileOutput {
+        tmpIndex: tmpIndex,
+        cfg: cfg,
+        bundle: bundle,
+        irContent: irContent
+    }
 }
