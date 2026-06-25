@@ -2,3 +2,5 @@ import @driver/build
 import @driver/build_test
 import @driver/frontend
 import @driver/frontend_test
+import @driver/codegen
+import @driver/codegen_test

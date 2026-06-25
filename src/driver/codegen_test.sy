@@ -1,0 +1,42 @@
+import (
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { planFrontendBuild } from @driver/frontend
+    { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
+    { planCodegenBuild, codegenBuildReady, stubModuleIr } from @driver/codegen
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testStubModuleIr() {
+    val ir = stubModuleIr(2)
+    assertMsg(ir.contains("soyuz codegen stub"), "stub marker")
+    assertMsg(ir.contains("define i32 @main()"), "main stub")
+}
+
+test fn testPlanCodegenBuildHello() {
+    val entry = "/tmp/hello.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
+    index.fileContents.set(entry, "fn main() {\n    print(\"hello\")\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val frontend = planFrontendBuild(entry, r, index)
+    val cfg = buildConfigForEntry(entry, "/tmp/soyuz-abc/app", false, "/tmp/soyuz-abc", defaultRuntimeSrcDir("/ref/soyuz-go"))
+    val codegen = planCodegenBuild(frontend, cfg)
+    assertMsg(codegenBuildReady(codegen), "codegen plan ready")
+    assertMsg(codegen.funcCount >= 1, "at least main func")
+    assertMsg(codegen.irContent.len() > 0, "stub ir produced")
+    assertMsg(codegen.error.len() == 0, "no codegen error")
+}
+
+test fn testPlanCodegenBuildRequiresFrontend() {
+    val entry = "/tmp/missing.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val frontend = planFrontendBuild(entry, r, index)
+    val cfg = buildConfigForEntry(entry, "/tmp/app", false, "/tmp/build", defaultRuntimeSrcDir("/ref"))
+    val codegen = planCodegenBuild(frontend, cfg)
+    assertMsg(!codegenBuildReady(codegen), "frontend failure blocks codegen")
+}
