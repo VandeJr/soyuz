@@ -1,0 +1,48 @@
+pub record RuntimeAsset {
+    name: String,
+    content: String
+}
+
+pub fn isRuntimeCSource(name: String) -> Bool = name.endsWith(".c")
+
+pub fn isRuntimeHeader(name: String) -> Bool = name.endsWith(".h")
+
+// Mirrors soyuz-go/internal/runtime/embed.go embedded file names.
+pub fn runtimeAssetNames() -> List[String] {
+    var names: List[String] = []
+    names.append("soyuz.h")
+    names.append("rc.c")
+    names.append("std_io.c")
+    names.append("std_string.c")
+    names.append("std_fs.c")
+    names.append("std_os.c")
+    names.append("std_collections.c")
+    names.append("soyuz_rt.h")
+    names.append("soyuz_rt.c")
+    names.append("std_sync.c")
+    names.append("std_channel.c")
+    names.append("std_arc.c")
+    names.append("std_test.c")
+    return names
+}
+
+pub fn emptyRuntimeAsset(name: String) -> RuntimeAsset = RuntimeAsset {
+    name: name,
+    content: ""
+}
+
+pub fn defaultRuntimeAssets() -> List[RuntimeAsset] {
+    var assets: List[RuntimeAsset] = []
+    for name in runtimeAssetNames() {
+        assets.append(emptyRuntimeAsset(name))
+    }
+    return assets
+}
+
+pub fn runtimeCSourceCount(assets: List[RuntimeAsset]) -> Int {
+    var count = 0
+    for asset in assets {
+        if isRuntimeCSource(asset.name) { count = count + 1 }
+    }
+    return count
+}

@@ -1,0 +1,42 @@
+import (
+    { RuntimeAsset, isRuntimeCSource } from @runtime/embed
+)
+
+pub record LinkConfig {
+    llFile: String,
+    outputFile: String,
+    tmpDir: String,
+    optimize: Bool
+}
+
+pub fn joinTmpAsset(tmpDir: String, fileName: String) -> String {
+    if tmpDir.endsWith("/") { return "$(tmpDir)$(fileName)" }
+    return "$(tmpDir)/$(fileName)"
+}
+
+// Mirrors cmd/main.go clang link argv assembly (without spawning clang).
+pub fn buildClangArgs(cfg: LinkConfig, assets: List[RuntimeAsset]) -> List[String] {
+    var args: List[String] = []
+    args.append(cfg.llFile)
+    for asset in assets {
+        if isRuntimeCSource(asset.name) {
+            args.append(joinTmpAsset(cfg.tmpDir, asset.name))
+        }
+    }
+    args.append("-I")
+    args.append(cfg.tmpDir)
+    args.append("-pthread")
+    if cfg.optimize {
+        args.append("-O2")
+    }
+    args.append("-o")
+    args.append(cfg.outputFile)
+    return args
+}
+
+pub fn clangArgsIncludeLlFile(args: List[String], llFile: String) -> Bool {
+    for arg in args {
+        if arg == llFile { return true }
+    }
+    return false
+}

@@ -3,5 +3,6 @@ import @parser/load
 import @checker/load
 import @codegen/load
 import @module/load
+import @runtime/load
 
 fn main() {}

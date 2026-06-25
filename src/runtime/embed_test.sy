@@ -1,0 +1,41 @@
+import (
+    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource } from @runtime/embed
+    { LinkConfig, buildClangArgs, clangArgsIncludeLlFile, joinTmpAsset } from @runtime/link
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testRuntimeAssetNames() {
+    val names = runtimeAssetNames()
+    assertMsg(names.size() == 13, "thirteen embedded runtime assets")
+    assertMsg(names.get(0) == "soyuz.h", "soyuz.h first")
+    assertMsg(names.get(names.size() - 1) == "std_test.c", "std_test.c last")
+}
+
+test fn testRuntimeCSourceCount() {
+    val assets = defaultRuntimeAssets()
+    assertMsg(assets.size() == 13, "default asset list size")
+    assertMsg(runtimeCSourceCount(assets) == 11, "eleven C sources for link")
+    var headers = 0
+    for asset in assets {
+        if isRuntimeHeader(asset.name) { headers = headers + 1 }
+        if isRuntimeCSource(asset.name) { assertMsg(asset.name.endsWith(".c"), "c suffix") }
+    }
+    assertMsg(headers == 2, "two headers extracted to tmp only for -I")
+}
+
+test fn testBuildClangArgs() {
+    val cfg = LinkConfig {
+        llFile: "/tmp/build/out.ll",
+        outputFile: "/tmp/build/app",
+        tmpDir: "/tmp/build",
+        optimize: true
+    }
+    val args = buildClangArgs(cfg, defaultRuntimeAssets())
+    assertMsg(clangArgsIncludeLlFile(args, "/tmp/build/out.ll"), "ll file first")
+    assertMsg(joinTmpAsset(cfg.tmpDir, "rc.c") == "/tmp/build/rc.c", "tmp join")
+    var cCount = 0
+    for arg in args {
+        if arg.endsWith(".c") { cCount = cCount + 1 }
+    }
+    assertMsg(cCount == 11, "clang args include all C sources")
+}

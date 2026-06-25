@@ -233,6 +233,13 @@ else
   echo "  tools/module-prelude-check.sh ausente"
 fi
 
+hr "Runtime embed check (bootstrap, S9)"
+if [[ -x tools/runtime-embed-check.sh ]]; then
+  bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"
+else
+  echo "  tools/runtime-embed-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 
