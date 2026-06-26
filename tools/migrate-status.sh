@@ -555,6 +555,13 @@ else
   echo "  tools/driver-main-entry-check.sh ausente"
 fi
 
+hr "Driver main-standalone check (bootstrap, S11)"
+if [[ -x tools/driver-main-standalone-check.sh ]]; then
+  bash tools/driver-main-standalone-check.sh 2>&1 || echo "→ driver main-standalone check FALHOU"
+else
+  echo "  tools/driver-main-standalone-check.sh ausente"
+fi
+
 hr "Driver test-runner check (bootstrap, S11)"
 if [[ -x tools/driver-test-runner-check.sh ]]; then
   bash tools/driver-test-runner-check.sh 2>&1 || echo "→ driver test-runner check FALHOU"

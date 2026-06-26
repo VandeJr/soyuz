@@ -10,8 +10,8 @@ if ! soyuz build >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! grep -q 'runCliFromArgv' "$ROOT/main.sy"; then
-  echo "main.sy não delega ao driver CLI" >&2
+if ! grep -q 'runCliFromArgv' "$ROOT/src/driver/main_entry.sy"; then
+  echo "main_entry.sy não expõe runCliFromArgv" >&2
   exit 1
 fi
 

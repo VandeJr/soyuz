@@ -1,0 +1,35 @@
+// CLI usage strings and command names — no driver pipeline imports (standalone main.sy).
+
+pub fn cliCommandNew() -> String = "new"
+
+pub fn cliCommandBuild() -> String = "build"
+
+pub fn cliCommandRun() -> String = "run"
+
+pub fn cliCommandTest() -> String = "test"
+
+pub fn isKnownCliCommand(name: String) -> Bool {
+    if name == cliCommandNew() { return true }
+    if name == cliCommandBuild() { return true }
+    if name == cliCommandRun() { return true }
+    if name == cliCommandTest() { return true }
+    return false
+}
+
+pub fn cliUsageHeader() -> String = "Uso: soyuz <comando> [argumentos]"
+
+pub fn cliUsageCommandsMarker() -> String = "Comandos:"
+
+pub fn cliUsageNewLine() -> String = "  new   [--lib] <nome>                        Cria um novo projeto Soyuz"
+
+pub fn cliUsageBuildLine() -> String = "  build [--release] [arquivo.sy]              Compila o projeto ou um arquivo"
+
+pub fn cliUsageRunLine() -> String = "  run   [--release] [arquivo.sy] [-- args...] Compila e executa"
+
+pub fn cliUsageTestLine() -> String = "  test  [--filter=nome] [arquivo.sy]          Executa os testes"
+
+pub fn cliUsageText() -> String {
+    return "$(cliUsageHeader())\n$(cliUsageCommandsMarker())\n$(cliUsageNewLine())\n$(cliUsageBuildLine())\n$(cliUsageRunLine())\n$(cliUsageTestLine())"
+}
+
+pub fn cliArgvNeedsUsage(argv: List[String]) -> Bool = argv.size() < 2

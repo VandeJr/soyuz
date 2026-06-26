@@ -1,46 +1,15 @@
 // Mirrors soyuz-go/cmd/main.go CLI surface (command names + usage text).
 
 import (
+    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliUsageText, cliArgvNeedsUsage } from @driver/cli_usage
     { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady, helloFixtureCliRunTmpDir } from @driver/export
     { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, RunPlanMaterializeSteps, runPlanOrderedMaterializeCommands, runPlanOrderedMaterializeCommandsReady, runPlanOrderedMaterializeCommandCount, runPlanExecCommandWithProgramArgs, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
     { defaultDriverCliRunDispatchCheckScript, defaultDriverCliRunPipelineCheckScript } from @driver/build
 )
 
-pub fn cliCommandNew() -> String = "new"
-
-pub fn cliCommandBuild() -> String = "build"
-
-pub fn cliCommandRun() -> String = "run"
-
-pub fn cliCommandTest() -> String = "test"
-
 pub fn defaultHelloMinimalFixturePath() -> String = helloMinimalFixturePath()
 
 pub fn defaultBootstrapHelloRunCommand() -> String = "soyuz run tools/fixtures/hello_minimal.sy"
-
-pub fn isKnownCliCommand(name: String) -> Bool {
-    if name == cliCommandNew() { return true }
-    if name == cliCommandBuild() { return true }
-    if name == cliCommandRun() { return true }
-    if name == cliCommandTest() { return true }
-    return false
-}
-
-pub fn cliUsageHeader() -> String = "Uso: soyuz <comando> [argumentos]"
-
-pub fn cliUsageCommandsMarker() -> String = "Comandos:"
-
-pub fn cliUsageNewLine() -> String = "  new   [--lib] <nome>                        Cria um novo projeto Soyuz"
-
-pub fn cliUsageBuildLine() -> String = "  build [--release] [arquivo.sy]              Compila o projeto ou um arquivo"
-
-pub fn cliUsageTestLine() -> String = "  test  [--filter=nome] [arquivo.sy]          Executa os testes"
-
-pub fn cliUsageText() -> String {
-    return "$(cliUsageHeader())\n$(cliUsageCommandsMarker())\n$(cliUsageNewLine())\n$(cliUsageBuildLine())\n$(cliUsageRunLine())\n$(cliUsageTestLine())"
-}
-
-pub fn cliArgvNeedsUsage(argv: List[String]) -> Bool = argv.size() < 2
 
 // Mirrors main() os.Args dispatch (program name at argv[0], command at argv[1]).
 pub record CliDispatch {
@@ -83,8 +52,6 @@ pub fn cliUsageHasRunCommand(usage: String) -> Bool {
     if !usage.contains(cliUsageCommandsMarker()) { return false }
     return usage.contains(cliCommandRun())
 }
-
-pub fn cliUsageRunLine() -> String = "  run   [--release] [arquivo.sy] [-- args...] Compila e executa"
 
 pub fn cliRunArgsDelimiter() -> String = "--"
 

@@ -2,19 +2,14 @@
 
 import (
     { cliEntryOutput } from @driver/entry
-    { cliUsageHeader } from @driver/cli
+    { cliUsageHeader } from @driver/cli_usage
+    { defaultCliProgramArgv } from @driver/main_standalone
     { defaultHelloMinimalRunArgv } from @driver/dispatch
 )
 
 pub fn runCliFromArgv(argv: List[String]) -> String = cliEntryOutput(argv)
 
 pub fn runCliMain(argv: List[String]) -> String = runCliFromArgv(argv)
-
-pub fn defaultCliProgramArgv() -> List[String] {
-    var argv = List[String]{}
-    argv.append("soyuz")
-    return argv
-}
 
 pub fn cliMainUsageFromDefaultArgv() -> String {
     return runCliFromArgv(defaultCliProgramArgv())

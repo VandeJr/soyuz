@@ -1,0 +1,20 @@
+// Thin entry for root main.sy — usage-only path without full driver codegen chain.
+
+import (
+    { cliUsageText, cliArgvNeedsUsage, cliUsageHeader } from @driver/cli_usage
+)
+
+pub fn defaultCliProgramArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    return argv
+}
+
+pub fn runStandaloneCli(argv: List[String]) -> String {
+    if cliArgvNeedsUsage(argv) { return cliUsageText() }
+    return "erro: binário standalone — use bootstrap soyuz para subcomandos"
+}
+
+pub fn standaloneCliUsageReady() -> Bool {
+    return runStandaloneCli(defaultCliProgramArgv()).contains(cliUsageHeader())
+}
