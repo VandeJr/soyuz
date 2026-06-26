@@ -310,6 +310,13 @@ else
   echo "  tools/stdlib-feature-funcoes-check.sh ausente"
 fi
 
+hr "Stdlib feature tipos check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-tipos-check.sh ]]; then
+  bash tools/stdlib-feature-tipos-check.sh 2>&1 || echo "→ stdlib feature tipos check FALHOU"
+else
+  echo "  tools/stdlib-feature-tipos-check.sh ausente"
+fi
+
 hr "Runtime embed check (bootstrap, S9)"
 if [[ -x tools/runtime-embed-check.sh ]]; then
   bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"
