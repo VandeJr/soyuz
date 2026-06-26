@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureVariaveisPath() -> String = "feature-tests/variaveis.sy"
+
+// Port of feature-tests/variaveis.sy — prelude auto-import + checker (keep in sync with file on disk).
+test fn testFeatureVariaveisTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/variaveis.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForFeature(index, stdlibDir)
+    index.fileContents.set(entry, "fn main() {\n\tval nome = \"Soyuz\"\n\tval versao: Int = 1\n\tval x = 42\n\tval pi = 3.14\n\tval ok = true\n\tprint(nome)\n\n\tvar contador = 0\n\tcontador = contador + 1\n\tcontador = 42\n\n\tval id: Int = 42\n\tval id: String = \"USR-42\"\n\n\tval a = 10\n\tval b = 3.14\n\tval c = true\n\tval d = \"texto\"\n\n\tval f: List[Int] = [1, 2, 3]\n\n\tif true {\n\t\tval y = 20\n\t}\n\n\tvar total = 0\n\tval precos = [10, 20, 30]\n\tfor preco in precos {\n\t\ttotal = total + preco\n\t}\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect variaveis feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus variaveis")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature variaveis type-checks")
+}
