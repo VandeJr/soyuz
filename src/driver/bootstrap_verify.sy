@@ -189,3 +189,9 @@ pub fn bootstrapVerifyBootstrapFakePathMarker() -> String = "bootstrap soyuz sho
 pub fn bootstrapVerifyBootstrapOnlyBuildStepReady() -> Bool {
     return bootstrapVerifyNativeRunStepReady() && bootstrapVerifySelfRebuildEntry().len() > 0
 }
+
+pub fn bootstrapVerifyNativeMainBuildPlanStepName() -> String = "native main.sy build plan"
+
+pub fn bootstrapVerifyNativeMainBuildPlanStepReady() -> Bool {
+    return bootstrapVerifyBootstrapOnlyBuildStepReady()
+}

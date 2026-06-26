@@ -1,0 +1,59 @@
+// S12: native main.sy full-build plan (incremental) — in-memory stub until repo graph links in-process.
+
+import (
+    { runtimeAssetNames } from @runtime/embed
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
+    { planFullBuild, FullBuildPlan, fullBuildReady } from @driver/pipeline
+)
+
+pub fn mainStandaloneBuildEntry() -> String = "main.sy"
+
+pub fn mainStandaloneBuildTmpDir() -> String = "/tmp/soyuz-main-build"
+
+pub fn mainStandaloneBuildGoRoot() -> String = "/ref/soyuz-go"
+
+pub fn mainStandaloneBuildOutputFile() -> String = "output"
+
+pub fn mainStandaloneStubMainSource() -> String {
+    return "fn main() {\n    print(\"standalone\")\n}\n"
+}
+
+pub fn mainStandaloneStubPreludeSource() -> String = "pub fn print(x: String) {}\n"
+
+fn mainStandaloneStubIndex() -> PathIndex {
+    val tmpDir = mainStandaloneBuildTmpDir()
+    val entry = joinPathFile(tmpDir, mainStandaloneBuildEntry())
+    val stdlib = joinPathFile(tmpDir, "stdlib")
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlib, "prelude.sy"), mainStandaloneStubPreludeSource())
+    index.fileContents.set(entry, mainStandaloneStubMainSource())
+    return index
+}
+
+fn mainStandaloneRuntimeIndex() -> PathIndex {
+    val runtimeSrc = defaultRuntimeSrcDir(mainStandaloneBuildGoRoot())
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(runtimeSrc, name), "// $(name)\n")
+    }
+    return sourceIndex
+}
+
+pub fn planMainStandaloneFullBuild() -> FullBuildPlan {
+    val tmpDir = mainStandaloneBuildTmpDir()
+    val entry = joinPathFile(tmpDir, mainStandaloneBuildEntry())
+    val stdlibDir = joinPathFile(tmpDir, "stdlib")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val cfg = buildConfigForEntry(
+        entry,
+        joinPathFile(tmpDir, mainStandaloneBuildOutputFile()),
+        false,
+        tmpDir,
+        defaultRuntimeSrcDir(mainStandaloneBuildGoRoot())
+    )
+    return planFullBuild(entry, cfg, r, mainStandaloneStubIndex(), mainStandaloneRuntimeIndex())
+}
+
+pub fn mainStandaloneFullBuildPlanReady() -> Bool = fullBuildReady(planMainStandaloneFullBuild())

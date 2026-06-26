@@ -1,0 +1,18 @@
+import (
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, planMainStandaloneFullBuild } from @driver/main_build
+    { bootstrapVerifySelfRebuildEntry, bootstrapVerifySelfRebuildSuccessMarker } from @driver/bootstrap_verify
+    { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
+    { fullBuildReady } from @driver/pipeline
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testMainStandaloneFullBuildPlan() {
+    assertMsg(mainStandaloneBuildEntry() == bootstrapVerifySelfRebuildEntry(), "main entry path")
+    assertMsg(mainStandaloneFullBuildPlanReady(), "main standalone full build plan ready")
+    assertMsg(fullBuildReady(planMainStandaloneFullBuild()), "plan full build ready")
+    assertMsg(!standaloneCliNativeMainBuildEnabled(), "native main build disabled")
+    assertMsg(!nativeCompileMainBuildReady(), "native main build not ready yet")
+    val plan = planMainStandaloneFullBuild()
+    assertMsg(plan.cfg.inputFile.endsWith(bootstrapVerifySelfRebuildEntry()), "plan input entry")
+    assertMsg(plan.artifacts.irContent.len() > 0, "plan emits IR")
+}

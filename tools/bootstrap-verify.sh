@@ -21,6 +21,7 @@
 # Step 19: standalone `test` does not shell out to bootstrap soyuz (fake PATH).
 # Step 20: standalone `run` does not shell out to bootstrap soyuz (fake PATH).
 # Step 21: only `build main.sy` still shells out to bootstrap soyuz (fake PATH).
+# Step 22: in-memory main.sy full-build plan ready in driver library.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -540,3 +541,10 @@ if [[ -x "$MAIN_FAKE_OUT" ]]; then
 fi
 
 echo "→ bootstrap-verify bootstrap-only main.sy build (S12 step 21) OK"
+
+if ! bash "$ROOT/tools/driver-main-build-plan-check.sh" 2>&1; then
+  echo "main.sy full-build plan check falhou" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native main.sy build plan (S12 step 22) OK"
