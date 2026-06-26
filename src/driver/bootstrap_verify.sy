@@ -101,3 +101,11 @@ pub fn bootstrapVerifyElfSectionStepName() -> String = "generation ELF section e
 pub fn bootstrapVerifyElfSectionStepReady() -> Bool {
     return bootstrapVerifyBinarySizeStepReady() && bootstrapVerifyElfTextSection().len() > 0
 }
+
+pub fn bootstrapVerifyMainSymbol() -> String = "main"
+
+pub fn bootstrapVerifySymbolStepName() -> String = "generation symbol equivalence"
+
+pub fn bootstrapVerifySymbolStepReady() -> Bool {
+    return bootstrapVerifyElfSectionStepReady() && bootstrapVerifyMainSymbol().len() > 0
+}

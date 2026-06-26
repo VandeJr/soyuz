@@ -11,6 +11,7 @@
 # Step 9: vN+2 passes test_runner and hello run fixed-points.
 # Step 10: vN, vN+1, vN+2 share the same standalone binary size (weak binary equivalence).
 # Step 11: vN, vN+1, vN+2 share the same ELF section layout (.text/.rodata/.data/.bss).
+# Step 12: vN, vN+1, vN+2 share the same defined symbol table (nm T/t fingerprint).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -296,3 +297,36 @@ if [[ "$VN_ELF" != "$VN1_ELF" ]] || [[ "$VN1_ELF" != "$VN2_ELF" ]]; then
 fi
 
 echo "→ bootstrap-verify generation ELF section equivalence (S12 step 11) OK"
+
+if ! command -v nm >/dev/null 2>&1; then
+  echo "nm não encontrado no PATH" >&2
+  exit 1
+fi
+
+elf_defined_sym_fingerprint() {
+  local file=$1
+  nm "$file" 2>/dev/null | awk '/ [Tt] / {print $3}' | sort -u | sha256sum | awk '{print $1}'
+}
+
+for label in vN vN+1 vN+2; do
+  case "$label" in
+    vN) bin="$OUT" ;;
+    vN+1) bin="$OUT2" ;;
+    vN+2) bin="$OUT3" ;;
+  esac
+  if ! nm "$bin" 2>/dev/null | awk '$3=="main" && / [Tt] /' | grep -q .; then
+    echo "$label sem símbolo main definido: $bin" >&2
+    exit 1
+  fi
+done
+
+VN_SYM="$(elf_defined_sym_fingerprint "$OUT")"
+VN1_SYM="$(elf_defined_sym_fingerprint "$OUT2")"
+VN2_SYM="$(elf_defined_sym_fingerprint "$OUT3")"
+
+if [[ "$VN_SYM" != "$VN1_SYM" ]] || [[ "$VN1_SYM" != "$VN2_SYM" ]]; then
+  echo "símbolos definidos divergem entre gerações" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify generation symbol equivalence (S12 step 12) OK"
