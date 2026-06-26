@@ -51,8 +51,23 @@ pub fn mainStandaloneThinCliArgvIsRealSource() -> Bool {
     return src.contains("cliProgramArgv")
 }
 
+pub fn mainStandaloneThinBuildCliSource() -> String {
+    return "// Mirrors soyuz-go/cmd/main.go cmdBuild legacy mode (arg parse, no OS I/O).\n\npub fn cliBuildReleaseFlag() -> String = \"--release\"\n\npub fn cliBuildOutputFlag() -> String = \"-o\"\n\nfn cliBuildArgIsFlag(arg: String) -> Bool = arg.startsWith(\"-\")\n\npub fn cliBuildReleaseFromArgs(args: List[String]) -> Bool {\n    var i = 0\n    loop {\n        if i >= args.size() { break }\n        if args.get(i) == cliBuildReleaseFlag() { return true }\n        i = i + 1\n    }\n    return false\n}\n\npub fn cliBuildOutputFromArgs(args: List[String]) -> String {\n    var i = 0\n    loop {\n        if i >= args.size() { break }\n        if args.get(i) == cliBuildOutputFlag() {\n            val next = i + 1\n            if next < args.size() {\n                val value = args.get(next)\n                if !cliBuildArgIsFlag(value) { return value }\n            }\n            return \"\"\n        }\n        i = i + 1\n    }\n    return \"\"\n}\n\npub fn cliBuildLegacyEntryFromArgs(args: List[String]) -> String {\n    var i = 0\n    loop {\n        if i >= args.size() { break }\n        val a = args.get(i)\n        if a == cliBuildReleaseFlag() {\n            i = i + 1\n            continue\n        }\n        if a == cliBuildOutputFlag() {\n            i = i + 2\n            continue\n        }\n        if !cliBuildArgIsFlag(a) { return a }\n        i = i + 1\n    }\n    return \"\"\n}\n\npub fn cliBuildLegacyHasEntry(args: List[String]) -> Bool = cliBuildLegacyEntryFromArgs(args).len() > 0\n\npub fn cliBuildProjectModeFromArgs(args: List[String]) -> Bool = !cliBuildLegacyHasEntry(args)\n\npub fn buildCliLibraryVerifyStubMessage() -> String {\n    return \"Biblioteca 'soyuz' v0.1.0 verificada com sucesso.\"\n}\n\npub fn buildCliLegacyDefaultOutput() -> String = \"output\"\n\npub record BuildCliLegacyPlan {\n    entry: String,\n    outputFile: String,\n    release: Bool\n}\n\npub fn buildCliLegacyPlanFromArgs(args: List[String]) -> BuildCliLegacyPlan {\n    val entry = cliBuildLegacyEntryFromArgs(args)\n    var output = cliBuildOutputFromArgs(args)\n    if output.len() == 0 { output = buildCliLegacyDefaultOutput() }\n    return BuildCliLegacyPlan {\n        entry: entry,\n        outputFile: output,\n        release: cliBuildReleaseFromArgs(args)\n    }\n}\n\npub fn buildCliLegacyPlanReady(plan: BuildCliLegacyPlan) -> Bool = plan.entry.len() > 0\n\npub fn buildCliLegacySuccessMessage(plan: BuildCliLegacyPlan) -> String {\n    return \"Build concluído: \" + plan.outputFile\n}\n\npub fn buildCliLegacyBootstrapCommand(plan: BuildCliLegacyPlan) -> String {\n    var cmd = \"soyuz build\"\n    if plan.release {\n        cmd = cmd + \" --release\"\n    }\n    if plan.outputFile != buildCliLegacyDefaultOutput() {\n        cmd = cmd + \" -o \" + plan.outputFile\n    }\n    return cmd + \" \" + plan.entry\n}\n\npub fn buildCliProjectBootstrapCommand(args: List[String]) -> String {\n    if !cliBuildProjectModeFromArgs(args) { return \"\" }\n    var cmd = \"soyuz build\"\n    var i = 0\n    loop {\n        if i >= args.size() { break }\n        cmd = cmd + \" \" + args.get(i)\n        i = i + 1\n    }\n    return cmd\n}\n\npub fn defaultHelloMinimalBuildArgv() -> List[String] {\n    var argv = List[String]{}\n    argv.append(\"soyuz\")\n    argv.append(\"build\")\n    argv.append(\"tools/fixtures/hello_minimal.sy\")\n    return argv\n}\n\npub fn defaultSoyuzLibraryBuildArgv() -> List[String] {\n    var argv = List[String]{}\n    argv.append(\"soyuz\")\n    argv.append(\"build\")\n    return argv\n}\n"
+}
+
+pub fn mainStandaloneBuildCliLibraryVerifyMarker() -> String = "Biblioteca 'soyuz'"
+
+pub fn mainStandaloneBuildCliProjectModeMarker() -> String = "cliBuildProjectModeFromArgs"
+
+pub fn mainStandaloneThinBuildCliIsRealSource() -> Bool {
+    val src = mainStandaloneThinBuildCliSource()
+    if !src.contains(mainStandaloneBuildCliLibraryVerifyMarker()) { return false }
+    if !src.contains(mainStandaloneBuildCliProjectModeMarker()) { return false }
+    return src.contains("buildCliLegacyPlanFromArgs")
+}
+
 pub fn mainStandaloneThinMainStandaloneSource() -> String {
-    return "import (\n    { cliUsageText, cliArgvNeedsUsage } from @driver/cli_usage\n)\n\npub fn runStandaloneCli(argv: List[String]) -> String {\n    if cliArgvNeedsUsage(argv) { return cliUsageText() }\n    return \"standalone\"\n}\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
+    return "import (\n    { cliUsageText, cliArgvNeedsUsage, cliCommandBuild } from @driver/cli_usage\n    { cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage } from @driver/build_cli\n)\n\nfn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {\n    var args = List[String]{}\n    var i = 2\n    loop {\n        if i >= argv.size() { break }\n        args.append(argv.get(i))\n        i = i + 1\n    }\n    return args\n}\n\npub fn runStandaloneCli(argv: List[String]) -> String {\n    if cliArgvNeedsUsage(argv) { return cliUsageText() }\n    if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {\n        val args = standaloneSubcommandArgsFromArgv(argv)\n        if cliBuildProjectModeFromArgs(args) {\n            return buildCliLibraryVerifyStubMessage()\n        }\n    }\n    return \"standalone\"\n}\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
 }
 
 pub fn mainStandaloneThinCliUsageSource() -> String {
@@ -90,6 +105,7 @@ fn mainStandaloneThinGraphIndex() -> PathIndex {
     index.fileContents.set(joinPathFile(root, "cli_main_exec.sy"), mainStandaloneThinCliMainExecSource())
     index.fileContents.set(joinPathFile(root, "src/driver/cli_argv.sy"), mainStandaloneThinCliArgvSource())
     index.fileContents.set(joinPathFile(root, "src/driver/cli_usage.sy"), mainStandaloneThinCliUsageSource())
+    index.fileContents.set(joinPathFile(root, "src/driver/build_cli.sy"), mainStandaloneThinBuildCliSource())
     index.fileContents.set(joinPathFile(root, "src/driver/main_standalone.sy"), mainStandaloneThinMainStandaloneSource())
     index.fileContents.set(joinPathFile(stdlib, "prelude.sy"), mainStandaloneThinPreludeSource())
     return index
@@ -146,4 +162,16 @@ pub fn mainStandaloneThinCliMainExecPlanReady() -> Bool {
 pub fn mainStandaloneThinCliUsagePlanReady() -> Bool {
     if !mainStandaloneThinCliUsageIsRealSource() { return false }
     return mainStandaloneThinGraphPlanReady()
+}
+
+pub fn mainStandaloneThinBuildCliPlanReady() -> Bool {
+    if !mainStandaloneThinBuildCliIsRealSource() { return false }
+    return mainStandaloneThinGraphPlanReady()
+}
+
+pub fn mainStandaloneThinMainStandaloneLibraryBuildReady() -> Bool {
+    val src = mainStandaloneThinMainStandaloneSource()
+    if !src.contains(mainStandaloneBuildCliLibraryVerifyMarker()) { return false }
+    if !src.contains(mainStandaloneBuildCliProjectModeMarker()) { return false }
+    return src.contains("buildCliLibraryVerifyStubMessage")
 }

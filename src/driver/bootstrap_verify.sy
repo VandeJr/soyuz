@@ -219,3 +219,9 @@ pub fn bootstrapVerifyNativeMainCliUsageStepName() -> String = "native main.sy r
 pub fn bootstrapVerifyNativeMainCliUsageStepReady() -> Bool {
     return bootstrapVerifyNativeMainCliMainExecStepReady()
 }
+
+pub fn bootstrapVerifyNativeMainBuildCliStepName() -> String = "native main.sy real build_cli"
+
+pub fn bootstrapVerifyNativeMainBuildCliStepReady() -> Bool {
+    return bootstrapVerifyNativeMainCliUsageStepReady()
+}

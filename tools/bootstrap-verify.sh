@@ -580,3 +580,10 @@ if ! bash "$ROOT/tools/driver-main-build-plan-check.sh" 2>&1; then
 fi
 
 echo "→ bootstrap-verify native main.sy real cli_usage (S12 step 26) OK"
+
+if ! bash "$ROOT/tools/driver-main-build-plan-check.sh" 2>&1; then
+  echo "main.sy real build_cli plan check falhou" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native main.sy real build_cli (S12 step 27) OK"

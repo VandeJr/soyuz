@@ -1,5 +1,5 @@
 import (
-    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker, mainStandaloneThinCliMainExecIsRealSource, mainStandaloneThinCliMainExecPlanReady, mainStandaloneThinCliMainExecSource, mainStandaloneCliMainExecHelperMarker, mainStandaloneThinCliUsageIsRealSource, mainStandaloneThinCliUsagePlanReady, mainStandaloneThinCliUsageSource, mainStandaloneCliUsageHeaderMarker, mainStandaloneThinMainStandaloneSource } from @driver/main_build
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker, mainStandaloneThinCliMainExecIsRealSource, mainStandaloneThinCliMainExecPlanReady, mainStandaloneThinCliMainExecSource, mainStandaloneCliMainExecHelperMarker, mainStandaloneThinCliUsageIsRealSource, mainStandaloneThinCliUsagePlanReady, mainStandaloneThinCliUsageSource, mainStandaloneCliUsageHeaderMarker, mainStandaloneThinBuildCliIsRealSource, mainStandaloneThinBuildCliPlanReady, mainStandaloneThinBuildCliSource, mainStandaloneBuildCliLibraryVerifyMarker, mainStandaloneThinMainStandaloneLibraryBuildReady, mainStandaloneThinMainStandaloneSource } from @driver/main_build
     { bootstrapVerifySelfRebuildEntry, bootstrapVerifySelfRebuildUsageMarker } from @driver/bootstrap_verify
     { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
     { fullBuildReady } from @driver/pipeline
@@ -30,4 +30,8 @@ test fn testMainStandaloneFullBuildPlan() {
     assertMsg(mainStandaloneThinCliUsagePlanReady(), "real cli_usage plan ready")
     assertMsg(mainStandaloneThinCliUsageSource().contains(mainStandaloneCliUsageHeaderMarker()), "cli_usage header")
     assertMsg(mainStandaloneThinMainStandaloneSource().contains(bootstrapVerifySelfRebuildUsageMarker()), "main_standalone uses usage")
+    assertMsg(mainStandaloneThinBuildCliIsRealSource(), "real build_cli source")
+    assertMsg(mainStandaloneThinBuildCliPlanReady(), "real build_cli plan ready")
+    assertMsg(mainStandaloneThinBuildCliSource().contains(mainStandaloneBuildCliLibraryVerifyMarker()), "build_cli library verify")
+    assertMsg(mainStandaloneThinMainStandaloneLibraryBuildReady(), "main_standalone library build path")
 }
