@@ -18,3 +18,5 @@ import @driver/entry
 import @driver/entry_test
 import @driver/new
 import @driver/new_test
+import @driver/build_cli
+import @driver/build_cli_test

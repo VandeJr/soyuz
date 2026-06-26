@@ -1,7 +1,8 @@
 import (
     { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady, defaultCliEntryCheckScript, cliEntryOrderedCommands, cliHelloMinimalEntryOrderedCommandsReady, cliEntryReady, cliHelloMinimalEntryReady } from @driver/entry
-    { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv, cliCommandNew } from @driver/cli
+    { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv, cliCommandNew, cliCommandBuild } from @driver/cli
     { newProjectSuccessMessage } from @driver/new
+    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput } from @driver/build_cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -31,4 +32,8 @@ test fn testCliHelloMinimalEntryReady() {
     newArgv.append("app")
     assertMsg(cliEntryReady(newArgv), "new entry ready")
     assertMsg(cliEntryOutput(newArgv) == newProjectSuccessMessage("app", false), "new entry success message")
+
+    val buildArgv = defaultHelloMinimalBuildArgv()
+    assertMsg(cliEntryReady(buildArgv), "build entry ready")
+    assertMsg(cliEntryOutput(buildArgv).contains(buildCliLegacyDefaultOutput()), "build entry success message")
 }

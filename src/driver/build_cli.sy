@@ -1,0 +1,88 @@
+// Mirrors soyuz-go/cmd/main.go cmdBuild legacy mode (arg parse, no OS I/O).
+
+pub fn cliBuildReleaseFlag() -> String = "--release"
+
+pub fn cliBuildOutputFlag() -> String = "-o"
+
+fn cliBuildArgIsFlag(arg: String) -> Bool = arg.startsWith("-")
+
+pub fn cliBuildReleaseFromArgs(args: List[String]) -> Bool {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        if args.get(i) == cliBuildReleaseFlag() { return true }
+        i = i + 1
+    }
+    return false
+}
+
+pub fn cliBuildOutputFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        if args.get(i) == cliBuildOutputFlag() {
+            val next = i + 1
+            if next < args.size() {
+                val value = args.get(next)
+                if !cliBuildArgIsFlag(value) { return value }
+            }
+            return ""
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+pub fn cliBuildLegacyEntryFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        if a == cliBuildReleaseFlag() {
+            i = i + 1
+            continue
+        }
+        if a == cliBuildOutputFlag() {
+            i = i + 2
+            continue
+        }
+        if !cliBuildArgIsFlag(a) { return a }
+        i = i + 1
+    }
+    return ""
+}
+
+pub fn cliBuildLegacyHasEntry(args: List[String]) -> Bool = cliBuildLegacyEntryFromArgs(args).len() > 0
+
+pub fn buildCliLegacyDefaultOutput() -> String = "output"
+
+pub record BuildCliLegacyPlan {
+    entry: String,
+    outputFile: String,
+    release: Bool
+}
+
+pub fn buildCliLegacyPlanFromArgs(args: List[String]) -> BuildCliLegacyPlan {
+    val entry = cliBuildLegacyEntryFromArgs(args)
+    var output = cliBuildOutputFromArgs(args)
+    if output.len() == 0 { output = buildCliLegacyDefaultOutput() }
+    return BuildCliLegacyPlan {
+        entry: entry,
+        outputFile: output,
+        release: cliBuildReleaseFromArgs(args)
+    }
+}
+
+pub fn buildCliLegacyPlanReady(plan: BuildCliLegacyPlan) -> Bool = plan.entry.len() > 0
+
+pub fn buildCliLegacySuccessMessage(plan: BuildCliLegacyPlan) -> String {
+    return "Build concluído: $(plan.outputFile)"
+}
+
+pub fn defaultHelloMinimalBuildArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("build")
+    argv.append("tools/fixtures/hello_minimal.sy")
+    return argv
+}

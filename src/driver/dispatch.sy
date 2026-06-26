@@ -5,6 +5,9 @@ import (
     { helloMinimalFixturePath } from @driver/export
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv } from @driver/build_cli
+    { planHelloFullBuild } from @driver/export
+    { fullBuildReady } from @driver/pipeline
 )
 
 pub fn cliActionUsage() -> String = "usage"
@@ -97,4 +100,23 @@ pub fn cliNewSuccessMessageFromArgv(argv: List[String]) -> String {
     if !cliNewActionReady(argv) { return "" }
     val dispatch = cliDispatchFromArgv(argv)
     return newProjectPlanFromArgs(dispatch.args).successMessage
+}
+
+pub fn cliBuildActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionBuild() { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    val plan = buildCliLegacyPlanFromArgs(dispatch.args)
+    if !buildCliLegacyPlanReady(plan) { return false }
+    if plan.entry != helloMinimalFixturePath() { return false }
+    return fullBuildReady(planHelloFullBuild())
+}
+
+pub fn cliBuildSuccessMessageFromArgv(argv: List[String]) -> String {
+    if !cliBuildActionReady(argv) { return "" }
+    val dispatch = cliDispatchFromArgv(argv)
+    return buildCliLegacySuccessMessage(buildCliLegacyPlanFromArgs(dispatch.args))
+}
+
+pub fn cliHelloMinimalBuildActionReady() -> Bool {
+    return cliBuildActionReady(defaultHelloMinimalBuildArgv())
 }
