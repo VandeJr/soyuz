@@ -1,6 +1,6 @@
 import (
     { planHelloRunBuild, planHelloRun, helloRunBuildPlanReady, helloRunPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, runPlanMaterializeStepsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, runPlanMaterializeStepsReady, runPlanOrderedMaterializeCommands, runPlanOrderedMaterializeCommandsReady, runPlanOrderedMaterializeCommandCount, runPlanExecCommandWithProgramArgs, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
     { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunPlanMaterializeCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultRunLinkScript } from @runtime/link
     { defaultApplyManifestScript } from @runtime/manifest
@@ -44,4 +44,7 @@ test fn testPlanHelloRun() {
     assertMsg(runPlanExecCommand(run) == run.binaryPath, "exec command is binary path")
     val steps = runPlanMaterializeSteps(run, manifestPath)
     assertMsg(runPlanMaterializeStepsReady(steps, run), "run materialize steps ready")
+    assertMsg(runPlanOrderedMaterializeCommandsReady(run, manifestPath), "ordered materialize commands ready")
+    assertMsg(runPlanOrderedMaterializeCommands(run, manifestPath).size() == runPlanOrderedMaterializeCommandCount(), "four ordered commands")
+    assertMsg(runPlanExecCommandWithProgramArgs(run, List[String]{}) == run.binaryPath, "exec without program args")
 }

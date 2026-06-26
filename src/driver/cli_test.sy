@@ -1,6 +1,6 @@
 import (
-    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageText, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliHelloMinimalRunFromArgvReady, defaultHelloMinimalRunArgv, cliRunMaterializeReadyFromArgv, cliHelloMinimalRunMaterializeSteps, cliHelloMinimalRunPipelineReadyFromArgv, cliHelloMinimalRunPipelineReady, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
-    { runPlanReady, runPlanMaterializeStepsReady } from @driver/run
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageText, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliHelloMinimalRunFromArgvReady, defaultHelloMinimalRunArgv, cliRunMaterializeReadyFromArgv, cliHelloMinimalRunMaterializeSteps, cliHelloMinimalRunPipelineReadyFromArgv, cliHelloMinimalRunPipelineReady, defaultCliRunPipelineCheckScript, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliHelloMinimalRunExecCommandFromArgv, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
+    { runPlanReady, runPlanMaterializeStepsReady, runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
 
@@ -94,4 +94,24 @@ test fn testCliHelloMinimalRunPipeline() {
     val steps = cliHelloMinimalRunMaterializeSteps(manifestPath)
     assertMsg(runPlanMaterializeStepsReady(steps, planHelloMinimalRunFromCli()), "cli materialize steps ready")
     assertMsg(steps.execCommand == cliHelloMinimalRunExecCommand(), "pipeline exec matches cli exec command")
+}
+
+test fn testCliHelloMinimalRunOrderedCommands() {
+    val cmds = cliHelloMinimalRunOrderedCommands()
+    assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "ordered pipeline has four steps")
+    assertMsg(cliHelloMinimalRunOrderedCommandsReady(), "cli ordered commands ready")
+    assertMsg(defaultCliRunPipelineCheckScript() == "tools/driver-cli-run-pipeline-check.sh", "cli pipeline check script")
+    val argv = defaultHelloMinimalRunArgv()
+    assertMsg(cliHelloMinimalRunExecCommandFromArgv(argv) == cliHelloMinimalBinaryPath(), "exec without program args")
+    var withProgramArgs = List[String]{}
+    withProgramArgs.append(defaultHelloMinimalFixturePath())
+    withProgramArgs.append(cliRunArgsDelimiter())
+    withProgramArgs.append("extra")
+    var fullArgv = List[String]{}
+    fullArgv.append("soyuz")
+    fullArgv.append(cliCommandRun())
+    fullArgv.append(defaultHelloMinimalFixturePath())
+    fullArgv.append(cliRunArgsDelimiter())
+    fullArgv.append("extra")
+    assertMsg(cliHelloMinimalRunExecCommandFromArgv(fullArgv).contains("extra"), "exec with program args")
 }

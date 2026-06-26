@@ -366,6 +366,13 @@ else
   echo "  tools/driver-cli-run-dispatch-check.sh ausente"
 fi
 
+hr "Driver cli-run-pipeline check (bootstrap, S9)"
+if [[ -x tools/driver-cli-run-pipeline-check.sh ]]; then
+  bash tools/driver-cli-run-pipeline-check.sh 2>&1 || echo "→ driver cli-run-pipeline check FALHOU"
+else
+  echo "  tools/driver-cli-run-pipeline-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

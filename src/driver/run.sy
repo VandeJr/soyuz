@@ -184,6 +184,34 @@ pub fn runPlanMaterializeStepsReady(steps: RunPlanMaterializeSteps, plan: RunPla
     return true
 }
 
+pub fn runPlanOrderedMaterializeCommandCount() -> Int = 4
+
+pub fn runPlanOrderedMaterializeCommands(plan: RunPlan, manifestPath: String) -> List[String] {
+    val steps = runPlanMaterializeSteps(plan, manifestPath)
+    var cmds = List[String]{}
+    cmds.append(steps.exportCommand)
+    cmds.append(steps.applyCommand)
+    cmds.append(steps.linkCommand)
+    cmds.append(steps.execCommand)
+    return cmds
+}
+
+pub fn runPlanOrderedMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
+    if !runPlanMaterializeCommandsReady(plan, manifestPath) { return false }
+    return runPlanOrderedMaterializeCommands(plan, manifestPath).size() == runPlanOrderedMaterializeCommandCount()
+}
+
+pub fn runPlanExecCommandWithProgramArgs(plan: RunPlan, programArgs: List[String]) -> String {
+    if programArgs.size() == 0 {
+        return runPlanExecCommand(plan)
+    }
+    var cmd = plan.binaryPath
+    for arg in programArgs {
+        cmd = "$(cmd) $(arg)"
+    }
+    return cmd
+}
+
 pub fn runPlanMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
     if !runPlanReady(plan) { return false }
     val steps = runPlanMaterializeSteps(plan, manifestPath)

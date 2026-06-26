@@ -1,7 +1,7 @@
 import (
     { runtimeAssetNames, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile } from @module/paths
-    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript, defaultDriverCliRunDispatchCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript, defaultDriverCliRunDispatchCheckScript, defaultDriverCliRunPipelineCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultLlFilePath } from @runtime/link
     { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
     { assertMsg } from @soyuz/testing
@@ -48,4 +48,5 @@ test fn testRuntimeSourcePathsAndDriverScripts() {
     assertMsg(defaultDriverRunPlanMaterializeCheckScript() == "tools/driver-run-plan-materialize-check.sh", "run plan materialize check script")
     assertMsg(defaultDriverBootstrapHelloRunCheckScript() == "tools/driver-bootstrap-hello-run-check.sh", "bootstrap hello run check script")
     assertMsg(defaultDriverCliRunDispatchCheckScript() == "tools/driver-cli-run-dispatch-check.sh", "cli run dispatch check script")
+    assertMsg(defaultDriverCliRunPipelineCheckScript() == "tools/driver-cli-run-pipeline-check.sh", "cli run pipeline check script")
 }

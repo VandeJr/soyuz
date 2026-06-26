@@ -2,8 +2,8 @@
 
 import (
     { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady, helloFixtureCliRunTmpDir } from @driver/export
-    { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, RunPlanMaterializeSteps, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
-    { defaultDriverCliRunDispatchCheckScript } from @driver/build
+    { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, RunPlanMaterializeSteps, runPlanOrderedMaterializeCommands, runPlanOrderedMaterializeCommandsReady, runPlanOrderedMaterializeCommandCount, runPlanExecCommandWithProgramArgs, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { defaultDriverCliRunDispatchCheckScript, defaultDriverCliRunPipelineCheckScript } from @driver/build
 )
 
 pub fn cliCommandNew() -> String = "new"
@@ -227,4 +227,26 @@ pub fn cliHelloMinimalRunPipelineReadyFromArgv() -> Bool {
 
 pub fn cliHelloMinimalRunPipelineReady() -> Bool {
     return cliHelloMinimalRunPipelineReadyFromArgv()
+}
+
+pub fn defaultCliRunPipelineCheckScript() -> String = defaultDriverCliRunPipelineCheckScript()
+
+pub fn cliHelloMinimalRunOrderedCommands() -> List[String] {
+    return runPlanOrderedMaterializeCommands(planHelloMinimalRunFromCli(), defaultCliHelloMinimalManifestPath())
+}
+
+pub fn cliHelloMinimalRunOrderedCommandsReady() -> Bool {
+    if !cliHelloMinimalRunPipelineReady() { return false }
+    val cmds = cliHelloMinimalRunOrderedCommands()
+    if cmds.size() != runPlanOrderedMaterializeCommandCount() { return false }
+    if !cmds.get(0).contains("export-hello-run-manifest.sh") { return false }
+    if !cmds.get(1).contains("apply-path-index-manifest.sh") { return false }
+    if !cmds.get(2).contains("runtime-run-link.sh") { return false }
+    return cmds.get(3) == cliHelloMinimalBinaryPath()
+}
+
+pub fn cliHelloMinimalRunExecCommandFromArgv(argv: List[String]) -> String {
+    val dispatch = cliDispatchFromArgv(argv)
+    val programArgs = cliRunProgramArgsFromArgs(dispatch.args)
+    return runPlanExecCommandWithProgramArgs(planHelloMinimalRunFromCli(), programArgs)
 }
