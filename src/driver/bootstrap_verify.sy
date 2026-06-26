@@ -1,0 +1,11 @@
+// S12 bootstrap-verify metadata: fixed-point checks (incremental steps).
+
+pub fn bootstrapVerifyLibraryMarker() -> String = "verificada com sucesso"
+
+pub fn bootstrapVerifyLibraryStepName() -> String = "library build fixed-point"
+
+pub fn defaultBootstrapVerifyScript() -> String = "tools/bootstrap-verify.sh"
+
+pub fn bootstrapVerifyLibraryStepReady() -> Bool {
+    return bootstrapVerifyLibraryMarker().len() > 0 && defaultBootstrapVerifyScript().len() > 0
+}

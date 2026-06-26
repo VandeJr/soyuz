@@ -569,6 +569,13 @@ else
   echo "  tools/driver-test-runner-check.sh ausente"
 fi
 
+hr "Bootstrap verify (S12)"
+if [[ -x tools/bootstrap-verify.sh ]]; then
+  bash tools/bootstrap-verify.sh 2>&1 || echo "→ bootstrap verify FALHOU"
+else
+  echo "  tools/bootstrap-verify.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

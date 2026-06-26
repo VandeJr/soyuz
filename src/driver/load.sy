@@ -37,3 +37,5 @@ import @driver/main_standalone
 import @driver/main_standalone_test
 import @driver/test_runner_gate
 import @driver/test_runner_gate_test
+import @driver/bootstrap_verify
+import @driver/bootstrap_verify_test

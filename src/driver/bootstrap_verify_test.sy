@@ -1,0 +1,13 @@
+import (
+    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady } from @driver/bootstrap_verify
+    { buildCliLibraryVerifyStubMessage } from @driver/build_cli
+    { defaultDriverBootstrapVerifyScript } from @driver/build
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testBootstrapVerifyMetadata() {
+    assertMsg(bootstrapVerifyLibraryStepReady(), "library step metadata ready")
+    assertMsg(buildCliLibraryVerifyStubMessage().contains(bootstrapVerifyLibraryMarker()), "stub matches marker")
+    assertMsg(defaultBootstrapVerifyScript() == defaultDriverBootstrapVerifyScript(), "script path")
+    assertMsg(bootstrapVerifyLibraryStepName().contains("fixed-point"), "step name")
+}

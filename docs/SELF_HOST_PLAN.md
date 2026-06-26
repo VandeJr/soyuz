@@ -61,7 +61,7 @@ Status: `pending` | `in_progress` | `done`
 | **S9** | Runtime e link | `internal/runtime/embed.go`, `src/*.c` | `src/runtime/` — FFI/embed, driver de link (clang) | `soyuz run` executa hello-world mínimo | `done` |
 | **S10** | Stdlib | `std/lib/*.sy` | `std/` — prelude, collections, string, os, fs, async, error, path | Checker resolve prelude; programas de `feature-tests/` compilam | `done` |
 | **S11** | CLI driver | `cmd/main.go` | `main.sy` — `build`, `run`, `test`, `new` | `soyuz test test_runner.sy` roda lexer+parser+checker+codegen | `done` |
-| **S12** | Fixed-point bootstrap | `internal/compile/*_test.go` | Script `tools/bootstrap-verify.sh` | vN e vN+1 produzem IR/binário equivalente; Go dispensável | `pending` |
+| **S12** | Fixed-point bootstrap | `internal/compile/*_test.go` | Script `tools/bootstrap-verify.sh` | vN e vN+1 produzem IR/binário equivalente; Go dispensável | `in_progress` |
 
 ### Ordem sugerida
 

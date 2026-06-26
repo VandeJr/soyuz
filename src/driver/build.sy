@@ -116,4 +116,6 @@ pub fn defaultDriverMainEntryCheckScript() -> String = "tools/driver-main-entry-
 
 pub fn defaultDriverTestRunnerCheckScript() -> String = "tools/driver-test-runner-check.sh"
 
+pub fn defaultDriverBootstrapVerifyScript() -> String = "tools/bootstrap-verify.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()
