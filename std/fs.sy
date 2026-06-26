@@ -1,0 +1,153 @@
+import ( { Error } from @soyuz/error )
+
+extern fn soyuz_fs_read_file(path: String) -> String
+
+extern fn soyuz_fs_write_file(path: String, content: String) -> Int
+
+extern fn soyuz_fs_exists(path: String) -> Bool
+
+extern fn soyuz_fs_is_dir(path: String) -> Bool
+
+extern fn soyuz_fs_has_error() -> Bool
+
+extern fn soyuz_fs_last_error() -> String
+
+extern fn soyuz_fs_mkdir(path: String) -> Int
+
+extern fn soyuz_fs_rmdir(path: String) -> Int
+
+extern fn soyuz_fs_rename(from: String, to: String) -> Int
+
+extern fn soyuz_fs_move(from: String, to: String) -> Int
+
+extern fn soyuz_fs_copy(from: String, to: String) -> Int
+
+extern fn soyuz_fs_mkdtemp(prefix: String) -> String
+
+extern fn soyuz_fs_read_dir(path: String) -> List[String]
+
+extern fn soyuz_fs_open(path: String, mode: String) -> Int
+
+extern fn soyuz_fs_close(fd: Int)
+
+extern fn soyuz_fs_file_read(fd: Int) -> String
+
+extern fn soyuz_fs_file_write(fd: Int, content: String) -> Int
+
+pub class IOError : Error {
+    pub val msg: String
+
+    pub val errCode: Int
+
+    pub fn message(self) -> String = self.msg
+
+    pub fn code(self) -> Int = self.errCode
+}
+
+pub class File {
+    pub val _fd: Int
+
+    pub fn read(self) -> Result[String] {
+        val content = soyuz_fs_file_read(self._fd)
+        if soyuz_fs_has_error() {
+            return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+        }
+        return Ok(content)
+    }
+
+    pub fn write(self, content: String) -> Result[Int] {
+        val ok = soyuz_fs_file_write(self._fd, content)
+        if ok == 0 {
+            return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+        }
+        return Ok(1)
+    }
+
+    pub fn close(self) {
+        soyuz_fs_close(self._fd)
+    }
+}
+
+pub fn readFile(path: String) -> Result[String] {
+    val content = soyuz_fs_read_file(path)
+    if soyuz_fs_has_error() {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(content)
+}
+
+pub fn writeFile(path: String, content: String) -> Result[Int] {
+    val ok = soyuz_fs_write_file(path, content)
+    if ok == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(1)
+}
+
+pub fn exists(path: String) -> Bool = soyuz_fs_exists(path)
+
+pub fn isDir(path: String) -> Bool = soyuz_fs_is_dir(path)
+
+pub fn mkdir(path: String) -> Result[Int] {
+    val ok = soyuz_fs_mkdir(path)
+    if ok == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(1)
+}
+
+pub fn rmdir(path: String) -> Result[Int] {
+    val ok = soyuz_fs_rmdir(path)
+    if ok == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(1)
+}
+
+pub fn rename(from: String, to: String) -> Result[Int] {
+    val ok = soyuz_fs_rename(from, to)
+    if ok == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(1)
+}
+
+pub fn move(from: String, to: String) -> Result[Int] {
+    val ok = soyuz_fs_move(from, to)
+    if ok == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(1)
+}
+
+pub fn copy(from: String, to: String) -> Result[Int] {
+    val ok = soyuz_fs_copy(from, to)
+    if ok == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(1)
+}
+
+pub fn mkdtemp(prefix: String) -> Result[String] {
+    val p = soyuz_fs_mkdtemp(prefix)
+    if soyuz_fs_has_error() {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(p)
+}
+
+pub fn readDir(path: String) -> Result[List[String]] {
+    val entries = soyuz_fs_read_dir(path)
+    if soyuz_fs_has_error() {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(entries)
+}
+
+pub fn open(path: String, mode: String) -> Result[File] {
+    val fd = soyuz_fs_open(path, mode)
+    if fd == 0 {
+        return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+    }
+    return Ok(File { _fd: fd })
+}

@@ -1,0 +1,33 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installStdlibErrorStubForFs(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "error.sy"), "pub interface Error { pub fn message() -> String pub fn code() -> Int }\npub class NoneError : Error { pub val msg: String pub fn message(self) -> String = self.msg pub fn code(self) -> Int = 1 }\npub fn noneError(msg: String) -> Error = NoneError { msg: msg }\n")
+}
+
+// Mirrors std/fs.sy — keep in sync when porting @soyuz/fs.
+fn installStdlibFsStub(index: PathIndex, stdlibDir: String) {
+    installStdlibErrorStubForFs(index, stdlibDir)
+    index.fileContents.set(joinPathFile(stdlibDir, "fs.sy"), "import ( { Error } from \"@soyuz/error\" )\nextern fn soyuz_fs_read_file(path: String) -> String\nextern fn soyuz_fs_write_file(path: String, content: String) -> Int\nextern fn soyuz_fs_exists(path: String) -> Bool\nextern fn soyuz_fs_is_dir(path: String) -> Bool\nextern fn soyuz_fs_has_error() -> Bool\nextern fn soyuz_fs_last_error() -> String\nextern fn soyuz_fs_open(path: String, mode: String) -> Int\nextern fn soyuz_fs_close(fd: Int)\nextern fn soyuz_fs_file_read(fd: Int) -> String\nextern fn soyuz_fs_file_write(fd: Int, content: String) -> Int\npub class IOError : Error { pub val msg: String pub val errCode: Int pub fn message(self) -> String = self.msg pub fn code(self) -> Int = self.errCode }\npub class File { pub val _fd: Int pub fn read(self) -> Result[String] = Ok(\"\") pub fn write(self, content: String) -> Result[Int] = Ok(1) pub fn close(self) {} }\npub fn readFile(path: String) -> Result[String] = Ok(soyuz_fs_read_file(path))\npub fn writeFile(path: String, content: String) -> Result[Int] = Ok(1)\npub fn exists(path: String) -> Bool = soyuz_fs_exists(path)\npub fn isDir(path: String) -> Bool = soyuz_fs_is_dir(path)\npub fn open(path: String, mode: String) -> Result[File] = Ok(File { _fd: 1 })\n")
+}
+
+pub fn defaultStdlibFsPath() -> String = "std/fs.sy"
+
+// Port of stdlib usage: @soyuz/fs resolves (with @soyuz/error dep) and type-checks File IO.
+test fn testStdlibFsModuleTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibFsStub(index, stdlibDir)
+    index.fileContents.set(entry, "import ( { exists, isDir, open } from \"@soyuz/fs\" )\nfn main() {\n\tprint(exists(\"x\"))\n\tprint(isDir(\"/tmp\"))\n\tmatch open(\"f.txt\", \"r\") {\n\t\tOk(f) => f.close()\n\t\tErr(_) => print(\"err\")\n\t}\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect fs module ok")
+    assertMsg(collected.files.size() == 3, "error.sy fs.sy plus main")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib fs module type-checks")
+}
