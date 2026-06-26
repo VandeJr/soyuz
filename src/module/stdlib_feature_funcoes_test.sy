@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForFuncoesFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureFuncoesPath() -> String = "feature-tests/funcoes.sy"
+
+// Port of feature-tests/funcoes.sy — functions subset without $(...) in embed string.
+test fn testFeatureFuncoesTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/funcoes.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForFuncoesFeature(index, stdlibDir)
+    index.fileContents.set(entry, "fn soma(a: Int, b: Int) -> Int { return a + b }\nfn dobrar(x: Int) -> Int = x * 2\nfn dividirComResto(a: Int, b: Int) -> (Int, Int) { return (a / b, a % b) }\nfn registrar(nome: String, cargo: String = \"Dev\") { print(nome) }\nfn aplicar(f: (Int) -> Int, x: Int) -> Int { return f(x) }\nfn multiplicar(x: Int, y: Int) -> Int = x * y\nfn identidade[T](x: T) -> T { return x }\nfn fatorial(n: Int) when n == 0 = 1\nfn fatorial(n: Int) = n * fatorial(n - 1)\nfn main() {\n\tprint(soma(3, 4))\n\tval (q, r) = dividirComResto(17, 5)\n\tregistrar(\"Vand\")\n\tprint(aplicar(dobrar, 5))\n\tval dobrar2 = multiplicar(2, _)\n\tprint(dobrar2(10))\n\tprint(identidade(42))\n\tprint(fatorial(5))\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect funcoes feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus funcoes")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature funcoes type-checks")
+}

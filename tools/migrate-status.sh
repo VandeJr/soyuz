@@ -303,6 +303,13 @@ else
   echo "  tools/stdlib-feature-flow-check.sh ausente"
 fi
 
+hr "Stdlib feature funcoes check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-funcoes-check.sh ]]; then
+  bash tools/stdlib-feature-funcoes-check.sh 2>&1 || echo "→ stdlib feature funcoes check FALHOU"
+else
+  echo "  tools/stdlib-feature-funcoes-check.sh ausente"
+fi
+
 hr "Runtime embed check (bootstrap, S9)"
 if [[ -x tools/runtime-embed-check.sh ]]; then
   bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"

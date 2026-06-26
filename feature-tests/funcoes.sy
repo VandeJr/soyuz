@@ -1,0 +1,63 @@
+fn soma(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+fn log(msg: String) {
+    print(msg)
+}
+
+fn dobrar(x: Int) -> Int = x * 2
+
+fn saudacao(nome: String) -> String = "Olá, $(nome)!"
+
+fn dividirComResto(a: Int, b: Int) -> (Int, Int) {
+    return (a / b, a % b)
+}
+
+fn registrar(nome: String, cargo: String = "Desenvolvedor") {
+    print("Registrando $(nome) como $(cargo)")
+}
+
+fn aplicar(f: (Int) -> Int, x: Int) -> Int {
+    return f(x)
+}
+
+fn multiplicar(x: Int, y: Int) -> Int = x * y
+
+fn identidade[T](x: T) -> T {
+    return x
+}
+
+fn fatorial(n: Int) when n == 0 = 1
+fn fatorial(n: Int) = n * fatorial(n - 1)
+
+fn fib(n: Int) when n == 0 = 0
+fn fib(n: Int) when n == 1 = 1
+fn fib(n: Int) = fib(n - 1) + fib(n - 2)
+
+fn main() {
+    print("soma: $(soma(3, 4))")
+    log("log funciona")
+    print("dobrar: $(dobrar(5))")
+    print("saudacao: $(saudacao("Vand"))")
+
+    val (q, r) = dividirComResto(17, 5)
+    print("divisao: $(q) resto $(r)")
+
+    registrar("Vand")
+    registrar("Lucas", "Gerente")
+
+    print("aplicar dobrar 5: $(aplicar(dobrar, 5))")
+
+    val dobrar2 = multiplicar(2, _)
+    print("parcial dobrar 10: $(dobrar2(10))")
+
+    val pares = [1, 2, 3, 4, 5].filter(fn(x: Int) => x % 2 == 0)
+    print("pares count ok")
+
+    print("identidade int: $(identidade(42))")
+    print("identidade str: $(identidade("oi"))")
+
+    print("fatorial 5: $(fatorial(5))")
+    print("fib 8: $(fib(8))")
+}
