@@ -1,5 +1,5 @@
 import (
-    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker } from @driver/main_build
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker, mainStandaloneThinCliMainExecIsRealSource, mainStandaloneThinCliMainExecPlanReady, mainStandaloneThinCliMainExecSource, mainStandaloneCliMainExecHelperMarker } from @driver/main_build
     { bootstrapVerifySelfRebuildEntry } from @driver/bootstrap_verify
     { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
     { fullBuildReady } from @driver/pipeline
@@ -23,4 +23,7 @@ test fn testMainStandaloneFullBuildPlan() {
     assertMsg(mainStandaloneThinCliArgvIsRealSource(), "real cli_argv source")
     assertMsg(mainStandaloneThinCliArgvPlanReady(), "real cli_argv plan ready")
     assertMsg(mainStandaloneThinCliArgvSource().contains(mainStandaloneCliArgvSourceMarker()), "cli_argv os bridge")
+    assertMsg(mainStandaloneThinCliMainExecIsRealSource(), "real cli_main_exec source")
+    assertMsg(mainStandaloneThinCliMainExecPlanReady(), "real cli_main_exec plan ready")
+    assertMsg(mainStandaloneThinCliMainExecSource().contains(mainStandaloneCliMainExecHelperMarker()), "cli_main_exec helper")
 }

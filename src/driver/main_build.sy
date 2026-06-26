@@ -22,7 +22,18 @@ pub fn mainStandaloneThinMainSource() -> String {
 }
 
 pub fn mainStandaloneThinCliMainExecSource() -> String {
-    return "extern fn soyuz_os_exec(cmd: String) -> String\n\npub fn cliOsExecShell(cmd: String) -> String = soyuz_os_exec(cmd)\n"
+    return "// OS exec for root main.sy only (runtime FFI in file-mode binary).\n\nextern fn soyuz_os_exec(cmd: String) -> String\n\npub fn cliOsExec(path: String) -> String {\n    val output = soyuz_os_exec(path)\n    if output.len() == 0 {\n        return \"erro: exec \" + path + \": falhou\"\n    }\n    return output\n}\n\npub fn cliOsExecShell(cmd: String) -> String = cliOsExec(cmd)\n"
+}
+
+pub fn mainStandaloneCliMainExecHelperMarker() -> String = "cliOsExec"
+
+pub fn mainStandaloneCliMainExecErrorMarker() -> String = "erro: exec"
+
+pub fn mainStandaloneThinCliMainExecIsRealSource() -> Bool {
+    val src = mainStandaloneThinCliMainExecSource()
+    if !src.contains(mainStandaloneCliMainExecHelperMarker()) { return false }
+    if !src.contains(mainStandaloneCliMainExecErrorMarker()) { return false }
+    return src.contains("cliOsExecShell")
 }
 
 pub fn mainStandaloneThinCliArgvSource() -> String {
@@ -108,5 +119,10 @@ pub fn mainStandaloneThinGraphIrReady() -> Bool {
 
 pub fn mainStandaloneThinCliArgvPlanReady() -> Bool {
     if !mainStandaloneThinCliArgvIsRealSource() { return false }
+    return mainStandaloneThinGraphPlanReady()
+}
+
+pub fn mainStandaloneThinCliMainExecPlanReady() -> Bool {
+    if !mainStandaloneThinCliMainExecIsRealSource() { return false }
     return mainStandaloneThinGraphPlanReady()
 }

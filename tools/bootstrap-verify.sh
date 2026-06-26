@@ -24,6 +24,7 @@
 # Step 22: in-memory main.sy full-build plan ready in driver library.
 # Step 23: thin main.sy import graph plan (cli_argv + main_standalone + cli_main_exec).
 # Step 24: thin graph uses real cli_argv.sy source (prelude args() stub).
+# Step 25: thin graph uses real cli_main_exec.sy source (cliOsExec error path).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -564,3 +565,10 @@ if ! bash "$ROOT/tools/driver-main-build-plan-check.sh" 2>&1; then
 fi
 
 echo "→ bootstrap-verify native main.sy real cli_argv (S12 step 24) OK"
+
+if ! bash "$ROOT/tools/driver-main-build-plan-check.sh" 2>&1; then
+  echo "main.sy real cli_main_exec plan check falhou" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native main.sy real cli_main_exec (S12 step 25) OK"

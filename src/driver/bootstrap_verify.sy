@@ -207,3 +207,9 @@ pub fn bootstrapVerifyNativeMainCliArgvStepName() -> String = "native main.sy re
 pub fn bootstrapVerifyNativeMainCliArgvStepReady() -> Bool {
     return bootstrapVerifyNativeMainThinGraphStepReady()
 }
+
+pub fn bootstrapVerifyNativeMainCliMainExecStepName() -> String = "native main.sy real cli_main_exec"
+
+pub fn bootstrapVerifyNativeMainCliMainExecStepReady() -> Bool {
+    return bootstrapVerifyNativeMainCliArgvStepReady()
+}
