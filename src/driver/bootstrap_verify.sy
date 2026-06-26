@@ -109,3 +109,9 @@ pub fn bootstrapVerifySymbolStepName() -> String = "generation symbol equivalenc
 pub fn bootstrapVerifySymbolStepReady() -> Bool {
     return bootstrapVerifyElfSectionStepReady() && bootstrapVerifyMainSymbol().len() > 0
 }
+
+pub fn bootstrapVerifyDataSectionStepName() -> String = "generation .data section equivalence"
+
+pub fn bootstrapVerifyDataSectionStepReady() -> Bool {
+    return bootstrapVerifySymbolStepReady() && bootstrapVerifyElfDataSection() == ".data"
+}

@@ -12,6 +12,7 @@
 # Step 10: vN, vN+1, vN+2 share the same standalone binary size (weak binary equivalence).
 # Step 11: vN, vN+1, vN+2 share the same ELF section layout (.text/.rodata/.data/.bss).
 # Step 12: vN, vN+1, vN+2 share the same defined symbol table (nm T/t fingerprint).
+# Step 13: vN, vN+1, vN+2 share the same .data section content hash.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -330,3 +331,30 @@ if [[ "$VN_SYM" != "$VN1_SYM" ]] || [[ "$VN1_SYM" != "$VN2_SYM" ]]; then
 fi
 
 echo "→ bootstrap-verify generation symbol equivalence (S12 step 12) OK"
+
+if ! command -v objcopy >/dev/null 2>&1; then
+  echo "objcopy não encontrado no PATH" >&2
+  exit 1
+fi
+
+elf_section_content_hash() {
+  local file=$1
+  local section=$2
+  objcopy -O binary --only-section="$section" "$file" /dev/stdout 2>/dev/null | sha256sum | awk '{print $1}'
+}
+
+VN_DATA="$(elf_section_content_hash "$OUT" ".data")"
+VN1_DATA="$(elf_section_content_hash "$OUT2" ".data")"
+VN2_DATA="$(elf_section_content_hash "$OUT3" ".data")"
+
+if [[ -z "$VN_DATA" ]] || [[ -z "$VN1_DATA" ]] || [[ -z "$VN2_DATA" ]]; then
+  echo "hash da seção .data ausente em alguma geração" >&2
+  exit 1
+fi
+
+if [[ "$VN_DATA" != "$VN1_DATA" ]] || [[ "$VN1_DATA" != "$VN2_DATA" ]]; then
+  echo "conteúdo .data diverge entre gerações" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify generation .data section equivalence (S12 step 13) OK"
