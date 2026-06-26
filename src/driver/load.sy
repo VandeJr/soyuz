@@ -16,3 +16,5 @@ import @driver/dispatch
 import @driver/dispatch_test
 import @driver/entry
 import @driver/entry_test
+import @driver/new
+import @driver/new_test

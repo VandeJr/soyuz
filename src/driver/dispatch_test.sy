@@ -1,6 +1,6 @@
 import (
-    { cliActionUsage, cliActionRun, cliActionBuild, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady } from @driver/dispatch
-    { cliCommandRun, cliCommandBuild, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
+    { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv } from @driver/dispatch
+    { cliCommandRun, cliCommandBuild, cliCommandNew, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -12,6 +12,14 @@ test fn testCliDispatchAction() {
 
     argv.append(cliCommandBuild())
     assertMsg(cliDispatchAction(argv) == cliActionBuild(), "build command routed")
+
+    var newArgv = List[String]{}
+    newArgv.append("soyuz")
+    newArgv.append(cliCommandNew())
+    newArgv.append("demo")
+    assertMsg(cliDispatchAction(newArgv) == cliActionNew(), "new command routed")
+    assertMsg(cliNewActionReady(newArgv), "new action ready with name")
+    assertMsg(cliNewSuccessMessageFromArgv(newArgv).contains("demo"), "new success message")
 
     var runArgv = List[String]{}
     runArgv.append("soyuz")

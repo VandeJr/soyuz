@@ -520,6 +520,13 @@ else
   echo "  tools/driver-cli-entry-check.sh ausente"
 fi
 
+hr "Driver cli-new check (bootstrap, S11)"
+if [[ -x tools/driver-cli-new-check.sh ]]; then
+  bash tools/driver-cli-new-check.sh 2>&1 || echo "→ driver cli-new check FALHOU"
+else
+  echo "  tools/driver-cli-new-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

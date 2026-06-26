@@ -1,6 +1,7 @@
 import (
     { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady, defaultCliEntryCheckScript, cliEntryOrderedCommands, cliHelloMinimalEntryOrderedCommandsReady, cliEntryReady, cliHelloMinimalEntryReady } from @driver/entry
-    { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv } from @driver/cli
+    { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv, cliCommandNew } from @driver/cli
+    { newProjectSuccessMessage } from @driver/new
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -23,4 +24,11 @@ test fn testCliHelloMinimalEntryReady() {
     assertMsg(cliEntryReady(argv), "hello minimal entry ready")
     assertMsg(cliHelloMinimalEntryReady(), "hello minimal entry ready helper")
     assertMsg(defaultCliEntryCheckScript() == "tools/driver-cli-entry-check.sh", "cli entry check script")
+
+    var newArgv = List[String]{}
+    newArgv.append("soyuz")
+    newArgv.append(cliCommandNew())
+    newArgv.append("app")
+    assertMsg(cliEntryReady(newArgv), "new entry ready")
+    assertMsg(cliEntryOutput(newArgv) == newProjectSuccessMessage("app", false), "new entry success message")
 }

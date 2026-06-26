@@ -93,4 +93,6 @@ pub fn defaultDriverCliRunPipelineCheckScript() -> String = "tools/driver-cli-ru
 
 pub fn defaultDriverCliEntryCheckScript() -> String = "tools/driver-cli-entry-check.sh"
 
+pub fn defaultDriverCliNewCheckScript() -> String = "tools/driver-cli-new-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

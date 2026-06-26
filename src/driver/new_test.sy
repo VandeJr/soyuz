@@ -1,0 +1,53 @@
+import (
+    { cliNewLibFlag, cliNewIsLibFromArgs, cliNewNameFromArgs, cliNewArgsReady, newProjectTomlContent, newProjectMainSyContent, newProjectLibSyContent, newProjectSuccessMessage, newProjectPlanFromArgs, newProjectPlanReady, newProjectType } from @driver/new
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliNewArgsParse() {
+    var binaryArgs = List[String]{}
+    binaryArgs.append("meuapp")
+    assertMsg(cliNewNameFromArgs(binaryArgs) == "meuapp", "binary project name")
+    assertMsg(!cliNewIsLibFromArgs(binaryArgs), "binary not lib")
+    assertMsg(cliNewArgsReady(binaryArgs), "binary args ready")
+
+    var libArgs = List[String]{}
+    libArgs.append(cliNewLibFlag())
+    libArgs.append("minhalib")
+    assertMsg(cliNewNameFromArgs(libArgs) == "minhalib", "lib project name")
+    assertMsg(cliNewIsLibFromArgs(libArgs), "lib flag detected")
+}
+
+test fn testNewProjectTemplates() {
+    val binaryToml = newProjectTomlContent("app", false)
+    assertMsg(binaryToml.contains("name    = \"app\""), "binary toml name")
+    assertMsg(binaryToml.contains("type    = \"binary\""), "binary toml type")
+    assertMsg(binaryToml.contains("entry   = \"main.sy\""), "binary toml entry")
+    assertMsg(binaryToml.contains("[packages]"), "toml packages section")
+
+    val libToml = newProjectTomlContent("lib", true)
+    assertMsg(libToml.contains("type    = \"library\""), "library toml type")
+    assertMsg(!libToml.contains("entry   ="), "library toml has no entry")
+
+    assertMsg(newProjectMainSyContent().contains("import @soyuz/prelude"), "main.sy prelude import")
+    assertMsg(newProjectLibSyContent("lib").contains("Biblioteca lib"), "lib.sy header")
+    assertMsg(newProjectType(false) == "binary", "binary type")
+    assertMsg(newProjectType(true) == "library", "library type")
+}
+
+test fn testNewProjectPlanFromArgs() {
+    var binaryArgs = List[String]{}
+    binaryArgs.append("demo")
+    val binaryPlan = newProjectPlanFromArgs(binaryArgs)
+    assertMsg(newProjectPlanReady(binaryPlan), "binary plan ready")
+    assertMsg(binaryPlan.entryFileName == "main.sy", "binary entry file")
+    assertMsg(binaryPlan.successMessage.contains("binário"), "binary success message")
+
+    var libArgs = List[String]{}
+    libArgs.append(cliNewLibFlag())
+    libArgs.append("pkg")
+    val libPlan = newProjectPlanFromArgs(libArgs)
+    assertMsg(newProjectPlanReady(libPlan), "library plan ready")
+    assertMsg(libPlan.entryFileName == "lib.sy", "library entry file")
+    assertMsg(libPlan.successMessage.contains("biblioteca"), "library success message")
+    assertMsg(newProjectSuccessMessage("x", true).contains("biblioteca"), "lib success helper")
+}

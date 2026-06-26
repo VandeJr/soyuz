@@ -1,13 +1,19 @@
 // Future main.sy entry: argv in → usage text or run exec path out (no OS spawn).
 
 import (
-    { cliActionRun, cliDispatchAction, cliDispatchUsageOutput, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliHelloMinimalRunActionOrderedCommandsReady, defaultHelloMinimalRunArgv } from @driver/dispatch
+    { cliActionRun, cliActionNew, cliDispatchAction, cliDispatchUsageOutput, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliHelloMinimalRunActionOrderedCommandsReady, cliNewActionReady, cliNewSuccessMessageFromArgv, defaultHelloMinimalRunArgv } from @driver/dispatch
     { defaultDriverCliEntryCheckScript } from @driver/build
 )
 
 pub fn cliEntryOutput(argv: List[String]) -> String {
     val usage = cliDispatchUsageOutput(argv)
     if usage.len() > 0 { return usage }
+    if cliDispatchAction(argv) == cliActionNew() {
+        if !cliNewActionReady(argv) {
+            return "erro: nome do projeto não especificado"
+        }
+        return cliNewSuccessMessageFromArgv(argv)
+    }
     if cliDispatchAction(argv) == cliActionRun() {
         if !cliRunActionOrderedCommandsReady(argv) {
             return "erro: pipeline run incompleto"
@@ -42,6 +48,9 @@ pub fn cliHelloMinimalEntryOrderedCommandsReady() -> Bool {
 
 pub fn cliEntryReady(argv: List[String]) -> Bool {
     if cliDispatchUsageOutput(argv).len() > 0 { return false }
+    if cliDispatchAction(argv) == cliActionNew() {
+        return cliNewActionReady(argv)
+    }
     if cliDispatchAction(argv) == cliActionRun() {
         return cliRunActionOrderedCommandsReady(argv)
     }

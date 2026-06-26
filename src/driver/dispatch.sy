@@ -4,6 +4,7 @@ import (
     { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, cliRunEntryFromArgs, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliHelloMinimalRunExecCommandFromArgv, cliHelloMinimalBinaryPath, cliUsageText, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
     { helloMinimalFixturePath } from @driver/export
     { runPlanOrderedMaterializeCommandCount } from @driver/run
+    { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
 )
 
 pub fn cliActionUsage() -> String = "usage"
@@ -83,4 +84,17 @@ pub fn cliRunActionExecCommand(argv: List[String]) -> String {
 
 pub fn cliHelloMinimalRunActionExecReady() -> Bool {
     return cliRunActionExecCommand(defaultHelloMinimalRunArgv()) == cliHelloMinimalBinaryPath()
+}
+
+pub fn cliNewActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionNew() { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    if !cliNewArgsReady(dispatch.args) { return false }
+    return newProjectPlanReady(newProjectPlanFromArgs(dispatch.args))
+}
+
+pub fn cliNewSuccessMessageFromArgv(argv: List[String]) -> String {
+    if !cliNewActionReady(argv) { return "" }
+    val dispatch = cliDispatchFromArgv(argv)
+    return newProjectPlanFromArgs(dispatch.args).successMessage
 }
