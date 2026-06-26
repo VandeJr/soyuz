@@ -13,3 +13,4 @@ import @module/stdlib_collections_test
 import @module/stdlib_os_test
 import @module/stdlib_fs_test
 import @module/stdlib_prelude_test
+import @module/stdlib_string_test
