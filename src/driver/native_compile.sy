@@ -139,3 +139,22 @@ pub fn nativeCompileRunOutputFromArgv(argv: List[String]) -> String {
 }
 
 pub fn nativeCompileRunSuccessMarker() -> String = runCliNativeHelloStubMessage()
+
+pub fn nativeCompileMainRebuildArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandBuild())
+    argv.append(nativeCompileLegacyBootstrapEntry())
+    return argv
+}
+
+pub fn argvIsBootstrapOnlyBuild(argv: List[String]) -> Bool {
+    if argv.size() < 2 || argv.get(1) != cliCommandBuild() { return false }
+    val args = standaloneBuildArgsFromArgv(argv)
+    if cliBuildProjectModeFromArgs(args) { return false }
+    val plan = buildCliLegacyPlanFromArgs(args)
+    if !buildCliLegacyPlanReady(plan) { return false }
+    return plan.entry == nativeCompileLegacyBootstrapEntry()
+}
+
+pub fn nativeCompileBootstrapFakePathMarker() -> String = "bootstrap soyuz should not run"

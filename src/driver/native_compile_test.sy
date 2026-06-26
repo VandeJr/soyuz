@@ -1,5 +1,5 @@
 import (
-    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv, standaloneCliNativeTestEnabled, nativeCompileTestRunnerArgv, argvIsNativeTest, nativeCompileTestOutputFromArgv, nativeCompileTestSuccessMarker, standaloneCliNativeRunEnabled, nativeCompileHelloMinimalRunArgv, argvIsNativeRun, nativeCompileRunOutputFromArgv, nativeCompileRunSuccessMarker } from @driver/native_compile
+    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv, standaloneCliNativeTestEnabled, nativeCompileTestRunnerArgv, argvIsNativeTest, nativeCompileTestOutputFromArgv, nativeCompileTestSuccessMarker, standaloneCliNativeRunEnabled, nativeCompileHelloMinimalRunArgv, argvIsNativeRun, nativeCompileRunOutputFromArgv, nativeCompileRunSuccessMarker, nativeCompileMainRebuildArgv, argvIsBootstrapOnlyBuild, nativeCompileBootstrapFakePathMarker } from @driver/native_compile
     { bootstrapVerifyLibraryMarker } from @driver/bootstrap_verify
     { testCliNativeSuccessStubMessage } from @driver/test_cli
     { runCliNativeHelloStubMessage } from @driver/run_cli
@@ -60,4 +60,12 @@ test fn testNativeCompileRun() {
     val out = nativeCompileRunOutputFromArgv(argv)
     assertMsg(out == runCliNativeHelloStubMessage(), "native run stub message")
     assertMsg(out.contains(nativeCompileRunSuccessMarker()), "native run success marker")
+}
+
+test fn testNativeCompileBootstrapOnlyBuild() {
+    val mainArgv = nativeCompileMainRebuildArgv()
+    assertMsg(argvIsBootstrapOnlyBuild(mainArgv), "main.sy is bootstrap-only build")
+    assertMsg(!argvIsNativeLegacyBuild(mainArgv), "main.sy not native legacy")
+    assertMsg(!argvIsNativeLibraryBuild(mainArgv), "main.sy not library build")
+    assertMsg(nativeCompileBootstrapFakePathMarker().len() > 0, "fake path marker")
 }

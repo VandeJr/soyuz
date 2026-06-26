@@ -86,3 +86,12 @@ fn testStandaloneCliBootstrapBuildDelegate() {
     assertMsg(mainCmd.contains(bootstrapVerifySelfRebuildEntry()), "main bootstrap entry")
     assertMsg(defaultHelloMinimalBuildArgv() == argv, "hello argv fixture")
 }
+
+fn testStandaloneCliBootstrapOnlyBuild() {
+    var mainArgv = List[String]{}
+    mainArgv.append("soyuz")
+    mainArgv.append("build")
+    mainArgv.append(bootstrapVerifySelfRebuildEntry())
+    assertMsg(standaloneCliBootstrapBuildCommand(mainArgv).contains(bootstrapVerifySelfRebuildEntry()), "main bootstrap build command")
+    assertMsg(standaloneCliBootstrapShellCommand(mainArgv).len() > 0, "main shell delegates")
+}

@@ -20,6 +20,7 @@
 # Step 18: standalone `new` does not shell out to bootstrap soyuz (fake PATH).
 # Step 19: standalone `test` does not shell out to bootstrap soyuz (fake PATH).
 # Step 20: standalone `run` does not shell out to bootstrap soyuz (fake PATH).
+# Step 21: only `build main.sy` still shells out to bootstrap soyuz (fake PATH).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -519,3 +520,23 @@ if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_RUN"; then
 fi
 
 echo "→ bootstrap-verify native hello run (S12 step 20) OK"
+
+MAIN_FAKE_OUT="$VERIFY_IR_TMP/output-main-fake"
+rm -f "$MAIN_FAKE_OUT"
+
+export PATH="$FAKE_BIN_DIR:$PATH"
+
+MAIN_BUILD_FAKE="$("$OUT" build main.sy -o "$MAIN_FAKE_OUT" 2>&1 || true)"
+export PATH="$PATH_SAVE"
+
+if ! grep -q 'bootstrap soyuz should not run' <<<"$MAIN_BUILD_FAKE"; then
+  echo "build main.sy deveria delegar ao bootstrap com soyuz fake: $MAIN_BUILD_FAKE" >&2
+  exit 1
+fi
+
+if [[ -x "$MAIN_FAKE_OUT" ]]; then
+  echo "build main.sy produziu binário com soyuz fake no PATH: $MAIN_FAKE_OUT" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify bootstrap-only main.sy build (S12 step 21) OK"

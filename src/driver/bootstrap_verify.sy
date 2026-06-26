@@ -181,3 +181,11 @@ pub fn bootstrapVerifyNativeRunStepName() -> String = "native hello run"
 pub fn bootstrapVerifyNativeRunStepReady() -> Bool {
     return bootstrapVerifyNativeTestStepReady() && bootstrapVerifyHelloOutput().len() > 0
 }
+
+pub fn bootstrapVerifyBootstrapOnlyBuildStepName() -> String = "bootstrap-only main.sy build"
+
+pub fn bootstrapVerifyBootstrapFakePathMarker() -> String = "bootstrap soyuz should not run"
+
+pub fn bootstrapVerifyBootstrapOnlyBuildStepReady() -> Bool {
+    return bootstrapVerifyNativeRunStepReady() && bootstrapVerifySelfRebuildEntry().len() > 0
+}
