@@ -52,4 +52,10 @@ if ! grep -q '/tmp/soyuz-cli-test/test-bin' <<<"$TEST"; then
   exit 1
 fi
 
+RUN="$("$OUT" run tools/fixtures/hello_minimal.sy 2>&1 || true)"
+if ! grep -q '/tmp/soyuz-cli-run/app' <<<"$RUN"; then
+  echo "binário main.sy não roteia soyuz run legacy: $RUN" >&2
+  exit 1
+fi
+
 echo "→ driver main-standalone check (bootstrap) OK"

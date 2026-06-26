@@ -5,6 +5,7 @@ import (
     { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady, helloFixtureCliRunTmpDir } from @driver/export
     { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, RunPlanMaterializeSteps, runPlanOrderedMaterializeCommands, runPlanOrderedMaterializeCommandsReady, runPlanOrderedMaterializeCommandCount, runPlanExecCommandWithProgramArgs, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
     { defaultDriverCliRunDispatchCheckScript, defaultDriverCliRunPipelineCheckScript } from @driver/build
+    { cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, defaultHelloMinimalRunArgv } from @driver/run_cli
 )
 
 pub fn defaultHelloMinimalFixturePath() -> String = helloMinimalFixturePath()
@@ -51,31 +52,6 @@ pub fn cliHelloMinimalRunFromArgvReady() -> Bool {
 pub fn cliUsageHasRunCommand(usage: String) -> Bool {
     if !usage.contains(cliUsageCommandsMarker()) { return false }
     return usage.contains(cliCommandRun())
-}
-
-pub fn cliRunArgsDelimiter() -> String = "--"
-
-pub fn cliRunReleaseFlag() -> String = "--release"
-
-fn cliRunArgIsFlag(arg: String) -> Bool = arg.startsWith("-")
-
-// Mirrors cmdRun positional entry resolution (flags + "--" delimiter, no project-aware cwd).
-pub fn cliRunEntryFromArgs(args: List[String]) -> String {
-    var i = 0
-    loop {
-        if i >= args.size() { break }
-        val a = args.get(i)
-        if a == cliRunArgsDelimiter() { break }
-        if a == cliRunReleaseFlag() {
-            i = i + 1
-            continue
-        }
-        if !cliRunArgIsFlag(a) {
-            return a
-        }
-        i = i + 1
-    }
-    return ""
 }
 
 pub fn cliRunProgramArgsFromArgs(args: List[String]) -> List[String] {
@@ -163,14 +139,6 @@ pub fn cliHelloMinimalRunLinkCommand() -> String {
 
 pub fn cliHelloMinimalRunExecCommand() -> String {
     return runPlanExecCommand(planHelloMinimalRunFromCli())
-}
-
-pub fn defaultHelloMinimalRunArgv() -> List[String] {
-    var argv = List[String]{}
-    argv.append("soyuz")
-    argv.append(cliCommandRun())
-    argv.append(defaultHelloMinimalFixturePath())
-    return argv
 }
 
 pub fn cliRunMaterializeReadyFromArgv(argv: List[String], manifestPath: String) -> Bool {

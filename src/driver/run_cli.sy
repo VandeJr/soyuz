@@ -1,0 +1,51 @@
+// Mirrors soyuz-go/cmd/main.go cmdRun legacy mode (arg parse, no OS I/O).
+
+pub fn cliRunArgsDelimiter() -> String = "--"
+
+pub fn cliRunReleaseFlag() -> String = "--release"
+
+pub fn runCliHelloMinimalFixturePath() -> String = "tools/fixtures/hello_minimal.sy"
+
+pub fn runCliDefaultExecPath() -> String = "/tmp/soyuz-cli-run/app"
+
+fn cliRunArgIsFlag(arg: String) -> Bool = arg.startsWith("-")
+
+pub fn cliRunEntryFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        if a == cliRunArgsDelimiter() { break }
+        if a == cliRunReleaseFlag() {
+            i = i + 1
+            continue
+        }
+        if !cliRunArgIsFlag(a) {
+            return a
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+pub record RunCliLegacyPlan {
+    entry: String,
+    execPath: String
+}
+
+pub fn runCliLegacyPlanFromArgs(args: List[String]) -> RunCliLegacyPlan {
+    return RunCliLegacyPlan {
+        entry: cliRunEntryFromArgs(args),
+        execPath: runCliDefaultExecPath()
+    }
+}
+
+pub fn runCliLegacyPlanReady(plan: RunCliLegacyPlan) -> Bool = plan.entry.len() > 0
+
+pub fn defaultHelloMinimalRunArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("run")
+    argv.append(runCliHelloMinimalFixturePath())
+    return argv
+}
