@@ -1,6 +1,6 @@
 import (
-    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageText, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliHelloMinimalRunFromArgvReady, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
-    { runPlanReady } from @driver/run
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageText, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliHelloMinimalRunFromArgvReady, defaultHelloMinimalRunArgv, cliRunMaterializeReadyFromArgv, cliHelloMinimalRunMaterializeSteps, cliHelloMinimalRunPipelineReadyFromArgv, cliHelloMinimalRunPipelineReady, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
+    { runPlanReady, runPlanMaterializeStepsReady } from @driver/run
     { assertMsg } from @soyuz/testing
 )
 
@@ -82,4 +82,16 @@ test fn testCliHelloMinimalRunMaterializeCommands() {
     assertMsg(cliHelloMinimalRunLinkCommand().contains(cliHelloMinimalBinaryPath()), "cli link command has binary path")
     assertMsg(cliHelloMinimalRunExecCommand() == cliHelloMinimalBinaryPath(), "cli exec command is binary path")
     assertMsg(defaultCliRunDispatchCheckScript() == "tools/driver-cli-run-dispatch-check.sh", "cli run dispatch check script")
+}
+
+test fn testCliHelloMinimalRunPipeline() {
+    val manifestPath = defaultCliHelloMinimalManifestPath()
+    val argv = defaultHelloMinimalRunArgv()
+    assertMsg(argv.size() == 3, "hello minimal argv shape")
+    assertMsg(cliRunMaterializeReadyFromArgv(argv, manifestPath), "cli run materialize ready from argv")
+    assertMsg(cliHelloMinimalRunPipelineReadyFromArgv(), "cli hello minimal pipeline from argv")
+    assertMsg(cliHelloMinimalRunPipelineReady(), "cli hello minimal pipeline ready")
+    val steps = cliHelloMinimalRunMaterializeSteps(manifestPath)
+    assertMsg(runPlanMaterializeStepsReady(steps, planHelloMinimalRunFromCli()), "cli materialize steps ready")
+    assertMsg(steps.execCommand == cliHelloMinimalRunExecCommand(), "pipeline exec matches cli exec command")
 }

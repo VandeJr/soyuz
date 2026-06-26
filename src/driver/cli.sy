@@ -2,7 +2,7 @@
 
 import (
     { helloMinimalFixturePath, planHelloMinimalRun, helloMinimalRunPlanReady, helloFixtureCliRunTmpDir } from @driver/export
-    { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { RunPlan, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, RunPlanMaterializeSteps, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
     { defaultDriverCliRunDispatchCheckScript } from @driver/build
 )
 
@@ -196,4 +196,35 @@ pub fn cliHelloMinimalRunLinkCommand() -> String {
 
 pub fn cliHelloMinimalRunExecCommand() -> String {
     return runPlanExecCommand(planHelloMinimalRunFromCli())
+}
+
+pub fn defaultHelloMinimalRunArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandRun())
+    argv.append(defaultHelloMinimalFixturePath())
+    return argv
+}
+
+pub fn cliRunMaterializeReadyFromArgv(argv: List[String], manifestPath: String) -> Bool {
+    if !cliRunReadyFromArgv(argv) { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    val entry = cliRunEntryFromArgs(dispatch.args)
+    if entry != helloMinimalFixturePath() { return false }
+    val plan = planHelloMinimalRunFromCli()
+    if !runPlanMaterializeCommandsReady(plan, manifestPath) { return false }
+    val steps = runPlanMaterializeSteps(plan, manifestPath)
+    return steps.execCommand == cliHelloMinimalBinaryPath()
+}
+
+pub fn cliHelloMinimalRunMaterializeSteps(manifestPath: String) -> RunPlanMaterializeSteps {
+    return runPlanMaterializeSteps(planHelloMinimalRunFromCli(), manifestPath)
+}
+
+pub fn cliHelloMinimalRunPipelineReadyFromArgv() -> Bool {
+    return cliRunMaterializeReadyFromArgv(defaultHelloMinimalRunArgv(), defaultCliHelloMinimalManifestPath())
+}
+
+pub fn cliHelloMinimalRunPipelineReady() -> Bool {
+    return cliHelloMinimalRunPipelineReadyFromArgv()
 }

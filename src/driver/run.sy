@@ -159,8 +159,35 @@ pub fn runPlanLinkCommand(plan: RunPlan) -> String {
 
 pub fn runPlanExecCommand(plan: RunPlan) -> String = plan.binaryPath
 
+pub record RunPlanMaterializeSteps {
+    exportCommand: String,
+    applyCommand: String,
+    linkCommand: String,
+    execCommand: String
+}
+
+pub fn runPlanMaterializeSteps(plan: RunPlan, manifestPath: String) -> RunPlanMaterializeSteps {
+    return RunPlanMaterializeSteps {
+        exportCommand: runPlanExportManifestCommand(plan, manifestPath),
+        applyCommand: runPlanApplyManifestCommand(plan, manifestPath),
+        linkCommand: runPlanLinkCommand(plan),
+        execCommand: runPlanExecCommand(plan)
+    }
+}
+
+pub fn runPlanMaterializeStepsReady(steps: RunPlanMaterializeSteps, plan: RunPlan) -> Bool {
+    if !runPlanReady(plan) { return false }
+    if steps.execCommand != plan.binaryPath { return false }
+    if steps.exportCommand.len() == 0 { return false }
+    if steps.applyCommand.len() == 0 { return false }
+    if steps.linkCommand.len() == 0 { return false }
+    return true
+}
+
 pub fn runPlanMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
     if !runPlanReady(plan) { return false }
+    val steps = runPlanMaterializeSteps(plan, manifestPath)
+    if !runPlanMaterializeStepsReady(steps, plan) { return false }
     val scripts = runBuildScripts(plan.build)
     val exportCmd = runPlanExportManifestCommand(plan, manifestPath)
     val applyCmd = runPlanApplyManifestCommand(plan, manifestPath)

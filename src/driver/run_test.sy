@@ -1,6 +1,6 @@
 import (
     { planHelloRunBuild, planHelloRun, helloRunBuildPlanReady, helloRunPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
-    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, runPlanMaterializeStepsReady, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
     { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunPlanMaterializeCheckScript, expectedFullBuildManifestEntries } from @driver/build
     { defaultRunLinkScript } from @runtime/link
     { defaultApplyManifestScript } from @runtime/manifest
@@ -42,4 +42,6 @@ test fn testPlanHelloRun() {
     assertMsg(runPlanLinkCommand(run).contains("runtime-run-link.sh"), "link command")
     assertMsg(runPlanLinkCommand(run).contains(run.binaryPath), "link command has binary path")
     assertMsg(runPlanExecCommand(run) == run.binaryPath, "exec command is binary path")
+    val steps = runPlanMaterializeSteps(run, manifestPath)
+    assertMsg(runPlanMaterializeStepsReady(steps, run), "run materialize steps ready")
 }
