@@ -1,5 +1,5 @@
 import (
-    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir, applyRuntimeWritePlan, runtimeWriteEntryApplied, runtimeWritePlanFullyApplied, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
+    { runtimeAssetNames, defaultRuntimeAssets, runtimeCSourceCount, isRuntimeHeader, isRuntimeCSource, loadRuntimeAssetsFromIndex, loadRuntimeAssetsFromMaterializedIndex, planRuntimeWrite, runtimeAssetContent, runtimeAssetsFullyLoaded, runtimeLoadedAssetCount, defaultRuntimeSrcSubdir, applyRuntimeWritePlan, runtimeWriteEntryApplied, runtimeWritePlanFullyApplied, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
     { emptyPathIndex, joinPathFile, pathIndexFileContent, pathIndexWriteFile } from @module/paths
     { LinkConfig, buildClangArgs, clangArgsIncludeLlFile, joinTmpAsset } from @runtime/link
     { assertMsg } from @soyuz/testing
@@ -104,4 +104,20 @@ test fn testApplyRuntimeWritePlan() {
         None => assertMsg(false, "rc.c materialized")
         Some(content) => assertMsg(content == "int rc = 1;\n", "rc.c content at tmp path")
     }
+}
+
+test fn testLoadRuntimeAssetsFromMaterializedIndex() {
+    val tmpDir = "/tmp/build"
+    val srcDir = "/ref/runtime/src"
+    var sourceIndex = emptyPathIndex()
+    sourceIndex.fileContents.set(joinPathFile(srcDir, "rc.c"), "int rc = 1;\n")
+    sourceIndex.fileContents.set(joinPathFile(srcDir, "soyuz.h"), "#ifndef SOYUZ_H\n")
+    val assets = loadRuntimeAssetsFromIndex(srcDir, sourceIndex)
+    val plan = planRuntimeWrite(tmpDir, assets)
+    val tmpIndex = applyRuntimeWritePlan(emptyPathIndex(), plan)
+    val materialized = loadRuntimeAssetsFromMaterializedIndex(tmpDir, tmpIndex)
+    assertMsg(materialized.size() == 13, "materialized index fills all asset slots")
+    assertMsg(runtimeAssetContent(materialized, "rc.c") == "int rc = 1;\n", "rc.c loaded from tmp path")
+    assertMsg(runtimeAssetContent(materialized, "soyuz.h").startsWith("#ifndef"), "header loaded from tmp path")
+    assertMsg(runtimeAssetContent(materialized, "std_io.c").len() == 0, "unmaterialized asset stays empty")
 }
