@@ -3,7 +3,7 @@
 import (
     { cliEntryOutput } from @driver/entry
     { cliUsageHeader } from @driver/cli_usage
-    { defaultCliProgramArgv } from @driver/main_standalone
+    { defaultCliProgramArgv } from @driver/cli_argv
     { defaultHelloMinimalRunArgv } from @driver/dispatch
 )
 

@@ -27,6 +27,8 @@ import @driver/project_cli_test
 import @driver/main_entry
 import @driver/main_entry_test
 import @driver/cli_usage
+import @driver/cli_argv
+import @driver/cli_argv_test
 import @driver/main_standalone
 import @driver/main_standalone_test
 import @driver/test_runner_gate

@@ -34,4 +34,10 @@ if ! grep -q 'Uso: soyuz' <<<"$USAGE"; then
   exit 1
 fi
 
+NEW="$("$OUT" new demo-proj 2>&1 || true)"
+if ! grep -q 'demo-proj' <<<"$NEW"; then
+  echo "binário main.sy não roteia soyuz new: $NEW" >&2
+  exit 1
+fi
+
 echo "→ driver main-standalone check (bootstrap) OK"

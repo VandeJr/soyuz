@@ -1,20 +1,45 @@
-// Thin entry for root main.sy — usage-only path without full driver codegen chain.
+// Thin entry for root main.sy — usage + new without full driver codegen chain.
 
 import (
-    { cliUsageText, cliArgvNeedsUsage, cliUsageHeader } from @driver/cli_usage
+    { cliUsageText, cliArgvNeedsUsage, cliUsageHeader, cliCommandNew } from @driver/cli_usage
+    { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
+    { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
 )
 
-pub fn defaultCliProgramArgv() -> List[String] {
-    var argv = List[String]{}
-    argv.append("soyuz")
-    return argv
+fn standaloneNewArgsFromArgv(argv: List[String]) -> List[String] {
+    var args = List[String]{}
+    var i = 2
+    loop {
+        if i >= argv.size() { break }
+        args.append(argv.get(i))
+        i = i + 1
+    }
+    return args
 }
 
 pub fn runStandaloneCli(argv: List[String]) -> String {
     if cliArgvNeedsUsage(argv) { return cliUsageText() }
+    if argv.size() >= 2 && argv.get(1) == cliCommandNew() {
+        val args = standaloneNewArgsFromArgv(argv)
+        if !cliNewArgsReady(args) {
+            return "erro: nome do projeto não especificado"
+        }
+        val plan = newProjectPlanFromArgs(args)
+        if !newProjectPlanReady(plan) { return "erro: plano new inválido" }
+        return plan.successMessage
+    }
     return "erro: binário standalone — use bootstrap soyuz para subcomandos"
 }
 
 pub fn standaloneCliUsageReady() -> Bool {
     return runStandaloneCli(defaultCliProgramArgv()).contains(cliUsageHeader())
+}
+
+pub fn standaloneCliNewReady() -> Bool {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandNew())
+    argv.append("demo")
+    val out = runStandaloneCli(argv)
+    return out.contains("demo") && out.contains("criado")
 }

@@ -1,7 +1,8 @@
 import (
-    { runStandaloneCli, defaultCliProgramArgv } from @driver/main_standalone
+    { cliProgramArgv } from @driver/cli_argv
+    { runStandaloneCli } from @driver/main_standalone
 )
 
 fn main() {
-    print(runStandaloneCli(defaultCliProgramArgv()))
+    print(runStandaloneCli(cliProgramArgv()))
 }

@@ -1,0 +1,16 @@
+// OS argv bridge for standalone main.sy — uses prelude args(), no driver pipeline imports.
+
+pub fn cliOsArgv() -> List[String] = args()
+
+pub fn cliOsArgvReady() -> Bool = cliOsArgv().size() > 0
+
+pub fn defaultCliProgramArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    return argv
+}
+
+pub fn cliProgramArgv() -> List[String] {
+    if cliOsArgvReady() { return cliOsArgv() }
+    return defaultCliProgramArgv()
+}

@@ -1,5 +1,6 @@
 import (
-    { runStandaloneCli, defaultCliProgramArgv, standaloneCliUsageReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliUsageReady, standaloneCliNewReady } from @driver/main_standalone
+    { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
     { assertMsg } from @soyuz/testing
 )
@@ -7,4 +8,8 @@ import (
 fn testStandaloneCliUsage() {
     assertMsg(standaloneCliUsageReady(), "standalone usage ready")
     assertMsg(runStandaloneCli(defaultCliProgramArgv()).contains(cliUsageHeader()), "default argv prints usage")
+}
+
+fn testStandaloneCliNew() {
+    assertMsg(standaloneCliNewReady(), "standalone new plan message")
 }
