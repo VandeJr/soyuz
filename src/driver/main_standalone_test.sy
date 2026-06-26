@@ -66,5 +66,6 @@ fn testStandaloneCliBootstrapBuildDelegate() {
     val cmd = standaloneCliBootstrapBuildCommand(argv)
     assertMsg(cmd.contains("soyuz build"), "bootstrap command")
     assertMsg(cmd.contains("hello_minimal"), "bootstrap entry")
-    assertMsg(!standaloneCliShouldDelegateBuild(defaultSoyuzLibraryBuildArgv()), "library build no delegate")
+    assertMsg(standaloneCliShouldDelegateBuild(defaultSoyuzLibraryBuildArgv()), "library build delegates")
+    assertMsg(standaloneCliBootstrapBuildCommand(defaultSoyuzLibraryBuildArgv()) == "soyuz build", "library bootstrap command")
 }

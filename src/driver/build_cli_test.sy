@@ -1,5 +1,5 @@
 import (
-    { cliBuildReleaseFlag, cliBuildOutputFlag, cliBuildReleaseFromArgs, cliBuildOutputFromArgs, cliBuildLegacyEntryFromArgs, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, buildCliLegacyDefaultOutput, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, buildCliLegacyBootstrapCommand, defaultHelloMinimalBuildArgv, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { cliBuildReleaseFlag, cliBuildOutputFlag, cliBuildReleaseFromArgs, cliBuildOutputFromArgs, cliBuildLegacyEntryFromArgs, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, buildCliLegacyDefaultOutput, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, buildCliLegacyBootstrapCommand, buildCliProjectBootstrapCommand, defaultHelloMinimalBuildArgv, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { helloMinimalFixturePath } from @driver/export
     { assertMsg } from @soyuz/testing
 )
@@ -54,12 +54,9 @@ test fn testDefaultHelloMinimalBuildArgv() {
     assertMsg(argv.get(1) == "build", "build command")
 }
 
-test fn testBuildCliProjectMode() {
-    assertMsg(cliBuildProjectModeFromArgs(List[String]{}), "empty args is project mode")
-    var args = List[String]{}
-    args.append(helloMinimalFixturePath())
-    assertMsg(!cliBuildProjectModeFromArgs(args), "entry arg is legacy mode")
-    assertMsg(buildCliLibraryVerifyStubMessage().contains("verificada com sucesso"), "library stub message")
-    val libraryArgv = defaultSoyuzLibraryBuildArgv()
-    assertMsg(libraryArgv.size() == 2, "library build argv shape")
+test fn testBuildCliProjectBootstrapCommand() {
+    assertMsg(buildCliProjectBootstrapCommand(List[String]{}) == "soyuz build", "project build bootstrap")
+    var withRelease = List[String]{}
+    withRelease.append(cliBuildReleaseFlag())
+    assertMsg(buildCliProjectBootstrapCommand(withRelease).contains("--release"), "project release flag")
 }

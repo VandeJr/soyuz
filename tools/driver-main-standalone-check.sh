@@ -48,7 +48,7 @@ fi
 
 LIB="$("$OUT" build 2>&1 || true)"
 if ! grep -q 'verificada com sucesso' <<<"$LIB"; then
-  echo "binário main.sy não roteia soyuz build project-aware: $LIB" >&2
+  echo "binário main.sy não delega soyuz build project-aware ao bootstrap: $LIB" >&2
   exit 1
 fi
 

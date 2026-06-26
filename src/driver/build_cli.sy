@@ -96,6 +96,18 @@ pub fn buildCliLegacyBootstrapCommand(plan: BuildCliLegacyPlan) -> String {
     return "$(cmd) $(plan.entry)"
 }
 
+pub fn buildCliProjectBootstrapCommand(args: List[String]) -> String {
+    if !cliBuildProjectModeFromArgs(args) { return "" }
+    var cmd = "soyuz build"
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        cmd = "$(cmd) $(args.get(i))"
+        i = i + 1
+    }
+    return cmd
+}
+
 pub fn defaultHelloMinimalBuildArgv() -> List[String] {
     var argv = List[String]{}
     argv.append("soyuz")
