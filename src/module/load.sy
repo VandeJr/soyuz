@@ -15,3 +15,4 @@ import @module/stdlib_fs_test
 import @module/stdlib_prelude_test
 import @module/stdlib_string_test
 import @module/stdlib_async_test
+import @module/stdlib_path_test

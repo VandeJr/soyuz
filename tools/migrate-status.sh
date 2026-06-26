@@ -282,6 +282,13 @@ else
   echo "  tools/stdlib-async-check.sh ausente"
 fi
 
+hr "Stdlib path check (bootstrap, S10)"
+if [[ -x tools/stdlib-path-check.sh ]]; then
+  bash tools/stdlib-path-check.sh 2>&1 || echo "→ stdlib path check FALHOU"
+else
+  echo "  tools/stdlib-path-check.sh ausente"
+fi
+
 hr "Runtime embed check (bootstrap, S9)"
 if [[ -x tools/runtime-embed-check.sh ]]; then
   bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"
