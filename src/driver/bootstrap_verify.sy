@@ -9,3 +9,11 @@ pub fn defaultBootstrapVerifyScript() -> String = "tools/bootstrap-verify.sh"
 pub fn bootstrapVerifyLibraryStepReady() -> Bool {
     return bootstrapVerifyLibraryMarker().len() > 0 && defaultBootstrapVerifyScript().len() > 0
 }
+
+pub fn bootstrapVerifyTestMarker() -> String = "testes passaram"
+
+pub fn bootstrapVerifyTestStepName() -> String = "test_runner fixed-point"
+
+pub fn bootstrapVerifyTestStepReady() -> Bool {
+    return bootstrapVerifyTestMarker().len() > 0
+}

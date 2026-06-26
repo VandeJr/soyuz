@@ -1,6 +1,7 @@
 import (
-    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady } from @driver/bootstrap_verify
+    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, bootstrapVerifyTestMarker, bootstrapVerifyTestStepName, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady, bootstrapVerifyTestStepReady } from @driver/bootstrap_verify
     { buildCliLibraryVerifyStubMessage } from @driver/build_cli
+    { testRunnerBootstrapSuccessMarker, defaultTestRunnerBootstrapCommand } from @driver/test_runner_gate
     { defaultDriverBootstrapVerifyScript } from @driver/build
     { assertMsg } from @soyuz/testing
 )
@@ -9,5 +10,9 @@ test fn testBootstrapVerifyMetadata() {
     assertMsg(bootstrapVerifyLibraryStepReady(), "library step metadata ready")
     assertMsg(buildCliLibraryVerifyStubMessage().contains(bootstrapVerifyLibraryMarker()), "stub matches marker")
     assertMsg(defaultBootstrapVerifyScript() == defaultDriverBootstrapVerifyScript(), "script path")
-    assertMsg(bootstrapVerifyLibraryStepName().contains("fixed-point"), "step name")
+    assertMsg(bootstrapVerifyLibraryStepName().contains("fixed-point"), "library step name")
+    assertMsg(bootstrapVerifyTestStepReady(), "test step metadata ready")
+    assertMsg(testRunnerBootstrapSuccessMarker() == bootstrapVerifyTestMarker(), "test marker matches gate")
+    assertMsg(defaultTestRunnerBootstrapCommand().contains("test_runner.sy"), "bootstrap test command")
+    assertMsg(bootstrapVerifyTestStepName().contains("fixed-point"), "test step name")
 }

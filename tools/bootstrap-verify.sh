@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # S12: fixed-point bootstrap verification (incremental).
 # Step 1: library verify message matches bootstrap soyuz vs standalone main.sy (vN).
+# Step 2: test_runner success marker matches bootstrap soyuz vs standalone main.sy (vN).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,3 +46,20 @@ if ! grep -q "$MARKER" <<<"$STANDALONE_OUT"; then
 fi
 
 echo "→ bootstrap-verify library fixed-point (S12 step 1) OK"
+
+TEST_MARKER="testes passaram"
+
+BOOTSTRAP_TEST="$(soyuz test test_runner.sy 2>&1 || true)"
+STANDALONE_TEST="$("$OUT" test test_runner.sy 2>&1 || true)"
+
+if ! grep -q "$TEST_MARKER" <<<"$BOOTSTRAP_TEST"; then
+  echo "bootstrap soyuz test sem marcador de sucesso: $BOOTSTRAP_TEST" >&2
+  exit 1
+fi
+
+if ! grep -q "$TEST_MARKER" <<<"$STANDALONE_TEST"; then
+  echo "standalone output test sem marcador de sucesso: $STANDALONE_TEST" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify test_runner fixed-point (S12 step 2) OK"
