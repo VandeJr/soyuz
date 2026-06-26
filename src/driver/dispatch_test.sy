@@ -1,7 +1,8 @@
 import (
-    { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliActionTest, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliHelloMinimalBuildActionReady, cliTestActionReady, cliTestExecCommandFromArgv, cliTestRunnerActionReady } from @driver/dispatch
+    { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliActionTest, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliHelloMinimalBuildActionReady, cliSoyuzLibraryBuildActionReady, cliTestActionReady, cliTestExecCommandFromArgv, cliTestRunnerActionReady } from @driver/dispatch
     { cliCommandRun, cliCommandBuild, cliCommandNew, cliCommandTest, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
     { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput } from @driver/build_cli
+    { defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyMessage } from @driver/project_cli
     { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
@@ -28,6 +29,11 @@ test fn testCliDispatchAction() {
     assertMsg(cliBuildActionReady(buildArgv), "hello minimal build action ready")
     assertMsg(cliBuildSuccessMessageFromArgv(buildArgv).contains(buildCliLegacyDefaultOutput()), "build success message")
     assertMsg(cliHelloMinimalBuildActionReady(), "hello minimal build helper")
+
+    val libraryArgv = defaultSoyuzLibraryBuildArgv()
+    assertMsg(cliBuildActionReady(libraryArgv), "library build action ready")
+    assertMsg(cliBuildSuccessMessageFromArgv(libraryArgv).contains("verificada com sucesso"), "library build success")
+    assertMsg(cliSoyuzLibraryBuildActionReady(), "library build helper")
 
     var testArgv = defaultTestRunnerArgv()
     assertMsg(cliDispatchAction(testArgv) == cliActionTest(), "test command routed")

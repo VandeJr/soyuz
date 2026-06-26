@@ -1,0 +1,26 @@
+import (
+    { soyuzLibraryProjectRoot, buildCliProjectConfigFromRoot, buildCliProjectConfigReady, buildCliLibraryVerifyMessage, cliBuildProjectModeFromArgs, soyuzLibraryProjectVerifyReady, planSoyuzLibraryProjectFrontendBuild, defaultSoyuzLibraryBuildArgv, soyuzLibraryProjectIndex } from @driver/project_cli
+    { frontendBuildReady } from @driver/frontend
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testBuildCliProjectConfig() {
+    val root = soyuzLibraryProjectRoot()
+    val index = soyuzLibraryProjectIndex()
+    val cfg = buildCliProjectConfigFromRoot(root, index)
+    assertMsg(buildCliProjectConfigReady(cfg), "library project config ready")
+    assertMsg(cfg.meta.name == "soyuz", "project name")
+    assertMsg(cfg.meta.entry == "lib.sy", "library default entry")
+    assertMsg(buildCliLibraryVerifyMessage(cfg).contains("verificada com sucesso"), "verify message")
+}
+
+test fn testSoyuzLibraryProjectFrontendBuild() {
+    assertMsg(frontendBuildReady(planSoyuzLibraryProjectFrontendBuild()), "library frontend build ready")
+    assertMsg(soyuzLibraryProjectVerifyReady(), "library project verify ready")
+}
+
+test fn testDefaultSoyuzLibraryBuildArgv() {
+    val argv = defaultSoyuzLibraryBuildArgv()
+    assertMsg(argv.size() == 2, "library build argv shape")
+    assertMsg(cliBuildProjectModeFromArgs(List[String]{}), "empty args is project mode")
+}

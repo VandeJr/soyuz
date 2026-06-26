@@ -5,7 +5,8 @@ import (
     { helloMinimalFixturePath } from @driver/export
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
-    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv } from @driver/build_cli
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv, cliBuildLegacyHasEntry } from @driver/build_cli
+    { cliBuildProjectModeFromArgs, soyuzLibraryProjectVerifyReady, buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectRoot, soyuzLibraryProjectIndex, defaultSoyuzLibraryBuildArgv } from @driver/project_cli
     { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath, defaultTestRunnerArgv } from @driver/test_cli
     { planHelloFullBuild, testRunnerCliPath, helloTestBuildReady } from @driver/export
     { fullBuildReady } from @driver/pipeline
@@ -106,6 +107,9 @@ pub fn cliNewSuccessMessageFromArgv(argv: List[String]) -> String {
 pub fn cliBuildActionReady(argv: List[String]) -> Bool {
     if cliDispatchAction(argv) != cliActionBuild() { return false }
     val dispatch = cliDispatchFromArgv(argv)
+    if cliBuildProjectModeFromArgs(dispatch.args) {
+        return soyuzLibraryProjectVerifyReady()
+    }
     val plan = buildCliLegacyPlanFromArgs(dispatch.args)
     if !buildCliLegacyPlanReady(plan) { return false }
     if plan.entry != helloMinimalFixturePath() { return false }
@@ -115,11 +119,20 @@ pub fn cliBuildActionReady(argv: List[String]) -> Bool {
 pub fn cliBuildSuccessMessageFromArgv(argv: List[String]) -> String {
     if !cliBuildActionReady(argv) { return "" }
     val dispatch = cliDispatchFromArgv(argv)
+    if cliBuildProjectModeFromArgs(dispatch.args) {
+        val root = soyuzLibraryProjectRoot()
+        val index = soyuzLibraryProjectIndex()
+        return buildCliLibraryVerifyMessage(buildCliProjectConfigFromRoot(root, index))
+    }
     return buildCliLegacySuccessMessage(buildCliLegacyPlanFromArgs(dispatch.args))
 }
 
 pub fn cliHelloMinimalBuildActionReady() -> Bool {
     return cliBuildActionReady(defaultHelloMinimalBuildArgv())
+}
+
+pub fn cliSoyuzLibraryBuildActionReady() -> Bool {
+    return cliBuildActionReady(defaultSoyuzLibraryBuildArgv())
 }
 
 pub fn cliTestActionReady(argv: List[String]) -> Bool {

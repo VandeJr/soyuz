@@ -3,6 +3,7 @@ import (
     { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv, cliCommandNew, cliCommandBuild, cliCommandTest } from @driver/cli
     { newProjectSuccessMessage } from @driver/new
     { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput } from @driver/build_cli
+    { defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyMessage } from @driver/project_cli
     { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
@@ -37,6 +38,10 @@ test fn testCliHelloMinimalEntryReady() {
     val buildArgv = defaultHelloMinimalBuildArgv()
     assertMsg(cliEntryReady(buildArgv), "build entry ready")
     assertMsg(cliEntryOutput(buildArgv).contains(buildCliLegacyDefaultOutput()), "build entry success message")
+
+    val libraryArgv = defaultSoyuzLibraryBuildArgv()
+    assertMsg(cliEntryReady(libraryArgv), "library build entry ready")
+    assertMsg(cliEntryOutput(libraryArgv).contains("verificada com sucesso"), "library verify message")
 
     val testArgv = defaultTestRunnerArgv()
     assertMsg(cliEntryReady(testArgv), "test entry ready")

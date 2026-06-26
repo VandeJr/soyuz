@@ -110,4 +110,6 @@ pub fn defaultDriverCliBuildCheckScript() -> String = "tools/driver-cli-build-ch
 
 pub fn defaultDriverCliTestCheckScript() -> String = "tools/driver-cli-test-check.sh"
 
+pub fn defaultDriverCliProjectBuildCheckScript() -> String = "tools/driver-cli-project-build-check.sh"
+
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

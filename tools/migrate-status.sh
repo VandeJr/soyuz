@@ -541,6 +541,13 @@ else
   echo "  tools/driver-cli-test-check.sh ausente"
 fi
 
+hr "Driver cli-project-build check (bootstrap, S11)"
+if [[ -x tools/driver-cli-project-build-check.sh ]]; then
+  bash tools/driver-cli-project-build-check.sh 2>&1 || echo "→ driver cli-project-build check FALHOU"
+else
+  echo "  tools/driver-cli-project-build-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

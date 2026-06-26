@@ -1,0 +1,74 @@
+// Mirrors soyuz-go/cmd/main.go cmdBuild project-aware library verify (no OS I/O).
+
+import (
+    { joinPathFile, PathIndex, emptyPathIndex } from @module/paths
+    { ProjectConfig, loadProjectConfigFromEntry } from @module/project
+    { newResolverWithStdlib } from @module/resolver
+    { planFrontendBuild, frontendBuildReady, FrontendBuildPlan } from @driver/frontend
+    { cliBuildLegacyHasEntry } from @driver/build_cli
+)
+
+pub fn soyuzLibraryProjectRoot() -> String = "/tmp/soyuz-cli-library"
+
+pub fn soyuzLibraryProjectTomlContent() -> String {
+    return "[project]\nname    = \"soyuz\"\nversion = \"0.1.0\"\ntype    = \"library\"\n\n[packages]\n"
+}
+
+pub fn soyuzLibraryProjectLibSource() -> String = "fn main() {}\n"
+
+pub fn soyuzLibraryProjectPreludeSource() -> String = "pub interface Equals { }\n"
+
+pub fn installSoyuzLibraryProjectStub(index: PathIndex, root: String) {
+    index.markerFiles.append(joinPathFile(root, "soyuz.toml"))
+    index.fileContents.set(joinPathFile(root, "soyuz.toml"), soyuzLibraryProjectTomlContent())
+    index.fileContents.set(joinPathFile(root, "lib.sy"), soyuzLibraryProjectLibSource())
+    index.fileContents.set(joinPathFile(root, "stdlib/prelude.sy"), soyuzLibraryProjectPreludeSource())
+}
+
+pub fn soyuzLibraryProjectIndex() -> PathIndex {
+    var index = emptyPathIndex()
+    installSoyuzLibraryProjectStub(index, soyuzLibraryProjectRoot())
+    return index
+}
+
+pub fn cliBuildProjectAnchorPath(root: String) -> String = joinPathFile(root, "_")
+
+pub fn cliBuildProjectModeFromArgs(args: List[String]) -> Bool = !cliBuildLegacyHasEntry(args)
+
+pub fn buildCliProjectConfigFromRoot(root: String, index: PathIndex) -> ProjectConfig {
+    return loadProjectConfigFromEntry(cliBuildProjectAnchorPath(root), index)
+}
+
+pub fn buildCliProjectConfigReady(cfg: ProjectConfig) -> Bool {
+    if cfg.root.len() == 0 { return false }
+    if cfg.meta.name.len() == 0 { return false }
+    return cfg.meta.type == "library"
+}
+
+pub fn buildCliLibraryVerifyMessage(cfg: ProjectConfig) -> String {
+    return "Biblioteca '$(cfg.meta.name)' v$(cfg.meta.version) verificada com sucesso."
+}
+
+pub fn planSoyuzLibraryProjectFrontendBuild() -> FrontendBuildPlan {
+    val root = soyuzLibraryProjectRoot()
+    val index = soyuzLibraryProjectIndex()
+    val cfg = buildCliProjectConfigFromRoot(root, index)
+    val entry = joinPathFile(cfg.root, cfg.meta.entry)
+    val stdlibDir = joinPathFile(root, "stdlib")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    return planFrontendBuild(entry, r, index)
+}
+
+pub fn soyuzLibraryProjectVerifyReady() -> Bool {
+    val root = soyuzLibraryProjectRoot()
+    val index = soyuzLibraryProjectIndex()
+    if !buildCliProjectConfigReady(buildCliProjectConfigFromRoot(root, index)) { return false }
+    return frontendBuildReady(planSoyuzLibraryProjectFrontendBuild())
+}
+
+pub fn defaultSoyuzLibraryBuildArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("build")
+    return argv
+}
