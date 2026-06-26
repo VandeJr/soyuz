@@ -1,6 +1,6 @@
 import (
-    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker, mainStandaloneThinCliMainExecIsRealSource, mainStandaloneThinCliMainExecPlanReady, mainStandaloneThinCliMainExecSource, mainStandaloneCliMainExecHelperMarker } from @driver/main_build
-    { bootstrapVerifySelfRebuildEntry } from @driver/bootstrap_verify
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker, mainStandaloneThinCliMainExecIsRealSource, mainStandaloneThinCliMainExecPlanReady, mainStandaloneThinCliMainExecSource, mainStandaloneCliMainExecHelperMarker, mainStandaloneThinCliUsageIsRealSource, mainStandaloneThinCliUsagePlanReady, mainStandaloneThinCliUsageSource, mainStandaloneCliUsageHeaderMarker, mainStandaloneThinMainStandaloneSource } from @driver/main_build
+    { bootstrapVerifySelfRebuildEntry, bootstrapVerifySelfRebuildUsageMarker } from @driver/bootstrap_verify
     { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
     { fullBuildReady } from @driver/pipeline
     { assertMsg } from @soyuz/testing
@@ -26,4 +26,8 @@ test fn testMainStandaloneFullBuildPlan() {
     assertMsg(mainStandaloneThinCliMainExecIsRealSource(), "real cli_main_exec source")
     assertMsg(mainStandaloneThinCliMainExecPlanReady(), "real cli_main_exec plan ready")
     assertMsg(mainStandaloneThinCliMainExecSource().contains(mainStandaloneCliMainExecHelperMarker()), "cli_main_exec helper")
+    assertMsg(mainStandaloneThinCliUsageIsRealSource(), "real cli_usage source")
+    assertMsg(mainStandaloneThinCliUsagePlanReady(), "real cli_usage plan ready")
+    assertMsg(mainStandaloneThinCliUsageSource().contains(mainStandaloneCliUsageHeaderMarker()), "cli_usage header")
+    assertMsg(mainStandaloneThinMainStandaloneSource().contains(bootstrapVerifySelfRebuildUsageMarker()), "main_standalone uses usage")
 }

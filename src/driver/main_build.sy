@@ -52,7 +52,22 @@ pub fn mainStandaloneThinCliArgvIsRealSource() -> Bool {
 }
 
 pub fn mainStandaloneThinMainStandaloneSource() -> String {
-    return "pub fn runStandaloneCli(argv: List[String]) -> String = \"standalone\"\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
+    return "import (\n    { cliUsageText, cliArgvNeedsUsage } from @driver/cli_usage\n)\n\npub fn runStandaloneCli(argv: List[String]) -> String {\n    if cliArgvNeedsUsage(argv) { return cliUsageText() }\n    return \"standalone\"\n}\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
+}
+
+pub fn mainStandaloneThinCliUsageSource() -> String {
+    return "// CLI usage strings and command names — no driver pipeline imports (standalone main.sy).\n\npub fn cliCommandNew() -> String = \"new\"\n\npub fn cliCommandBuild() -> String = \"build\"\n\npub fn cliCommandRun() -> String = \"run\"\n\npub fn cliCommandTest() -> String = \"test\"\n\npub fn isKnownCliCommand(name: String) -> Bool {\n    if name == cliCommandNew() { return true }\n    if name == cliCommandBuild() { return true }\n    if name == cliCommandRun() { return true }\n    if name == cliCommandTest() { return true }\n    return false\n}\n\npub fn cliUsageHeader() -> String = \"Uso: soyuz <comando> [argumentos]\"\n\npub fn cliUsageCommandsMarker() -> String = \"Comandos:\"\n\npub fn cliUsageNewLine() -> String = \"  new   [--lib] <nome>                        Cria um novo projeto Soyuz\"\n\npub fn cliUsageBuildLine() -> String = \"  build [--release] [arquivo.sy]              Compila o projeto ou um arquivo\"\n\npub fn cliUsageRunLine() -> String = \"  run   [--release] [arquivo.sy] [-- args...] Compila e executa\"\n\npub fn cliUsageTestLine() -> String = \"  test  [--filter=nome] [arquivo.sy]          Executa os testes\"\n\npub fn cliUsageText() -> String {\n    return cliUsageHeader() + \"\\n\" + cliUsageCommandsMarker() + \"\\n\" + cliUsageNewLine() + \"\\n\" + cliUsageBuildLine() + \"\\n\" + cliUsageRunLine() + \"\\n\" + cliUsageTestLine()\n}\n\npub fn cliArgvNeedsUsage(argv: List[String]) -> Bool = argv.size() < 2\n"
+}
+
+pub fn mainStandaloneCliUsageHeaderMarker() -> String = "Uso: soyuz"
+
+pub fn mainStandaloneCliUsageCommandsMarker() -> String = "Comandos:"
+
+pub fn mainStandaloneThinCliUsageIsRealSource() -> Bool {
+    val src = mainStandaloneThinCliUsageSource()
+    if !src.contains(mainStandaloneCliUsageHeaderMarker()) { return false }
+    if !src.contains(mainStandaloneCliUsageCommandsMarker()) { return false }
+    return src.contains("cliUsageText")
 }
 
 pub fn mainStandaloneThinPreludeSource() -> String {
@@ -74,6 +89,7 @@ fn mainStandaloneThinGraphIndex() -> PathIndex {
     index.fileContents.set(entry, mainStandaloneThinMainSource())
     index.fileContents.set(joinPathFile(root, "cli_main_exec.sy"), mainStandaloneThinCliMainExecSource())
     index.fileContents.set(joinPathFile(root, "src/driver/cli_argv.sy"), mainStandaloneThinCliArgvSource())
+    index.fileContents.set(joinPathFile(root, "src/driver/cli_usage.sy"), mainStandaloneThinCliUsageSource())
     index.fileContents.set(joinPathFile(root, "src/driver/main_standalone.sy"), mainStandaloneThinMainStandaloneSource())
     index.fileContents.set(joinPathFile(stdlib, "prelude.sy"), mainStandaloneThinPreludeSource())
     return index
@@ -124,5 +140,10 @@ pub fn mainStandaloneThinCliArgvPlanReady() -> Bool {
 
 pub fn mainStandaloneThinCliMainExecPlanReady() -> Bool {
     if !mainStandaloneThinCliMainExecIsRealSource() { return false }
+    return mainStandaloneThinGraphPlanReady()
+}
+
+pub fn mainStandaloneThinCliUsagePlanReady() -> Bool {
+    if !mainStandaloneThinCliUsageIsRealSource() { return false }
     return mainStandaloneThinGraphPlanReady()
 }

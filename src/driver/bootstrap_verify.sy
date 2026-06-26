@@ -213,3 +213,9 @@ pub fn bootstrapVerifyNativeMainCliMainExecStepName() -> String = "native main.s
 pub fn bootstrapVerifyNativeMainCliMainExecStepReady() -> Bool {
     return bootstrapVerifyNativeMainCliArgvStepReady()
 }
+
+pub fn bootstrapVerifyNativeMainCliUsageStepName() -> String = "native main.sy real cli_usage"
+
+pub fn bootstrapVerifyNativeMainCliUsageStepReady() -> Bool {
+    return bootstrapVerifyNativeMainCliMainExecStepReady()
+}
