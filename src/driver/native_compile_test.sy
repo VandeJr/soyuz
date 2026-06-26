@@ -1,5 +1,5 @@
 import (
-    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry } from @driver/native_compile
+    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv } from @driver/native_compile
     { bootstrapVerifyLibraryMarker } from @driver/bootstrap_verify
     { buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectIndex, soyuzLibraryProjectRoot, soyuzLibraryProjectVerifyReady } from @driver/project_cli
     { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
@@ -31,4 +31,13 @@ test fn testNativeCompileLegacyBuild() {
     mainArgv.append(nativeCompileLegacyBootstrapEntry())
     assertMsg(!argvIsNativeLegacyBuild(mainArgv), "main.sy still delegates")
     assertMsg(nativeCompileLegacyBuildOutputFromArgv(mainArgv) == "", "main.sy no native output")
+}
+
+test fn testNativeCompileNew() {
+    assertMsg(standaloneCliNativeNewEnabled(), "native new enabled")
+    val argv = nativeCompileDemoNewArgv()
+    assertMsg(argvIsNativeNew(argv), "argv detects new")
+    val out = nativeCompileNewOutputFromArgv(argv)
+    assertMsg(out.contains(nativeCompileDemoNewProjectName()), "new project name")
+    assertMsg(out.contains("criado"), "new success marker")
 }

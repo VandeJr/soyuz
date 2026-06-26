@@ -62,8 +62,8 @@ fn testStandaloneCliBootstrapShellCommand() {
     newArgv.append("new")
     newArgv.append("demo")
     val newCmd = standaloneCliBootstrapNewCommand(newArgv)
-    assertMsg(newCmd.contains("soyuz new"), "bootstrap new command")
-    assertMsg(standaloneCliBootstrapShellCommand(newArgv) == newCmd, "shell picks new")
+    assertMsg(newCmd == "", "new skips bootstrap")
+    assertMsg(standaloneCliBootstrapShellCommand(newArgv) == "", "new shell empty")
 }
 
 fn testStandaloneCliBootstrapBuildDelegate() {

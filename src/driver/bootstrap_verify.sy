@@ -159,3 +159,13 @@ pub fn bootstrapVerifyNativeLegacyBuildSuccessMarker() -> String = "Build conclu
 pub fn bootstrapVerifyNativeLegacyBuildStepReady() -> Bool {
     return bootstrapVerifyNativeLibraryBuildStepReady() && bootstrapVerifyNativeLegacyBuildFixture().len() > 0
 }
+
+pub fn bootstrapVerifyNativeNewStepName() -> String = "native new project"
+
+pub fn bootstrapVerifyNativeNewProjectName() -> String = "demo-native"
+
+pub fn bootstrapVerifyNativeNewSuccessMarker() -> String = "criado"
+
+pub fn bootstrapVerifyNativeNewStepReady() -> Bool {
+    return bootstrapVerifyNativeLegacyBuildStepReady() && bootstrapVerifyNativeNewProjectName().len() > 0
+}

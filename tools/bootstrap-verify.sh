@@ -17,6 +17,7 @@
 # Step 15: vN..vN+2 embed bootstrap delegate command strings (soyuz build/test/run).
 # Step 16: standalone library build does not shell out to bootstrap soyuz (fake PATH).
 # Step 17: standalone legacy build (non-main.sy) does not shell out to bootstrap soyuz (fake PATH).
+# Step 18: standalone `new` does not shell out to bootstrap soyuz (fake PATH).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -465,3 +466,20 @@ if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_LEGACY"; then
 fi
 
 echo "→ bootstrap-verify native legacy build (S12 step 17) OK"
+
+export PATH="$FAKE_BIN_DIR:$PATH"
+
+NATIVE_NEW="$("$OUT" new demo-native 2>&1 || true)"
+export PATH="$PATH_SAVE"
+
+if ! grep -q 'criado' <<<"$NATIVE_NEW"; then
+  echo "native new falhou com soyuz fake no PATH: $NATIVE_NEW" >&2
+  exit 1
+fi
+
+if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_NEW"; then
+  echo "new ainda delega ao bootstrap soyuz" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native new project (S12 step 18) OK"
