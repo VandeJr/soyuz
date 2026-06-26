@@ -247,6 +247,13 @@ else
   echo "  tools/stdlib-collections-check.sh ausente"
 fi
 
+hr "Stdlib os check (bootstrap, S10)"
+if [[ -x tools/stdlib-os-check.sh ]]; then
+  bash tools/stdlib-os-check.sh 2>&1 || echo "→ stdlib os check FALHOU"
+else
+  echo "  tools/stdlib-os-check.sh ausente"
+fi
+
 hr "Runtime embed check (bootstrap, S9)"
 if [[ -x tools/runtime-embed-check.sh ]]; then
   bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"
