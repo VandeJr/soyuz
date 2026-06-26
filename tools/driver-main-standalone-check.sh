@@ -40,9 +40,9 @@ if ! grep -q 'demo-proj' <<<"$NEW"; then
   exit 1
 fi
 
-BUILD="$("$OUT" build tools/fixtures/hello_minimal.sy 2>&1 || true)"
+BUILD="$("$OUT" build tools/fixtures/hello_minimal.sy -o /tmp/soyuz-standalone-hello-out 2>&1 || true)"
 if ! grep -q 'Build concluído' <<<"$BUILD"; then
-  echo "binário main.sy não roteia soyuz build legacy: $BUILD" >&2
+  echo "binário main.sy não delega soyuz build legacy ao bootstrap: $BUILD" >&2
   exit 1
 fi
 

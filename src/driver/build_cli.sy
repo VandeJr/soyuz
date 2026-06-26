@@ -85,6 +85,17 @@ pub fn buildCliLegacySuccessMessage(plan: BuildCliLegacyPlan) -> String {
     return "Build concluído: $(plan.outputFile)"
 }
 
+pub fn buildCliLegacyBootstrapCommand(plan: BuildCliLegacyPlan) -> String {
+    var cmd = "soyuz build"
+    if plan.release {
+        cmd = "$(cmd) --release"
+    }
+    if plan.outputFile != buildCliLegacyDefaultOutput() {
+        cmd = "$(cmd) -o $(plan.outputFile)"
+    }
+    return "$(cmd) $(plan.entry)"
+}
+
 pub fn defaultHelloMinimalBuildArgv() -> List[String] {
     var argv = List[String]{}
     argv.append("soyuz")

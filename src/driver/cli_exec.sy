@@ -1,4 +1,4 @@
-// CLI output classification (driver library — no OS exec; see cli_os_exec.sy for main.sy).
+// CLI output classification (driver library — no OS exec; see cli_main_exec.sy for main.sy).
 
 pub fn cliOutputIsError(output: String) -> Bool = output.startsWith("erro:")
 

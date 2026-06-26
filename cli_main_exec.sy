@@ -9,3 +9,5 @@ pub fn cliOsExec(path: String) -> String {
     }
     return output
 }
+
+pub fn cliOsExecShell(cmd: String) -> String = cliOsExec(cmd)

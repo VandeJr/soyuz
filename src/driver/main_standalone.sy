@@ -4,7 +4,7 @@ import (
     { cliUsageText, cliArgvNeedsUsage, cliUsageHeader, cliCommandNew, cliCommandBuild, cliCommandTest, cliCommandRun } from @driver/cli_usage
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
-    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, defaultSoyuzLibraryBuildArgv, buildCliLegacyBootstrapCommand } from @driver/build_cli
     { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath } from @driver/test_cli
     { runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliDefaultExecPath, runCliHelloMinimalFixturePath } from @driver/run_cli
 )
@@ -67,6 +67,19 @@ pub fn standaloneCliShouldTryExec(argv: List[String]) -> Bool {
     if cmd == cliCommandRun() { return true }
     if cmd == cliCommandTest() { return true }
     return false
+}
+
+pub fn standaloneCliBootstrapBuildCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandBuild() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    if cliBuildProjectModeFromArgs(args) { return "" }
+    val plan = buildCliLegacyPlanFromArgs(args)
+    if !buildCliLegacyPlanReady(plan) { return "" }
+    return buildCliLegacyBootstrapCommand(plan)
+}
+
+pub fn standaloneCliShouldDelegateBuild(argv: List[String]) -> Bool {
+    return standaloneCliBootstrapBuildCommand(argv).len() > 0
 }
 
 pub fn standaloneCliUsageReady() -> Bool {

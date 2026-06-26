@@ -1,9 +1,10 @@
 import (
-    { runStandaloneCli, standaloneCliShouldTryExec, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliShouldTryExec, standaloneCliShouldDelegateBuild, standaloneCliBootstrapBuildCommand, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
     { cliTryExecOutput, cliOutputIsError } from @driver/cli_exec
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
     { testCliDefaultTmpBinPath } from @driver/test_cli
+    { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { assertMsg } from @soyuz/testing
 )
 
@@ -47,4 +48,16 @@ fn testStandaloneCliShouldTryExec() {
     buildArgv.append("soyuz")
     buildArgv.append("build")
     assertMsg(!standaloneCliShouldTryExec(buildArgv), "build should not try exec")
+}
+
+fn testStandaloneCliBootstrapBuildDelegate() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("build")
+    argv.append("tools/fixtures/hello_minimal.sy")
+    assertMsg(standaloneCliShouldDelegateBuild(argv), "legacy build delegates")
+    val cmd = standaloneCliBootstrapBuildCommand(argv)
+    assertMsg(cmd.contains("soyuz build"), "bootstrap command")
+    assertMsg(cmd.contains("hello_minimal"), "bootstrap entry")
+    assertMsg(!standaloneCliShouldDelegateBuild(defaultSoyuzLibraryBuildArgv()), "library build no delegate")
 }

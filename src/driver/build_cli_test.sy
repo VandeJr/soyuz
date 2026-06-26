@@ -1,5 +1,5 @@
 import (
-    { cliBuildReleaseFlag, cliBuildOutputFlag, cliBuildReleaseFromArgs, cliBuildOutputFromArgs, cliBuildLegacyEntryFromArgs, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, buildCliLegacyDefaultOutput, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { cliBuildReleaseFlag, cliBuildOutputFlag, cliBuildReleaseFromArgs, cliBuildOutputFromArgs, cliBuildLegacyEntryFromArgs, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, buildCliLegacyDefaultOutput, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, buildCliLegacyBootstrapCommand, defaultHelloMinimalBuildArgv, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { helloMinimalFixturePath } from @driver/export
     { assertMsg } from @soyuz/testing
 )
@@ -37,6 +37,15 @@ test fn testBuildCliLegacyPlanFromArgs() {
     val customPlan = buildCliLegacyPlanFromArgs(customOut)
     assertMsg(customPlan.outputFile == "mybin", "custom output")
     assertMsg(buildCliLegacySuccessMessage(customPlan).contains("mybin"), "success message")
+}
+
+test fn testBuildCliLegacyBootstrapCommand() {
+    var args = List[String]{}
+    args.append(helloMinimalFixturePath())
+    val plan = buildCliLegacyPlanFromArgs(args)
+    val cmd = buildCliLegacyBootstrapCommand(plan)
+    assertMsg(cmd.contains("soyuz build"), "bootstrap build prefix")
+    assertMsg(cmd.contains(helloMinimalFixturePath()), "bootstrap build entry")
 }
 
 test fn testDefaultHelloMinimalBuildArgv() {
