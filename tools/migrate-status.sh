@@ -548,6 +548,13 @@ else
   echo "  tools/driver-cli-project-build-check.sh ausente"
 fi
 
+hr "Driver main-entry check (bootstrap, S11)"
+if [[ -x tools/driver-main-entry-check.sh ]]; then
+  bash tools/driver-main-entry-check.sh 2>&1 || echo "→ driver main-entry check FALHOU"
+else
+  echo "  tools/driver-main-entry-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

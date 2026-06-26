@@ -1,0 +1,33 @@
+// Bridge for root main.sy — argv in, CLI output string out (no OS spawn in tests).
+
+import (
+    { cliEntryOutput } from @driver/entry
+    { cliUsageHeader } from @driver/cli
+    { defaultHelloMinimalRunArgv } from @driver/dispatch
+)
+
+pub fn runCliFromArgv(argv: List[String]) -> String = cliEntryOutput(argv)
+
+pub fn runCliMain(argv: List[String]) -> String = runCliFromArgv(argv)
+
+pub fn defaultCliProgramArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    return argv
+}
+
+pub fn cliMainUsageFromDefaultArgv() -> String {
+    return runCliFromArgv(defaultCliProgramArgv())
+}
+
+pub fn cliMainHelloRunOutput() -> String {
+    return runCliFromArgv(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliMainUsageReady() -> Bool {
+    return cliMainUsageFromDefaultArgv().contains(cliUsageHeader())
+}
+
+pub fn cliMainHelloRunReady() -> Bool {
+    return cliMainHelloRunOutput().len() > 0
+}

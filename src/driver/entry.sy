@@ -16,7 +16,7 @@ pub fn cliEntryOutput(argv: List[String]) -> String {
     }
     if cliDispatchAction(argv) == cliActionBuild() {
         if !cliBuildActionReady(argv) {
-            return "erro: build legacy incompleto"
+            return "erro: build incompleto"
         }
         return cliBuildSuccessMessageFromArgv(argv)
     }

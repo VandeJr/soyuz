@@ -1,30 +1,8 @@
 import (
-    { tokenize } from @lexer/lexer
-    { printToken, TokenType } from @lexer/tokens
+    { runCliFromArgv, defaultCliProgramArgv } from @driver/main_entry
 )
 
-// CLI: tokenize a .sy file (default: src/lexer/lexer.sy).
-// Parse + check: run `soyuz build` with type=library and entry=validate.sy
-// (see validate.sy and docs/INTEGRATION.md).
 fn main() {
-    val path = "src/lexer/lexer.sy"
-    val source = readFile(path) ?: ""
-    if source == "" {
-        print("erro: não foi possível ler $(path)")
-        return
-    }
-    val tokens = tokenize(source)
-    print("tokens: $(tokens.size())")
-    var i = 0
-    loop {
-        if i >= tokens.size() {
-            break
-        }
-        val t = tokens.get(i)
-        print("$(printToken(t.type)) $(t.lexeme)")
-        if t.type == TokenType.EOF {
-            break
-        }
-        i = i + 1
-    }
+    // Standalone binary: use default argv until prelude args() codegen works in file mode.
+    print(runCliFromArgv(defaultCliProgramArgv()))
 }
