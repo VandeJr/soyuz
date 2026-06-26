@@ -43,3 +43,9 @@ pub fn bootstrapVerifyHelloIrDebugPath() -> String = "/tmp/soyuz_debug.ll"
 pub fn bootstrapVerifyHelloIrStepReady() -> Bool {
     return bootstrapVerifyHelloIrCStringMarker().len() > 0 && bootstrapVerifyHelloIrPrintfMarker().len() > 0 && bootstrapVerifyHelloIrMainMarker().len() > 0 && bootstrapVerifyHelloIrRetMarker().len() > 0
 }
+
+pub fn bootstrapVerifyHelloLinkStepName() -> String = "hello IR link output"
+
+pub fn bootstrapVerifyHelloLinkStepReady() -> Bool {
+    return bootstrapVerifyHelloOutput().len() > 0 && bootstrapVerifyHelloIrStepReady()
+}

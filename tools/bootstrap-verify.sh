@@ -4,6 +4,7 @@
 # Step 2: test_runner success marker matches bootstrap soyuz vs standalone main.sy (vN).
 # Step 3: hello_minimal.sy run output matches bootstrap soyuz vs standalone main.sy (vN).
 # Step 4: hello IR linkable markers match canonical export template vs bootstrap codegen IR.
+# Step 5: template and bootstrap hello IR both link with runtime and print hello.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -129,3 +130,37 @@ ir_has_markers "$TEMPLATE_LL" "template export" || exit 1
 ir_has_markers "$BOOTSTRAP_LL" "bootstrap codegen" || exit 1
 
 echo "→ bootstrap-verify hello IR marker equivalence (S12 step 4) OK"
+
+# shellcheck source=manifest-format.sh
+source "$ROOT/tools/manifest-format.sh"
+
+link_hello_ir_and_run() {
+  local ll_src=$1
+  local label=$2
+  local work="$VERIFY_IR_TMP/link-$label"
+  local prefix="$work/rt"
+  local manifest="$work/pipeline.manifest"
+  local linked="$work/hello"
+  mkdir -p "$work"
+  : >"$manifest"
+  manifest_append_file "$manifest" "$prefix/out.ll" "$ll_src"
+  bash "$ROOT/tools/runtime-export-runtime-manifest.sh" "$manifest" "$prefix" --append >/dev/null
+  bash "$ROOT/tools/apply-path-index-manifest.sh" "$manifest" >/dev/null
+  bash "$ROOT/tools/runtime-run-link.sh" "$prefix/out.ll" "$prefix" "$linked"
+  "$linked"
+}
+
+TEMPLATE_LINK_OUT="$(link_hello_ir_and_run "$TEMPLATE_LL" "template")"
+BOOTSTRAP_LINK_OUT="$(link_hello_ir_and_run "$BOOTSTRAP_LL" "bootstrap")"
+
+if [[ "$TEMPLATE_LINK_OUT" != "$HELLO_MARKER" ]]; then
+  echo "template IR link esperava '$HELLO_MARKER', obteve '$TEMPLATE_LINK_OUT'" >&2
+  exit 1
+fi
+
+if [[ "$BOOTSTRAP_LINK_OUT" != "$HELLO_MARKER" ]]; then
+  echo "bootstrap IR link esperava '$HELLO_MARKER', obteve '$BOOTSTRAP_LINK_OUT'" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify hello IR link output (S12 step 5) OK"
