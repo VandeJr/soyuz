@@ -79,3 +79,11 @@ pub fn bootstrapVerifyVn2FixedPointStepName() -> String = "vN+2 fixed-point"
 pub fn bootstrapVerifyVn2FixedPointStepReady() -> Bool {
     return bootstrapVerifyVn2StepReady() && bootstrapVerifyTestStepReady() && bootstrapVerifyHelloStepReady()
 }
+
+pub fn bootstrapVerifyGenerationCount() -> Int = 3
+
+pub fn bootstrapVerifyBinarySizeStepName() -> String = "generation binary size equivalence"
+
+pub fn bootstrapVerifyBinarySizeStepReady() -> Bool {
+    return bootstrapVerifyVn2FixedPointStepReady() && bootstrapVerifyGenerationCount() >= 3
+}

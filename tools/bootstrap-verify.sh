@@ -9,6 +9,7 @@
 # Step 7: vN+1 matches bootstrap for library, test_runner, and hello run fixed-points.
 # Step 8: vN+1 rebuilds main.sy into executable vN+2 with same CLI smoke.
 # Step 9: vN+2 passes test_runner and hello run fixed-points.
+# Step 10: vN, vN+1, vN+2 share the same standalone binary size (weak binary equivalence).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -262,3 +263,14 @@ if ! grep -q "$HELLO_MARKER" <<<"$VN2_RUN"; then
 fi
 
 echo "→ bootstrap-verify vN+2 fixed-point (S12 step 9) OK"
+
+VN_SIZE=$(stat -c%s "$OUT")
+VN1_SIZE=$(stat -c%s "$OUT2")
+VN2_SIZE=$(stat -c%s "$OUT3")
+
+if [[ "$VN_SIZE" != "$VN1_SIZE" ]] || [[ "$VN1_SIZE" != "$VN2_SIZE" ]]; then
+  echo "tamanhos de binário divergem: vN=$VN_SIZE vN+1=$VN1_SIZE vN+2=$VN2_SIZE" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify generation binary size equivalence (S12 step 10) OK"
