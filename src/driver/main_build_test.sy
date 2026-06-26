@@ -1,6 +1,6 @@
 import (
-    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, planMainStandaloneFullBuild } from @driver/main_build
-    { bootstrapVerifySelfRebuildEntry, bootstrapVerifySelfRebuildSuccessMarker } from @driver/bootstrap_verify
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol } from @driver/main_build
+    { bootstrapVerifySelfRebuildEntry } from @driver/bootstrap_verify
     { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
     { fullBuildReady } from @driver/pipeline
     { assertMsg } from @soyuz/testing
@@ -8,6 +8,7 @@ import (
 
 test fn testMainStandaloneFullBuildPlan() {
     assertMsg(mainStandaloneBuildEntry() == bootstrapVerifySelfRebuildEntry(), "main entry path")
+    assertMsg(mainStandaloneThinGraphPlanReady(), "main thin graph plan ready")
     assertMsg(mainStandaloneFullBuildPlanReady(), "main standalone full build plan ready")
     assertMsg(fullBuildReady(planMainStandaloneFullBuild()), "plan full build ready")
     assertMsg(!standaloneCliNativeMainBuildEnabled(), "native main build disabled")
@@ -15,4 +16,8 @@ test fn testMainStandaloneFullBuildPlan() {
     val plan = planMainStandaloneFullBuild()
     assertMsg(plan.cfg.inputFile.endsWith(bootstrapVerifySelfRebuildEntry()), "plan input entry")
     assertMsg(plan.artifacts.irContent.len() > 0, "plan emits IR")
+    assertMsg(mainStandaloneThinMainSource().contains("cliOsExecShell"), "thin main imports exec")
+    assertMsg(mainStandalonePlanIrHasExecSymbol(plan), "plan IR has exec symbol")
+    assertMsg(mainStandaloneThinGraphIrReady(), "thin graph IR ready")
+    assertMsg(plan.artifacts.irContent.contains(mainStandaloneIrExecSymbolMarker()), "IR exec marker")
 }

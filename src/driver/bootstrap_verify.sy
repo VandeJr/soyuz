@@ -195,3 +195,9 @@ pub fn bootstrapVerifyNativeMainBuildPlanStepName() -> String = "native main.sy 
 pub fn bootstrapVerifyNativeMainBuildPlanStepReady() -> Bool {
     return bootstrapVerifyBootstrapOnlyBuildStepReady()
 }
+
+pub fn bootstrapVerifyNativeMainThinGraphStepName() -> String = "native main.sy thin graph plan"
+
+pub fn bootstrapVerifyNativeMainThinGraphStepReady() -> Bool {
+    return bootstrapVerifyNativeMainBuildPlanStepReady()
+}

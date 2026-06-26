@@ -1,11 +1,12 @@
-// S12: native main.sy full-build plan (incremental) — in-memory stub until repo graph links in-process.
+// S12: native main.sy full-build plan (incremental) — thin in-memory graph matching root main.sy imports.
 
 import (
     { runtimeAssetNames } from @runtime/embed
     { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
-    { newResolverWithStdlib } from @module/resolver
+    { newResolverWithStdlibFromIndex } from @module/resolver
     { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
     { planFullBuild, FullBuildPlan, fullBuildReady } from @driver/pipeline
+    { bootstrapVerifyCliExecSymbol } from @driver/bootstrap_verify
 )
 
 pub fn mainStandaloneBuildEntry() -> String = "main.sy"
@@ -16,19 +17,43 @@ pub fn mainStandaloneBuildGoRoot() -> String = "/ref/soyuz-go"
 
 pub fn mainStandaloneBuildOutputFile() -> String = "output"
 
-pub fn mainStandaloneStubMainSource() -> String {
-    return "fn main() {\n    print(\"standalone\")\n}\n"
+pub fn mainStandaloneThinMainSource() -> String {
+    return "import (\n    { cliProgramArgv } from @driver/cli_argv\n    { runStandaloneCli, standaloneCliBootstrapShellCommand } from @driver/main_standalone\n    { cliOsExecShell } from ./cli_main_exec\n)\n\nfn main() {\n    val argv = cliProgramArgv()\n    val bootstrap = standaloneCliBootstrapShellCommand(argv)\n    if bootstrap.len() > 0 {\n        print(cliOsExecShell(bootstrap))\n        return\n    }\n    print(runStandaloneCli(argv))\n}\n"
 }
 
-pub fn mainStandaloneStubPreludeSource() -> String = "pub fn print(x: String) {}\n"
+pub fn mainStandaloneThinCliMainExecSource() -> String {
+    return "extern fn soyuz_os_exec(cmd: String) -> String\n\npub fn cliOsExecShell(cmd: String) -> String = soyuz_os_exec(cmd)\n"
+}
 
-fn mainStandaloneStubIndex() -> PathIndex {
-    val tmpDir = mainStandaloneBuildTmpDir()
-    val entry = joinPathFile(tmpDir, mainStandaloneBuildEntry())
-    val stdlib = joinPathFile(tmpDir, "stdlib")
+pub fn mainStandaloneThinCliArgvSource() -> String {
+    return "pub fn cliProgramArgv() -> List[String] {\n    var argv = List[String]{}\n    argv.append(\"soyuz\")\n    return argv\n}\n"
+}
+
+pub fn mainStandaloneThinMainStandaloneSource() -> String {
+    return "pub fn runStandaloneCli(argv: List[String]) -> String = \"standalone\"\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
+}
+
+pub fn mainStandaloneThinPreludeSource() -> String {
+    return "pub fn print(x: String) {}\n"
+}
+
+pub fn mainStandaloneProjectTomlContent() -> String {
+    return "[project]\nname    = \"soyuz-main-stub\"\nversion = \"0.1.0\"\ntype    = \"binary\"\nentry   = \"main.sy\"\n\n[packages]\ndriver = \"src/driver\"\n"
+}
+
+pub fn mainStandaloneIrExecSymbolMarker() -> String = bootstrapVerifyCliExecSymbol()
+
+fn mainStandaloneThinGraphIndex() -> PathIndex {
+    val root = mainStandaloneBuildTmpDir()
+    val entry = joinPathFile(root, mainStandaloneBuildEntry())
+    val stdlib = joinPathFile(root, "stdlib")
     var index = emptyPathIndex()
-    index.fileContents.set(joinPathFile(stdlib, "prelude.sy"), mainStandaloneStubPreludeSource())
-    index.fileContents.set(entry, mainStandaloneStubMainSource())
+    index.fileContents.set(joinPathFile(root, "soyuz.toml"), mainStandaloneProjectTomlContent())
+    index.fileContents.set(entry, mainStandaloneThinMainSource())
+    index.fileContents.set(joinPathFile(root, "cli_main_exec.sy"), mainStandaloneThinCliMainExecSource())
+    index.fileContents.set(joinPathFile(root, "src/driver/cli_argv.sy"), mainStandaloneThinCliArgvSource())
+    index.fileContents.set(joinPathFile(root, "src/driver/main_standalone.sy"), mainStandaloneThinMainStandaloneSource())
+    index.fileContents.set(joinPathFile(stdlib, "prelude.sy"), mainStandaloneThinPreludeSource())
     return index
 }
 
@@ -42,18 +67,30 @@ fn mainStandaloneRuntimeIndex() -> PathIndex {
 }
 
 pub fn planMainStandaloneFullBuild() -> FullBuildPlan {
-    val tmpDir = mainStandaloneBuildTmpDir()
-    val entry = joinPathFile(tmpDir, mainStandaloneBuildEntry())
-    val stdlibDir = joinPathFile(tmpDir, "stdlib")
-    val r = newResolverWithStdlib(entry, stdlibDir)
+    val root = mainStandaloneBuildTmpDir()
+    val entry = joinPathFile(root, mainStandaloneBuildEntry())
+    val stdlibDir = joinPathFile(root, "stdlib")
+    val index = mainStandaloneThinGraphIndex()
+    val r = newResolverWithStdlibFromIndex(entry, stdlibDir, index)
     val cfg = buildConfigForEntry(
         entry,
-        joinPathFile(tmpDir, mainStandaloneBuildOutputFile()),
+        joinPathFile(root, mainStandaloneBuildOutputFile()),
         false,
-        tmpDir,
+        root,
         defaultRuntimeSrcDir(mainStandaloneBuildGoRoot())
     )
-    return planFullBuild(entry, cfg, r, mainStandaloneStubIndex(), mainStandaloneRuntimeIndex())
+    return planFullBuild(entry, cfg, r, index, mainStandaloneRuntimeIndex())
 }
 
-pub fn mainStandaloneFullBuildPlanReady() -> Bool = fullBuildReady(planMainStandaloneFullBuild())
+pub fn mainStandaloneThinGraphPlanReady() -> Bool = fullBuildReady(planMainStandaloneFullBuild())
+
+pub fn mainStandaloneFullBuildPlanReady() -> Bool = mainStandaloneThinGraphPlanReady()
+
+pub fn mainStandalonePlanIrHasExecSymbol(plan: FullBuildPlan) -> Bool {
+    if !fullBuildReady(plan) { return false }
+    return plan.artifacts.irContent.contains(mainStandaloneIrExecSymbolMarker())
+}
+
+pub fn mainStandaloneThinGraphIrReady() -> Bool {
+    return mainStandalonePlanIrHasExecSymbol(planMainStandaloneFullBuild())
+}
