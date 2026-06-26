@@ -1,5 +1,5 @@
 import (
-    { cliNewLibFlag, cliNewIsLibFromArgs, cliNewNameFromArgs, cliNewArgsReady, newProjectTomlContent, newProjectMainSyContent, newProjectLibSyContent, newProjectSuccessMessage, newProjectPlanFromArgs, newProjectPlanReady, newProjectType } from @driver/new
+    { cliNewLibFlag, cliNewIsLibFromArgs, cliNewNameFromArgs, cliNewArgsReady, newProjectTomlContent, newProjectMainSyContent, newProjectLibSyContent, newProjectSuccessMessage, newProjectPlanFromArgs, newProjectPlanReady, newProjectType, newCliBootstrapCommand } from @driver/new
     { assertMsg } from @soyuz/testing
 )
 
@@ -50,4 +50,16 @@ test fn testNewProjectPlanFromArgs() {
     assertMsg(libPlan.entryFileName == "lib.sy", "library entry file")
     assertMsg(libPlan.successMessage.contains("biblioteca"), "library success message")
     assertMsg(newProjectSuccessMessage("x", true).contains("biblioteca"), "lib success helper")
+}
+
+test fn testNewCliBootstrapCommand() {
+    var args = List[String]{}
+    args.append("demo")
+    val cmd = newCliBootstrapCommand(args)
+    assertMsg(cmd == "soyuz new demo", "binary bootstrap command")
+    var libArgs = List[String]{}
+    libArgs.append(cliNewLibFlag())
+    libArgs.append("pkg")
+    assertMsg(newCliBootstrapCommand(libArgs).contains("--lib"), "lib bootstrap flag")
+    assertMsg(newCliBootstrapCommand(libArgs).contains("pkg"), "lib bootstrap name")
 }

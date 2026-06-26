@@ -101,3 +101,15 @@ pub fn newProjectPlanReady(plan: NewProjectPlan) -> Bool {
     }
     return plan.entryFileName == "main.sy"
 }
+
+pub fn newCliBootstrapCommand(args: List[String]) -> String {
+    if !cliNewArgsReady(args) { return "" }
+    var cmd = "soyuz new"
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        cmd = "$(cmd) $(args.get(i))"
+        i = i + 1
+    }
+    return cmd
+}

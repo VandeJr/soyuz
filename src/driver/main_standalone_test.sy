@@ -1,5 +1,5 @@
 import (
-    { runStandaloneCli, standaloneCliBootstrapShellCommand, standaloneCliBootstrapBuildCommand, standaloneCliBootstrapTestCommand, standaloneCliBootstrapRunCommand, standaloneCliShouldDelegateBuild, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliBootstrapShellCommand, standaloneCliBootstrapBuildCommand, standaloneCliBootstrapTestCommand, standaloneCliBootstrapRunCommand, standaloneCliBootstrapNewCommand, standaloneCliShouldDelegateBuild, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
     { cliTryExecOutput, cliOutputIsError } from @driver/cli_exec
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
@@ -55,6 +55,14 @@ fn testStandaloneCliBootstrapShellCommand() {
     val runCmd = standaloneCliBootstrapRunCommand(runArgv)
     assertMsg(runCmd.contains("soyuz run"), "bootstrap run command")
     assertMsg(standaloneCliBootstrapShellCommand(runArgv) == runCmd, "shell picks run")
+
+    var newArgv = List[String]{}
+    newArgv.append("soyuz")
+    newArgv.append("new")
+    newArgv.append("demo")
+    val newCmd = standaloneCliBootstrapNewCommand(newArgv)
+    assertMsg(newCmd.contains("soyuz new"), "bootstrap new command")
+    assertMsg(standaloneCliBootstrapShellCommand(newArgv) == newCmd, "shell picks new")
 }
 
 fn testStandaloneCliBootstrapBuildDelegate() {

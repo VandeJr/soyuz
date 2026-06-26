@@ -34,9 +34,17 @@ if ! grep -q 'Uso: soyuz' <<<"$USAGE"; then
   exit 1
 fi
 
-NEW="$("$OUT" new demo-proj 2>&1 || true)"
+NEW_TMP="$(mktemp -d)"
+trap 'rm -rf "$NEW_TMP"' EXIT
+NEW="$(
+  cd "$NEW_TMP" && "$OUT" new demo-proj 2>&1 || true
+)"
 if ! grep -q 'demo-proj' <<<"$NEW"; then
-  echo "binário main.sy não roteia soyuz new: $NEW" >&2
+  echo "binário main.sy não delega soyuz new ao bootstrap: $NEW" >&2
+  exit 1
+fi
+if [[ ! -f "$NEW_TMP/demo-proj/soyuz.toml" ]]; then
+  echo "soyuz new via bootstrap não criou soyuz.toml" >&2
   exit 1
 fi
 
