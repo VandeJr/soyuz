@@ -12,3 +12,5 @@ import @driver/export
 import @driver/export_test
 import @driver/cli
 import @driver/cli_test
+import @driver/dispatch
+import @driver/dispatch_test

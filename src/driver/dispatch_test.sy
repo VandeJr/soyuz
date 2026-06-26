@@ -1,0 +1,24 @@
+import (
+    { cliActionUsage, cliActionRun, cliActionBuild, cliDispatchAction, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady } from @driver/dispatch
+    { cliCommandRun, cliCommandBuild, defaultHelloMinimalFixturePath } from @driver/cli
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliDispatchAction() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliDispatchAction(argv) == cliActionUsage(), "argv too short maps to usage")
+
+    argv.append(cliCommandBuild())
+    assertMsg(cliDispatchAction(argv) == cliActionBuild(), "build command routed")
+
+    var runArgv = List[String]{}
+    runArgv.append("soyuz")
+    runArgv.append(cliCommandRun())
+    runArgv.append(defaultHelloMinimalFixturePath())
+    assertMsg(cliDispatchAction(runArgv) == cliActionRun(), "run command routed")
+    assertMsg(cliRunActionReady(runArgv), "run action ready for hello fixture")
+    assertMsg(cliHelloMinimalRunActionReady(), "hello minimal run action ready")
+    assertMsg(cliRunActionPipelineReady(runArgv), "run action pipeline ready")
+    assertMsg(cliHelloMinimalRunActionPipelineReady(), "hello minimal run action pipeline ready")
+}

@@ -1,0 +1,44 @@
+// Mirrors soyuz-go/cmd/main.go switch on os.Args[1] (routing only, no OS spawn).
+
+import (
+    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
+)
+
+pub fn cliActionUsage() -> String = "usage"
+
+pub fn cliActionRun() -> String = "run"
+
+pub fn cliActionBuild() -> String = "build"
+
+pub fn cliActionTest() -> String = "test"
+
+pub fn cliActionNew() -> String = "new"
+
+pub fn cliDispatchAction(argv: List[String]) -> String {
+    if cliArgvNeedsUsage(argv) { return cliActionUsage() }
+    val dispatch = cliDispatchFromArgv(argv)
+    if !dispatch.known { return cliActionUsage() }
+    if dispatch.command == cliCommandRun() { return cliActionRun() }
+    if dispatch.command == cliCommandBuild() { return cliActionBuild() }
+    if dispatch.command == cliCommandTest() { return cliActionTest() }
+    if dispatch.command == cliCommandNew() { return cliActionNew() }
+    return cliActionUsage()
+}
+
+pub fn cliRunActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionRun() { return false }
+    return cliRunReadyFromArgv(argv)
+}
+
+pub fn cliHelloMinimalRunActionReady() -> Bool {
+    return cliRunActionReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliRunActionPipelineReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionRun() { return false }
+    return cliRunMaterializeReadyFromArgv(argv, defaultCliHelloMinimalManifestPath())
+}
+
+pub fn cliHelloMinimalRunActionPipelineReady() -> Bool {
+    return cliRunActionPipelineReady(defaultHelloMinimalRunArgv())
+}
