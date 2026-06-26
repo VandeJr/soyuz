@@ -1,7 +1,9 @@
 import (
-    { runStandaloneCli, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliShouldTryExec, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
+    { cliTryExecOutput, cliOutputIsError } from @driver/cli_exec
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
+    { testCliDefaultTmpBinPath } from @driver/test_cli
     { assertMsg } from @soyuz/testing
 )
 
@@ -28,4 +30,21 @@ fn testStandaloneCliRun() {
 
 fn testStandaloneCliLibraryBuild() {
     assertMsg(standaloneCliLibraryBuildReady(), "standalone library build message")
+}
+
+fn testStandaloneCliExecStub() {
+    val out = cliTryExecOutput(testCliDefaultTmpBinPath())
+    assertMsg(cliOutputIsError(out), "library exec stub returns error")
+    assertMsg(out.contains(testCliDefaultTmpBinPath()), "stub mentions path")
+}
+
+fn testStandaloneCliShouldTryExec() {
+    var testArgv = List[String]{}
+    testArgv.append("soyuz")
+    testArgv.append("test")
+    assertMsg(standaloneCliShouldTryExec(testArgv), "test should try exec")
+    var buildArgv = List[String]{}
+    buildArgv.append("soyuz")
+    buildArgv.append("build")
+    assertMsg(!standaloneCliShouldTryExec(buildArgv), "build should not try exec")
 }

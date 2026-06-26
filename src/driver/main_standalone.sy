@@ -61,6 +61,14 @@ pub fn runStandaloneCli(argv: List[String]) -> String {
     return "erro: binário standalone — use bootstrap soyuz para subcomandos"
 }
 
+pub fn standaloneCliShouldTryExec(argv: List[String]) -> Bool {
+    if argv.size() < 2 { return false }
+    val cmd = argv.get(1)
+    if cmd == cliCommandRun() { return true }
+    if cmd == cliCommandTest() { return true }
+    return false
+}
+
 pub fn standaloneCliUsageReady() -> Bool {
     return runStandaloneCli(defaultCliProgramArgv()).contains(cliUsageHeader())
 }

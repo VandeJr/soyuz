@@ -1,0 +1,25 @@
+import (
+    { cliOutputIsError, cliOutputIsExecPath, cliTryExecOutput, cliRenderOutput } from @driver/cli_exec
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliOutputClassification() {
+    assertMsg(cliOutputIsError("erro: run incompleto"), "error prefix")
+    assertMsg(!cliOutputIsError("Build concluído: output"), "success is not error")
+    assertMsg(cliOutputIsExecPath("/tmp/soyuz-cli-run/app"), "absolute path is exec")
+    assertMsg(!cliOutputIsExecPath("Uso: soyuz"), "usage is not exec")
+    assertMsg(!cliOutputIsExecPath("erro: exec /x: fail"), "exec error is not exec path")
+}
+
+test fn testCliRenderOutputPassthrough() {
+    val usage = "Uso: soyuz <comando>"
+    assertMsg(cliRenderOutput(usage) == usage, "usage passthrough")
+    val msg = "Build concluído: output"
+    assertMsg(cliRenderOutput(msg) == msg, "build message passthrough")
+}
+
+test fn testCliTryExecStub() {
+    val out = cliTryExecOutput("/tmp/soyuz-cli-exec-missing-test-bin")
+    assertMsg(cliOutputIsError(out), "stub exec yields error")
+    assertMsg(out.contains("/tmp/soyuz-cli-exec-missing-test-bin"), "stub mentions path")
+}

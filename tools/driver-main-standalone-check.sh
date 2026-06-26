@@ -23,8 +23,8 @@ if [[ ! -x "$OUT" ]]; then
   exit 1
 fi
 
-if ! grep -q 'runStandaloneCli' "$ROOT/main.sy"; then
-  echo "main.sy não delega ao standalone CLI" >&2
+if ! grep -q 'cliOsExec' "$ROOT/main.sy"; then
+  echo "main.sy não usa exec OS no standalone" >&2
   exit 1
 fi
 
@@ -53,13 +53,13 @@ if ! grep -q 'verificada com sucesso' <<<"$LIB"; then
 fi
 
 TEST="$("$OUT" test 2>&1 || true)"
-if ! grep -q '/tmp/soyuz-cli-test/test-bin' <<<"$TEST"; then
+if ! grep -qE '/tmp/soyuz-cli-test/test-bin|erro: exec /tmp/soyuz-cli-test/test-bin' <<<"$TEST"; then
   echo "binário main.sy não roteia soyuz test legacy: $TEST" >&2
   exit 1
 fi
 
 RUN="$("$OUT" run tools/fixtures/hello_minimal.sy 2>&1 || true)"
-if ! grep -q '/tmp/soyuz-cli-run/app' <<<"$RUN"; then
+if ! grep -qE '/tmp/soyuz-cli-run/app|erro: exec /tmp/soyuz-cli-run/app' <<<"$RUN"; then
   echo "binário main.sy não roteia soyuz run legacy: $RUN" >&2
   exit 1
 fi

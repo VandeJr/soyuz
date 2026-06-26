@@ -1,0 +1,11 @@
+// OS exec for root main.sy only (runtime FFI in file-mode binary).
+
+extern fn soyuz_os_exec(cmd: String) -> String
+
+pub fn cliOsExec(path: String) -> String {
+    val output = soyuz_os_exec(path)
+    if output.len() == 0 {
+        return "erro: exec $(path): falhou"
+    }
+    return output
+}

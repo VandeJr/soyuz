@@ -1,8 +1,16 @@
 import (
     { cliProgramArgv } from @driver/cli_argv
-    { runStandaloneCli } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliShouldTryExec } from @driver/main_standalone
+    { cliOutputIsExecPath } from @driver/cli_exec
+    { cliOsExec } from ./cli_main_exec
 )
 
 fn main() {
-    print(runStandaloneCli(cliProgramArgv()))
+    val argv = cliProgramArgv()
+    val output = runStandaloneCli(argv)
+    if standaloneCliShouldTryExec(argv) && cliOutputIsExecPath(output) {
+        print(cliOsExec(output))
+        return
+    }
+    print(output)
 }
