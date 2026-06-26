@@ -20,3 +20,4 @@ import @module/stdlib_feature_variaveis_test
 import @module/stdlib_feature_flow_test
 import @module/stdlib_feature_funcoes_test
 import @module/stdlib_feature_tipos_test
+import @module/stdlib_feature_strings_test
