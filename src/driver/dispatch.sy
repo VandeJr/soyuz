@@ -1,7 +1,9 @@
 // Mirrors soyuz-go/cmd/main.go switch on os.Args[1] (routing only, no OS spawn).
 
 import (
-    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
+    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, cliRunEntryFromArgs, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliUsageText, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
+    { helloMinimalFixturePath } from @driver/export
+    { runPlanOrderedMaterializeCommandCount } from @driver/run
 )
 
 pub fn cliActionUsage() -> String = "usage"
@@ -41,4 +43,32 @@ pub fn cliRunActionPipelineReady(argv: List[String]) -> Bool {
 
 pub fn cliHelloMinimalRunActionPipelineReady() -> Bool {
     return cliRunActionPipelineReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliDispatchNeedsUsage(argv: List[String]) -> Bool {
+    return cliDispatchAction(argv) == cliActionUsage()
+}
+
+pub fn cliDispatchUsageOutput(argv: List[String]) -> String {
+    if !cliDispatchNeedsUsage(argv) { return "" }
+    return cliUsageText()
+}
+
+pub fn cliRunActionOrderedCommands(argv: List[String]) -> List[String] {
+    if !cliRunActionPipelineReady(argv) { return List[String]{} }
+    val dispatch = cliDispatchFromArgv(argv)
+    val entry = cliRunEntryFromArgs(dispatch.args)
+    if entry != helloMinimalFixturePath() { return List[String]{} }
+    return cliHelloMinimalRunOrderedCommands()
+}
+
+pub fn cliRunActionOrderedCommandsReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionRun() { return false }
+    val cmds = cliRunActionOrderedCommands(argv)
+    if cmds.size() != runPlanOrderedMaterializeCommandCount() { return false }
+    return cliHelloMinimalRunOrderedCommandsReady()
+}
+
+pub fn cliHelloMinimalRunActionOrderedCommandsReady() -> Bool {
+    return cliRunActionOrderedCommandsReady(defaultHelloMinimalRunArgv())
 }

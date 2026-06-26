@@ -1,6 +1,7 @@
 import (
-    { cliActionUsage, cliActionRun, cliActionBuild, cliDispatchAction, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady } from @driver/dispatch
-    { cliCommandRun, cliCommandBuild, defaultHelloMinimalFixturePath } from @driver/cli
+    { cliActionUsage, cliActionRun, cliActionBuild, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady } from @driver/dispatch
+    { cliCommandRun, cliCommandBuild, cliUsageHeader, defaultHelloMinimalFixturePath } from @driver/cli
+    { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
 
@@ -21,4 +22,22 @@ test fn testCliDispatchAction() {
     assertMsg(cliHelloMinimalRunActionReady(), "hello minimal run action ready")
     assertMsg(cliRunActionPipelineReady(runArgv), "run action pipeline ready")
     assertMsg(cliHelloMinimalRunActionPipelineReady(), "hello minimal run action pipeline ready")
+}
+
+test fn testCliDispatchUsageAndOrderedCommands() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliDispatchNeedsUsage(argv), "short argv needs usage")
+    assertMsg(cliDispatchUsageOutput(argv).contains(cliUsageHeader()), "usage output has header")
+
+    var runArgv = List[String]{}
+    runArgv.append("soyuz")
+    runArgv.append(cliCommandRun())
+    runArgv.append(defaultHelloMinimalFixturePath())
+    assertMsg(!cliDispatchNeedsUsage(runArgv), "run argv does not need usage")
+    assertMsg(cliDispatchUsageOutput(runArgv).len() == 0, "run argv has no usage output")
+    val cmds = cliRunActionOrderedCommands(runArgv)
+    assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "run action ordered commands")
+    assertMsg(cliRunActionOrderedCommandsReady(runArgv), "run action ordered commands ready")
+    assertMsg(cliHelloMinimalRunActionOrderedCommandsReady(), "hello minimal ordered commands ready")
 }
