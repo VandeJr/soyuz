@@ -1,7 +1,8 @@
 // Future main.sy entry: argv in → usage text or run exec path out (no OS spawn).
 
 import (
-    { cliActionRun, cliDispatchAction, cliDispatchUsageOutput, cliRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, defaultHelloMinimalRunArgv } from @driver/dispatch
+    { cliActionRun, cliDispatchAction, cliDispatchUsageOutput, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliHelloMinimalRunActionOrderedCommandsReady, defaultHelloMinimalRunArgv } from @driver/dispatch
+    { defaultDriverCliEntryCheckScript } from @driver/build
 )
 
 pub fn cliEntryOutput(argv: List[String]) -> String {
@@ -26,4 +27,27 @@ pub fn cliHelloMinimalEntryOutput() -> String {
 
 pub fn cliHelloMinimalEntryOutputReady() -> Bool {
     return cliHelloMinimalRunActionExecReady()
+}
+
+pub fn defaultCliEntryCheckScript() -> String = defaultDriverCliEntryCheckScript()
+
+pub fn cliEntryOrderedCommands(argv: List[String]) -> List[String] {
+    if cliDispatchAction(argv) != cliActionRun() { return List[String]{} }
+    return cliRunActionOrderedCommands(argv)
+}
+
+pub fn cliHelloMinimalEntryOrderedCommandsReady() -> Bool {
+    return cliRunActionOrderedCommandsReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliEntryReady(argv: List[String]) -> Bool {
+    if cliDispatchUsageOutput(argv).len() > 0 { return false }
+    if cliDispatchAction(argv) == cliActionRun() {
+        return cliRunActionOrderedCommandsReady(argv)
+    }
+    return false
+}
+
+pub fn cliHelloMinimalEntryReady() -> Bool {
+    return cliEntryReady(defaultHelloMinimalRunArgv()) && cliHelloMinimalEntryOutputReady() && cliHelloMinimalEntryOrderedCommandsReady()
 }

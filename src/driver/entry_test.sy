@@ -1,6 +1,7 @@
 import (
-    { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady } from @driver/entry
-    { cliUsageHeader, cliHelloMinimalBinaryPath } from @driver/cli
+    { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady, defaultCliEntryCheckScript, cliEntryOrderedCommands, cliHelloMinimalEntryOrderedCommandsReady, cliEntryReady, cliHelloMinimalEntryReady } from @driver/entry
+    { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv } from @driver/cli
+    { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
 
@@ -12,4 +13,14 @@ test fn testCliEntryOutput() {
     val helloOut = cliHelloMinimalEntryOutput()
     assertMsg(helloOut == cliHelloMinimalBinaryPath(), "hello minimal entry returns exec path")
     assertMsg(cliHelloMinimalEntryOutputReady(), "hello minimal entry output ready")
+}
+
+test fn testCliHelloMinimalEntryReady() {
+    val argv = defaultHelloMinimalRunArgv()
+    val cmds = cliEntryOrderedCommands(argv)
+    assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "entry ordered commands")
+    assertMsg(cliHelloMinimalEntryOrderedCommandsReady(), "hello minimal entry ordered commands ready")
+    assertMsg(cliEntryReady(argv), "hello minimal entry ready")
+    assertMsg(cliHelloMinimalEntryReady(), "hello minimal entry ready helper")
+    assertMsg(defaultCliEntryCheckScript() == "tools/driver-cli-entry-check.sh", "cli entry check script")
 }
