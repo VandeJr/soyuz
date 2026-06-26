@@ -67,7 +67,7 @@ pub fn mainStandaloneThinBuildCliIsRealSource() -> Bool {
 }
 
 pub fn mainStandaloneThinMainStandaloneSource() -> String {
-    return "import (\n    { cliUsageText, cliArgvNeedsUsage, cliCommandBuild } from @driver/cli_usage\n    { cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage } from @driver/build_cli\n)\n\nfn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {\n    var args = List[String]{}\n    var i = 2\n    loop {\n        if i >= argv.size() { break }\n        args.append(argv.get(i))\n        i = i + 1\n    }\n    return args\n}\n\npub fn runStandaloneCli(argv: List[String]) -> String {\n    if cliArgvNeedsUsage(argv) { return cliUsageText() }\n    if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {\n        val args = standaloneSubcommandArgsFromArgv(argv)\n        if cliBuildProjectModeFromArgs(args) {\n            return buildCliLibraryVerifyStubMessage()\n        }\n    }\n    return \"standalone\"\n}\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
+    return "import (\n    { cliUsageText, cliArgvNeedsUsage, cliCommandBuild } from @driver/cli_usage\n    { cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage } from @driver/build_cli\n)\n\nfn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {\n    var args = List[String]{}\n    var i = 2\n    loop {\n        if i >= argv.size() { break }\n        args.append(argv.get(i))\n        i = i + 1\n    }\n    return args\n}\n\npub fn runStandaloneCli(argv: List[String]) -> String {\n    if cliArgvNeedsUsage(argv) { return cliUsageText() }\n    if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {\n        val args = standaloneSubcommandArgsFromArgv(argv)\n        if cliBuildProjectModeFromArgs(args) {\n            return buildCliLibraryVerifyStubMessage()\n        }\n        val plan = buildCliLegacyPlanFromArgs(args)\n        if !buildCliLegacyPlanReady(plan) {\n            return \"erro: build incompleto\"\n        }\n        return buildCliLegacySuccessMessage(plan)\n    }\n    return \"standalone\"\n}\n\npub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String = \"\"\n"
 }
 
 pub fn mainStandaloneThinCliUsageSource() -> String {
@@ -174,4 +174,16 @@ pub fn mainStandaloneThinMainStandaloneLibraryBuildReady() -> Bool {
     if !src.contains(mainStandaloneBuildCliLibraryVerifyMarker()) { return false }
     if !src.contains(mainStandaloneBuildCliProjectModeMarker()) { return false }
     return src.contains("buildCliLibraryVerifyStubMessage")
+}
+
+pub fn mainStandaloneBuildCliLegacySuccessMarker() -> String = "Build concluído"
+
+pub fn mainStandaloneBuildCliLegacyIncompleteMarker() -> String = "erro: build incompleto"
+
+pub fn mainStandaloneThinMainStandaloneLegacyBuildReady() -> Bool {
+    val src = mainStandaloneThinMainStandaloneSource()
+    if !src.contains("buildCliLegacyPlanFromArgs") { return false }
+    if !src.contains("buildCliLegacySuccessMessage") { return false }
+    if !src.contains(mainStandaloneBuildCliLegacyIncompleteMarker()) { return false }
+    return src.contains(mainStandaloneBuildCliLegacySuccessMarker())
 }
