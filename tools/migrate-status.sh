@@ -240,6 +240,13 @@ else
   echo "  tools/stdlib-error-check.sh ausente"
 fi
 
+hr "Stdlib collections check (bootstrap, S10)"
+if [[ -x tools/stdlib-collections-check.sh ]]; then
+  bash tools/stdlib-collections-check.sh 2>&1 || echo "→ stdlib collections check FALHOU"
+else
+  echo "  tools/stdlib-collections-check.sh ausente"
+fi
+
 hr "Runtime embed check (bootstrap, S9)"
 if [[ -x tools/runtime-embed-check.sh ]]; then
   bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"
