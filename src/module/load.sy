@@ -26,3 +26,4 @@ import @module/stdlib_feature_classes_test
 import @module/stdlib_feature_extensions_test
 import @module/stdlib_feature_errors_test
 import @module/stdlib_feature_generics_test
+import @module/stdlib_feature_pattern_matching_test

@@ -1,0 +1,73 @@
+enum Operacao {
+    Somar(a: Int, b: Int)
+    Negativo(v: Int)
+}
+
+fn fib(n: Int) when n == 0 = 0
+fn fib(n: Int) when n == 1 = 1
+fn fib(n: Int) = fib(n - 1) + fib(n - 2)
+
+fn fizzBuzz(n: Int) -> String {
+    return match (n % 3, n % 5) {
+        (0, 0) => "FizzBuzz"
+        (0, _) => "Fizz"
+        (_, 0) => "Buzz"
+        _      => "$(n)"
+    }
+}
+
+fn main() { 
+    // literal match
+    val codigo = 404
+    val descricao = match codigo {
+        200 => "OK"
+        404 => "Não encontrado"
+        500 => "Erro interno"
+        _   => "Desconhecido"
+    }
+    print("literal: $(descricao)")
+
+    // bool match
+    val status = true
+    print(match status {
+        true  => "ativo"
+        false => "inativo"
+    })
+
+    // guards
+    val n = -5
+    val sinal = match n {
+        x if x < 0  => "negativo"
+        x if x == 0 => "zero"
+        x           => "positivo"
+    }
+    print("sinal: $(sinal)")
+
+    // enum match (1 binding - works)
+    val neg = Operacao.Negativo(v: 7)
+    match neg {
+        Negativo(v) => print("negativo: $(v)")
+        Somar(a, b) => print("soma")
+    }
+
+    // Option/Result
+    val opt: Option[Int] = Some(42)
+    match opt {
+        Some(v) => print("some: $(v)")
+        None    => print("none")
+    }
+
+    val ok: Result[Int] = Ok(10)
+    match ok {
+        Ok(v)  => print("ok: $(v)")
+        Err(e) => print("err: $(e.message())")
+    }
+
+    // tuple match (FizzBuzz)
+    for i in 1..=6 {
+        print(fizzBuzz(i))
+    }
+
+    // when guards
+    print("fib(8): $(fib(8))")
+}
