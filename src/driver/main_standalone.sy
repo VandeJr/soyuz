@@ -5,8 +5,8 @@ import (
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
     { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, defaultSoyuzLibraryBuildArgv, buildCliLegacyBootstrapCommand } from @driver/build_cli
-    { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath } from @driver/test_cli
-    { runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliDefaultExecPath, runCliHelloMinimalFixturePath } from @driver/run_cli
+    { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath, testCliLegacyBootstrapCommand } from @driver/test_cli
+    { runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliDefaultExecPath, runCliHelloMinimalFixturePath, runCliLegacyBootstrapCommand } from @driver/run_cli
 )
 
 fn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {
@@ -61,14 +61,6 @@ pub fn runStandaloneCli(argv: List[String]) -> String {
     return "erro: binário standalone — use bootstrap soyuz para subcomandos"
 }
 
-pub fn standaloneCliShouldTryExec(argv: List[String]) -> Bool {
-    if argv.size() < 2 { return false }
-    val cmd = argv.get(1)
-    if cmd == cliCommandRun() { return true }
-    if cmd == cliCommandTest() { return true }
-    return false
-}
-
 pub fn standaloneCliBootstrapBuildCommand(argv: List[String]) -> String {
     if argv.size() < 2 || argv.get(1) != cliCommandBuild() { return "" }
     val args = standaloneSubcommandArgsFromArgv(argv)
@@ -76,6 +68,28 @@ pub fn standaloneCliBootstrapBuildCommand(argv: List[String]) -> String {
     val plan = buildCliLegacyPlanFromArgs(args)
     if !buildCliLegacyPlanReady(plan) { return "" }
     return buildCliLegacyBootstrapCommand(plan)
+}
+
+pub fn standaloneCliBootstrapTestCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandTest() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    return testCliLegacyBootstrapCommand(args)
+}
+
+pub fn standaloneCliBootstrapRunCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandRun() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    return runCliLegacyBootstrapCommand(args)
+}
+
+pub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String {
+    val build = standaloneCliBootstrapBuildCommand(argv)
+    if build.len() > 0 { return build }
+    val testCmd = standaloneCliBootstrapTestCommand(argv)
+    if testCmd.len() > 0 { return testCmd }
+    val runCmd = standaloneCliBootstrapRunCommand(argv)
+    if runCmd.len() > 0 { return runCmd }
+    return ""
 }
 
 pub fn standaloneCliShouldDelegateBuild(argv: List[String]) -> Bool {

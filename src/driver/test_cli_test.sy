@@ -1,5 +1,5 @@
 import (
-    { cliTestFilterFlag, cliTestFilterPrefix, cliTestFilterFromArgs, cliTestEntryFromArgs, cliTestResolvedEntryFromArgs, testCliDefaultTmpBinPath, testCliLegacyPlanFromArgs, testCliLegacyPlanReady, defaultTestRunnerArgv, defaultTestRunnerFilterArgv } from @driver/test_cli
+    { cliTestFilterFlag, cliTestFilterPrefix, cliTestFilterFromArgs, cliTestEntryFromArgs, cliTestResolvedEntryFromArgs, testCliDefaultTmpBinPath, testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliLegacyBootstrapCommand, defaultTestRunnerArgv, defaultTestRunnerFilterArgv } from @driver/test_cli
     { testRunnerCliPath } from @driver/export
     { assertMsg } from @soyuz/testing
 )
@@ -39,4 +39,12 @@ test fn testTestCliLegacyPlanFromArgs() {
     filterArgs.append("$(cliTestFilterPrefix())ok")
     filterArgs.append(testRunnerCliPath())
     assertMsg(cliTestFilterFromArgs(filterArgs) == "ok", "filter argv helper")
+}
+
+test fn testTestCliLegacyBootstrapCommand() {
+    var args = List[String]{}
+    args.append(testRunnerCliPath())
+    val cmd = testCliLegacyBootstrapCommand(args)
+    assertMsg(cmd.contains("soyuz test"), "bootstrap test prefix")
+    assertMsg(cmd.contains(testRunnerCliPath()), "bootstrap test entry")
 }

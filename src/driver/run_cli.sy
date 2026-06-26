@@ -42,6 +42,18 @@ pub fn runCliLegacyPlanFromArgs(args: List[String]) -> RunCliLegacyPlan {
 
 pub fn runCliLegacyPlanReady(plan: RunCliLegacyPlan) -> Bool = plan.entry.len() > 0
 
+pub fn runCliLegacyBootstrapCommand(args: List[String]) -> String {
+    if !runCliLegacyPlanReady(runCliLegacyPlanFromArgs(args)) { return "" }
+    var cmd = "soyuz run"
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        cmd = "$(cmd) $(args.get(i))"
+        i = i + 1
+    }
+    return cmd
+}
+
 pub fn defaultHelloMinimalRunArgv() -> List[String] {
     var argv = List[String]{}
     argv.append("soyuz")

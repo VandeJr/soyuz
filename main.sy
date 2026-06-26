@@ -1,21 +1,15 @@
 import (
     { cliProgramArgv } from @driver/cli_argv
-    { runStandaloneCli, standaloneCliShouldTryExec, standaloneCliBootstrapBuildCommand } from @driver/main_standalone
-    { cliOutputIsExecPath } from @driver/cli_exec
-    { cliOsExec, cliOsExecShell } from ./cli_main_exec
+    { runStandaloneCli, standaloneCliBootstrapShellCommand } from @driver/main_standalone
+    { cliOsExecShell } from ./cli_main_exec
 )
 
 fn main() {
     val argv = cliProgramArgv()
-    val bootstrapBuild = standaloneCliBootstrapBuildCommand(argv)
-    if bootstrapBuild.len() > 0 {
-        print(cliOsExecShell(bootstrapBuild))
+    val bootstrap = standaloneCliBootstrapShellCommand(argv)
+    if bootstrap.len() > 0 {
+        print(cliOsExecShell(bootstrap))
         return
     }
-    val output = runStandaloneCli(argv)
-    if standaloneCliShouldTryExec(argv) && cliOutputIsExecPath(output) {
-        print(cliOsExec(output))
-        return
-    }
-    print(output)
+    print(runStandaloneCli(argv))
 }

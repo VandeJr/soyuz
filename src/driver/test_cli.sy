@@ -76,6 +76,18 @@ pub fn testCliLegacyPlanFromArgs(args: List[String]) -> TestCliLegacyPlan {
 
 pub fn testCliLegacyPlanReady(plan: TestCliLegacyPlan) -> Bool = plan.entry.len() > 0
 
+pub fn testCliLegacyBootstrapCommand(args: List[String]) -> String {
+    if !testCliLegacyPlanReady(testCliLegacyPlanFromArgs(args)) { return "" }
+    var cmd = "soyuz test"
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        cmd = "$(cmd) $(args.get(i))"
+        i = i + 1
+    }
+    return cmd
+}
+
 pub fn defaultTestRunnerArgv() -> List[String] {
     var argv = List[String]{}
     argv.append("soyuz")

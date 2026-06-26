@@ -1,5 +1,5 @@
 import (
-    { cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, runCliHelloMinimalFixturePath, runCliDefaultExecPath, runCliLegacyPlanFromArgs, runCliLegacyPlanReady, defaultHelloMinimalRunArgv } from @driver/run_cli
+    { cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, runCliHelloMinimalFixturePath, runCliDefaultExecPath, runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliLegacyBootstrapCommand, defaultHelloMinimalRunArgv } from @driver/run_cli
     { assertMsg } from @soyuz/testing
 )
 
@@ -32,4 +32,12 @@ test fn testDefaultHelloMinimalRunArgv() {
     val argv = defaultHelloMinimalRunArgv()
     assertMsg(argv.size() == 3, "hello minimal run argv shape")
     assertMsg(argv.get(1) == "run", "run command")
+}
+
+test fn testRunCliLegacyBootstrapCommand() {
+    var args = List[String]{}
+    args.append(runCliHelloMinimalFixturePath())
+    val cmd = runCliLegacyBootstrapCommand(args)
+    assertMsg(cmd.contains("soyuz run"), "bootstrap run prefix")
+    assertMsg(cmd.contains(runCliHelloMinimalFixturePath()), "bootstrap run entry")
 }

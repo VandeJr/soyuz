@@ -1,5 +1,5 @@
 import (
-    { runStandaloneCli, standaloneCliShouldTryExec, standaloneCliShouldDelegateBuild, standaloneCliBootstrapBuildCommand, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliBootstrapShellCommand, standaloneCliBootstrapBuildCommand, standaloneCliBootstrapTestCommand, standaloneCliBootstrapRunCommand, standaloneCliShouldDelegateBuild, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
     { cliTryExecOutput, cliOutputIsError } from @driver/cli_exec
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
@@ -39,15 +39,22 @@ fn testStandaloneCliExecStub() {
     assertMsg(out.contains(testCliDefaultTmpBinPath()), "stub mentions path")
 }
 
-fn testStandaloneCliShouldTryExec() {
+fn testStandaloneCliBootstrapShellCommand() {
     var testArgv = List[String]{}
     testArgv.append("soyuz")
     testArgv.append("test")
-    assertMsg(standaloneCliShouldTryExec(testArgv), "test should try exec")
-    var buildArgv = List[String]{}
-    buildArgv.append("soyuz")
-    buildArgv.append("build")
-    assertMsg(!standaloneCliShouldTryExec(buildArgv), "build should not try exec")
+    testArgv.append("test_runner.sy")
+    val testCmd = standaloneCliBootstrapTestCommand(testArgv)
+    assertMsg(testCmd.contains("soyuz test"), "bootstrap test command")
+    assertMsg(standaloneCliBootstrapShellCommand(testArgv) == testCmd, "shell picks test")
+
+    var runArgv = List[String]{}
+    runArgv.append("soyuz")
+    runArgv.append("run")
+    runArgv.append("tools/fixtures/hello_minimal.sy")
+    val runCmd = standaloneCliBootstrapRunCommand(runArgv)
+    assertMsg(runCmd.contains("soyuz run"), "bootstrap run command")
+    assertMsg(standaloneCliBootstrapShellCommand(runArgv) == runCmd, "shell picks run")
 }
 
 fn testStandaloneCliBootstrapBuildDelegate() {
