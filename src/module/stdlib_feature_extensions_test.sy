@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForExtensionsFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\nextend String { pub fn equals(self, other: String) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureExtensionsPath() -> String = "feature-tests/extensions.sy"
+
+// Port of feature-tests/extensions.sy — extend subset without $(...) in embed string.
+test fn testFeatureExtensionsTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/extensions.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForExtensionsFeature(index, stdlibDir)
+    index.fileContents.set(entry, "class Usuario { val nome: String }\nextend String { pub fn exclamar(self) -> String { return self } pub fn repetir(self, n: Int) -> String { var resultado = \"\" for i in 0..n { resultado = self } return resultado } }\nextend Int { pub fn ehPar(self) -> Bool = self % 2 == 0 pub fn dobro(self) -> Int = self * 2 }\nextend Usuario { pub fn saudar(self) { print(self.nome) } pub fn nomeCompleto(self, sobrenome: String) -> String { return self.nome } }\nfn main() {\n\tprint(\"Olá\".exclamar())\n\tprint(\"abc\".repetir(3))\n\tprint(4.ehPar())\n\tprint(3.ehPar())\n\tprint(5.dobro())\n\tval u = Usuario { nome: \"Vand\" }\n\tu.saudar()\n\tprint(u.nomeCompleto(\"Jr\"))\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect extensions feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus extensions")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature extensions type-checks")
+}
