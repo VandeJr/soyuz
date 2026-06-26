@@ -59,7 +59,7 @@ Status: `pending` | `in_progress` | `done`
 | **S7** | Async e concorrência | `gen_channel.go`, `gen_sync.go`, `gen_arc.go`, `gen_gather.go` | Módulos correspondentes em `src/codegen/` | Testes M9–M26 (channel, sync, arc, task, gather) passam | `done` |
 | **S8** | Module system | `internal/module/*.go` | `src/module/` — `soyuz.toml`, resolver, graph, prelude | Imports `@pkg/path` resolvem; testes `module_test.go` portados | `done` |
 | **S9** | Runtime e link | `internal/runtime/embed.go`, `src/*.c` | `src/runtime/` — FFI/embed, driver de link (clang) | `soyuz run` executa hello-world mínimo | `done` |
-| **S10** | Stdlib | `std/lib/*.sy` | `std/` — prelude, collections, string, os, fs, async, error, path | Checker resolve prelude; programas de `feature-tests/` compilam | `in_progress` |
+| **S10** | Stdlib | `std/lib/*.sy` | `std/` — prelude, collections, string, os, fs, async, error, path | Checker resolve prelude; programas de `feature-tests/` compilam | `done` |
 | **S11** | CLI driver | `cmd/main.go` | `main.sy` — `build`, `run`, `test`, `new` | `soyuz test test_runner.sy` roda lexer+parser+checker+codegen | `pending` |
 | **S12** | Fixed-point bootstrap | `internal/compile/*_test.go` | Script `tools/bootstrap-verify.sh` | vN e vN+1 produzem IR/binário equivalente; Go dispensável | `pending` |
 

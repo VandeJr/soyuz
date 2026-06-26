@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForParalelismoFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureParalelismoPath() -> String = "feature-tests/paralelismo.sy"
+
+// Port of feature-tests/paralelismo.sy — task/channel subset without $(...) in embed string.
+test fn testFeatureParalelismoTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/paralelismo.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForParalelismoFeature(index, stdlibDir)
+    index.fileContents.set(entry, "fn soma(a: Int, b: Int) -> Int = a + b\nfn dobrar(x: Int) -> Int = x * 2\nfn main() {\n\tval t = task soma(10, 20)\n\tprint(t.await())\n\tval t2 = task soma(1, 2)\n\tt2.detach()\n\tprint(0)\n\tval t3 = task soma(1, 1)\n\tval t4 = task soma(2, 2)\n\tval (r1, r2) = Task.all(t3, t4)\n\tprint(r1)\n\tprint(r2)\n\tval dobrados = Task.gather([1, 2, 3, 4, 5], dobrar)\n\tprint(dobrados.len())\n\tval ch = Channel.new(1)\n\tch.send(99)\n\tmatch ch.recv() { Some(n) => print(n) None => print(0) }\n\tval t5 = task soma(3, 4)\n\tval t6 = task soma(5, 6)\n\tprint(t5.await())\n\tprint(t6.await())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect paralelismo feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus paralelismo")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature paralelismo type-checks")
+}
