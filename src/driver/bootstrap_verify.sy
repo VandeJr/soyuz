@@ -87,3 +87,17 @@ pub fn bootstrapVerifyBinarySizeStepName() -> String = "generation binary size e
 pub fn bootstrapVerifyBinarySizeStepReady() -> Bool {
     return bootstrapVerifyVn2FixedPointStepReady() && bootstrapVerifyGenerationCount() >= 3
 }
+
+pub fn bootstrapVerifyElfTextSection() -> String = ".text"
+
+pub fn bootstrapVerifyElfRodataSection() -> String = ".rodata"
+
+pub fn bootstrapVerifyElfDataSection() -> String = ".data"
+
+pub fn bootstrapVerifyElfBssSection() -> String = ".bss"
+
+pub fn bootstrapVerifyElfSectionStepName() -> String = "generation ELF section equivalence"
+
+pub fn bootstrapVerifyElfSectionStepReady() -> Bool {
+    return bootstrapVerifyBinarySizeStepReady() && bootstrapVerifyElfTextSection().len() > 0
+}

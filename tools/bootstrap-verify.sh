@@ -10,6 +10,7 @@
 # Step 8: vN+1 rebuilds main.sy into executable vN+2 with same CLI smoke.
 # Step 9: vN+2 passes test_runner and hello run fixed-points.
 # Step 10: vN, vN+1, vN+2 share the same standalone binary size (weak binary equivalence).
+# Step 11: vN, vN+1, vN+2 share the same ELF section layout (.text/.rodata/.data/.bss).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -274,3 +275,24 @@ if [[ "$VN_SIZE" != "$VN1_SIZE" ]] || [[ "$VN1_SIZE" != "$VN2_SIZE" ]]; then
 fi
 
 echo "→ bootstrap-verify generation binary size equivalence (S12 step 10) OK"
+
+if ! command -v readelf >/dev/null 2>&1; then
+  echo "readelf não encontrado no PATH" >&2
+  exit 1
+fi
+
+elf_section_fingerprint() {
+  local file=$1
+  readelf -S "$file" 2>/dev/null | awk '/\.(text|rodata|data|bss) / {printf "%s:%s ", $2, $5}'
+}
+
+VN_ELF="$(elf_section_fingerprint "$OUT")"
+VN1_ELF="$(elf_section_fingerprint "$OUT2")"
+VN2_ELF="$(elf_section_fingerprint "$OUT3")"
+
+if [[ "$VN_ELF" != "$VN1_ELF" ]] || [[ "$VN1_ELF" != "$VN2_ELF" ]]; then
+  echo "layout ELF diverge: vN=[$VN_ELF] vN+1=[$VN1_ELF] vN+2=[$VN2_ELF]" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify generation ELF section equivalence (S12 step 11) OK"
