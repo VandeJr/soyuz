@@ -1,5 +1,5 @@
 import (
-    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol } from @driver/main_build
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker } from @driver/main_build
     { bootstrapVerifySelfRebuildEntry } from @driver/bootstrap_verify
     { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
     { fullBuildReady } from @driver/pipeline
@@ -20,4 +20,7 @@ test fn testMainStandaloneFullBuildPlan() {
     assertMsg(mainStandalonePlanIrHasExecSymbol(plan), "plan IR has exec symbol")
     assertMsg(mainStandaloneThinGraphIrReady(), "thin graph IR ready")
     assertMsg(plan.artifacts.irContent.contains(mainStandaloneIrExecSymbolMarker()), "IR exec marker")
+    assertMsg(mainStandaloneThinCliArgvIsRealSource(), "real cli_argv source")
+    assertMsg(mainStandaloneThinCliArgvPlanReady(), "real cli_argv plan ready")
+    assertMsg(mainStandaloneThinCliArgvSource().contains(mainStandaloneCliArgvSourceMarker()), "cli_argv os bridge")
 }

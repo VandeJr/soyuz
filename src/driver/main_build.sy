@@ -26,7 +26,18 @@ pub fn mainStandaloneThinCliMainExecSource() -> String {
 }
 
 pub fn mainStandaloneThinCliArgvSource() -> String {
-    return "pub fn cliProgramArgv() -> List[String] {\n    var argv = List[String]{}\n    argv.append(\"soyuz\")\n    return argv\n}\n"
+    return "// OS argv bridge for standalone main.sy — uses prelude args(), no driver pipeline imports.\n\npub fn cliOsArgv() -> List[String] = args()\n\npub fn cliOsArgvReady() -> Bool = cliOsArgv().size() > 0\n\npub fn defaultCliProgramArgv() -> List[String] {\n    var argv = List[String]{}\n    argv.append(\"soyuz\")\n    return argv\n}\n\npub fn cliProgramArgv() -> List[String] {\n    if cliOsArgvReady() { return cliOsArgv() }\n    return defaultCliProgramArgv()\n}\n"
+}
+
+pub fn mainStandaloneCliArgvSourceMarker() -> String = "cliOsArgv"
+
+pub fn mainStandaloneCliArgvFallbackMarker() -> String = "defaultCliProgramArgv"
+
+pub fn mainStandaloneThinCliArgvIsRealSource() -> Bool {
+    val src = mainStandaloneThinCliArgvSource()
+    if !src.contains(mainStandaloneCliArgvSourceMarker()) { return false }
+    if !src.contains(mainStandaloneCliArgvFallbackMarker()) { return false }
+    return src.contains("cliProgramArgv")
 }
 
 pub fn mainStandaloneThinMainStandaloneSource() -> String {
@@ -34,7 +45,7 @@ pub fn mainStandaloneThinMainStandaloneSource() -> String {
 }
 
 pub fn mainStandaloneThinPreludeSource() -> String {
-    return "pub fn print(x: String) {}\n"
+    return "pub fn print(x: String) {}\n\npub fn args() -> List[String] {\n    var argv = List[String]{}\n    argv.append(\"soyuz\")\n    return argv\n}\n"
 }
 
 pub fn mainStandaloneProjectTomlContent() -> String {
@@ -93,4 +104,9 @@ pub fn mainStandalonePlanIrHasExecSymbol(plan: FullBuildPlan) -> Bool {
 
 pub fn mainStandaloneThinGraphIrReady() -> Bool {
     return mainStandalonePlanIrHasExecSymbol(planMainStandaloneFullBuild())
+}
+
+pub fn mainStandaloneThinCliArgvPlanReady() -> Bool {
+    if !mainStandaloneThinCliArgvIsRealSource() { return false }
+    return mainStandaloneThinGraphPlanReady()
 }
