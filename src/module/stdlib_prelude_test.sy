@@ -1,0 +1,28 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+// Mirrors std/prelude.sy — keep in sync when porting @soyuz/prelude (monolithic auto-import).
+fn installStdlibPreludeMonolithStub(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextern fn soyuz_str_eq(a: String, b: String) -> Bool\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\nextern fn soyuz_range(from: Int, to: Int) -> List[Int]\nextern fn soyuz_fs_exists(path: String) -> Bool\nextern fn soyuz_os_args() -> List[String]\npub fn range(from: Int, to: Int) -> List[Int] = soyuz_range(from, to)\npub fn exists(path: String) -> Bool = soyuz_fs_exists(path)\npub fn args() -> List[String] = soyuz_os_args()\n")
+}
+
+pub fn defaultStdlibPreludePath() -> String = "std/prelude.sy"
+
+// Port of prelude_test.go TestPreludeAutoImport — monolithic prelude auto-imported.
+test fn testStdlibPreludeAutoImportTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibPreludeMonolithStub(index, stdlibDir)
+    index.fileContents.set(entry, "fn main() {\n\tval xs = range(0, 3)\n\tprint(xs.size())\n\tprint(exists(\"x\"))\n\tprint(args().size())\n\tprint(1.equals(2))\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect prelude auto-import ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus main files")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib prelude auto-import type-checks")
+}
