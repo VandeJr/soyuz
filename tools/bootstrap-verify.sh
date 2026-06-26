@@ -3,6 +3,7 @@
 # Step 1: library verify message matches bootstrap soyuz vs standalone main.sy (vN).
 # Step 2: test_runner success marker matches bootstrap soyuz vs standalone main.sy (vN).
 # Step 3: hello_minimal.sy run output matches bootstrap soyuz vs standalone main.sy (vN).
+# Step 4: hello IR linkable markers match canonical export template vs bootstrap codegen IR.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -87,3 +88,44 @@ if ! grep -q "$HELLO_MARKER" <<<"$STANDALONE_RUN"; then
 fi
 
 echo "→ bootstrap-verify hello run fixed-point (S12 step 3) OK"
+
+ir_has_markers() {
+  local file=$1
+  local label=$2
+  local markers=(
+    'c"hello'
+    'call i32 (i8*, ...) @printf'
+    'define i32 @main'
+    'ret i32 0'
+  )
+  for marker in "${markers[@]}"; do
+    if ! grep -qF "$marker" "$file"; then
+      echo "$label IR sem marcador linkável: $marker" >&2
+      return 1
+    fi
+  done
+}
+
+VERIFY_IR_TMP="$(mktemp -d)"
+trap 'rm -rf "$VERIFY_IR_TMP"' EXIT
+
+TEMPLATE_LL="$VERIFY_IR_TMP/template.ll"
+BOOTSTRAP_LL="/tmp/soyuz_debug.ll"
+
+bash "$ROOT/tools/export-driver-hello-ir.sh" "$TEMPLATE_LL"
+
+rm -f "$BOOTSTRAP_LL"
+if ! SOYUZ_KEEP_IR=1 soyuz build "$HELLO" -o "$VERIFY_IR_TMP/bootstrap-out" >/dev/null 2>&1; then
+  echo "bootstrap soyuz build hello com SOYUZ_KEEP_IR falhou" >&2
+  exit 1
+fi
+
+if [[ ! -f "$BOOTSTRAP_LL" ]]; then
+  echo "bootstrap IR debug ausente após SOYUZ_KEEP_IR=1" >&2
+  exit 1
+fi
+
+ir_has_markers "$TEMPLATE_LL" "template export" || exit 1
+ir_has_markers "$BOOTSTRAP_LL" "bootstrap codegen" || exit 1
+
+echo "→ bootstrap-verify hello IR marker equivalence (S12 step 4) OK"

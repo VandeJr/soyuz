@@ -1,10 +1,10 @@
 import (
-    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, bootstrapVerifyTestMarker, bootstrapVerifyTestStepName, bootstrapVerifyHelloFixturePath, bootstrapVerifyHelloOutput, bootstrapVerifyHelloStepName, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady, bootstrapVerifyTestStepReady, bootstrapVerifyHelloStepReady } from @driver/bootstrap_verify
+    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, bootstrapVerifyTestMarker, bootstrapVerifyTestStepName, bootstrapVerifyHelloFixturePath, bootstrapVerifyHelloOutput, bootstrapVerifyHelloStepName, bootstrapVerifyHelloIrCStringMarker, bootstrapVerifyHelloIrPrintfMarker, bootstrapVerifyHelloIrMainMarker, bootstrapVerifyHelloIrRetMarker, bootstrapVerifyHelloIrStepName, bootstrapVerifyHelloIrDebugPath, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady, bootstrapVerifyTestStepReady, bootstrapVerifyHelloStepReady, bootstrapVerifyHelloIrStepReady } from @driver/bootstrap_verify
     { buildCliLibraryVerifyStubMessage } from @driver/build_cli
     { testRunnerBootstrapSuccessMarker, defaultTestRunnerBootstrapCommand } from @driver/test_runner_gate
     { defaultBootstrapHelloRunCommand } from @driver/cli
-    { helloMinimalFixturePath } from @driver/export
-    { defaultDriverBootstrapVerifyScript } from @driver/build
+    { helloMinimalFixturePath, helloCodegenIrContent } from @driver/export
+    { defaultDriverBootstrapVerifyScript, defaultExportDriverHelloIrScript } from @driver/build
     { assertMsg } from @soyuz/testing
 )
 
@@ -22,4 +22,13 @@ test fn testBootstrapVerifyMetadata() {
     assertMsg(defaultBootstrapHelloRunCommand().contains(bootstrapVerifyHelloFixturePath()), "bootstrap run command")
     assertMsg(bootstrapVerifyHelloStepName().contains("fixed-point"), "hello step name")
     assertMsg(bootstrapVerifyHelloOutput() == "hello", "hello output marker")
+    assertMsg(bootstrapVerifyHelloIrStepReady(), "hello ir step metadata ready")
+    assertMsg(defaultExportDriverHelloIrScript().contains("export-driver-hello-ir"), "export hello ir script")
+    assertMsg(bootstrapVerifyHelloIrStepName().contains("IR"), "hello ir step name")
+    val ir = helloCodegenIrContent()
+    assertMsg(ir.contains(bootstrapVerifyHelloIrCStringMarker()), "soyuz codegen ir cstring marker")
+    assertMsg(ir.contains(bootstrapVerifyHelloIrPrintfMarker()), "soyuz codegen ir printf marker")
+    assertMsg(ir.contains(bootstrapVerifyHelloIrMainMarker()), "soyuz codegen ir main marker")
+    assertMsg(ir.contains(bootstrapVerifyHelloIrRetMarker()), "soyuz codegen ir ret marker")
+    assertMsg(bootstrapVerifyHelloIrDebugPath().contains("soyuz_debug"), "bootstrap ir debug path")
 }

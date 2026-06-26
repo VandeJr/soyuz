@@ -27,3 +27,19 @@ pub fn bootstrapVerifyHelloStepName() -> String = "hello run fixed-point"
 pub fn bootstrapVerifyHelloStepReady() -> Bool {
     return bootstrapVerifyHelloFixturePath().len() > 0 && bootstrapVerifyHelloOutput().len() > 0
 }
+
+pub fn bootstrapVerifyHelloIrCStringMarker() -> String = "c\"hello"
+
+pub fn bootstrapVerifyHelloIrPrintfMarker() -> String = "call i32 (i8*, ...) @printf"
+
+pub fn bootstrapVerifyHelloIrMainMarker() -> String = "define i32 @main"
+
+pub fn bootstrapVerifyHelloIrRetMarker() -> String = "ret i32 0"
+
+pub fn bootstrapVerifyHelloIrStepName() -> String = "hello IR marker equivalence"
+
+pub fn bootstrapVerifyHelloIrDebugPath() -> String = "/tmp/soyuz_debug.ll"
+
+pub fn bootstrapVerifyHelloIrStepReady() -> Bool {
+    return bootstrapVerifyHelloIrCStringMarker().len() > 0 && bootstrapVerifyHelloIrPrintfMarker().len() > 0 && bootstrapVerifyHelloIrMainMarker().len() > 0 && bootstrapVerifyHelloIrRetMarker().len() > 0
+}
