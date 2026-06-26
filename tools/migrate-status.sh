@@ -555,6 +555,13 @@ else
   echo "  tools/driver-main-entry-check.sh ausente"
 fi
 
+hr "Driver test-runner check (bootstrap, S11)"
+if [[ -x tools/driver-test-runner-check.sh ]]; then
+  bash tools/driver-test-runner-check.sh 2>&1 || echo "→ driver test-runner check FALHOU"
+else
+  echo "  tools/driver-test-runner-check.sh ausente"
+fi
+
 hr "Milestones com stub (TODO)"
 grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
 

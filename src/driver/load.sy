@@ -26,3 +26,5 @@ import @driver/project_cli
 import @driver/project_cli_test
 import @driver/main_entry
 import @driver/main_entry_test
+import @driver/test_runner_gate
+import @driver/test_runner_gate_test

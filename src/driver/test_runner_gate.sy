@@ -1,0 +1,7 @@
+// S11 bootstrap gate metadata: soyuz test test_runner.sy (lexer runtime via bootstrap).
+
+pub fn defaultTestRunnerEntry() -> String = "test_runner.sy"
+
+pub fn testRunnerBootstrapSuccessMarker() -> String = "testes passaram"
+
+pub fn defaultTestRunnerBootstrapCommand() -> String = "soyuz test test_runner.sy"
