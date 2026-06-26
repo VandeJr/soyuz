@@ -13,6 +13,7 @@
 # Step 11: vN, vN+1, vN+2 share the same ELF section layout (.text/.rodata/.data/.bss).
 # Step 12: vN, vN+1, vN+2 share the same defined symbol table (nm T/t fingerprint).
 # Step 13: vN, vN+1, vN+2 share the same .data section content hash.
+# Step 14: main.sy delegates via cliOsExecShell; vN..vN+2 export soyuz_os_exec (bootstrap contract).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -358,3 +359,31 @@ if [[ "$VN_DATA" != "$VN1_DATA" ]] || [[ "$VN1_DATA" != "$VN2_DATA" ]]; then
 fi
 
 echo "→ bootstrap-verify generation .data section equivalence (S12 step 13) OK"
+
+MAIN_SRC="$ROOT/main.sy"
+DELEGATE_MARKER="cliOsExecShell"
+EXEC_SYMBOL="soyuz_os_exec"
+
+if [[ ! -f "$MAIN_SRC" ]]; then
+  echo "main.sy ausente: $MAIN_SRC" >&2
+  exit 1
+fi
+
+if ! grep -q "$DELEGATE_MARKER" "$MAIN_SRC"; then
+  echo "main.sy sem delegação $DELEGATE_MARKER ao bootstrap" >&2
+  exit 1
+fi
+
+for label in vN vN+1 vN+2; do
+  case "$label" in
+    vN) bin="$OUT" ;;
+    vN+1) bin="$OUT2" ;;
+    vN+2) bin="$OUT3" ;;
+  esac
+  if ! nm "$bin" 2>/dev/null | awk -v sym="$EXEC_SYMBOL" '$3==sym && / [Tt] /' | grep -q .; then
+    echo "$label sem símbolo $EXEC_SYMBOL definido: $bin" >&2
+    exit 1
+  fi
+done
+
+echo "→ bootstrap-verify bootstrap delegation contract (S12 step 14) OK"

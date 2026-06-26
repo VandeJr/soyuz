@@ -115,3 +115,15 @@ pub fn bootstrapVerifyDataSectionStepName() -> String = "generation .data sectio
 pub fn bootstrapVerifyDataSectionStepReady() -> Bool {
     return bootstrapVerifySymbolStepReady() && bootstrapVerifyElfDataSection() == ".data"
 }
+
+pub fn bootstrapVerifyMainEntryPath() -> String = "main.sy"
+
+pub fn bootstrapVerifyCliExecSymbol() -> String = "soyuz_os_exec"
+
+pub fn bootstrapVerifyBootstrapDelegateMarker() -> String = "cliOsExecShell"
+
+pub fn bootstrapVerifyBootstrapDelegateStepName() -> String = "bootstrap delegation contract"
+
+pub fn bootstrapVerifyBootstrapDelegateStepReady() -> Bool {
+    return bootstrapVerifyDataSectionStepReady() && bootstrapVerifyCliExecSymbol().len() > 0 && bootstrapVerifyBootstrapDelegateMarker().len() > 0
+}
