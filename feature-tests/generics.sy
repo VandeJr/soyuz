@@ -1,0 +1,42 @@
+fn identidade[T](x: T) -> T {
+    return x
+}
+
+fn trocar[A, B](par: (A, B)) -> (B, A) {
+    val (a, b) = par
+    return (b, a)
+}
+
+record Par[A, B] {
+    primeiro: A
+    segundo: B
+}
+
+class Caixa[T] {
+    var conteudo: T
+    pub fn obter(self) -> T { return self.conteudo }
+    pub fn colocar(self, novo: T) { self.conteudo = novo }
+}
+
+fn main() {
+    print("identidade int: $(identidade(42))")
+    print("identidade str: $(identidade("oi"))")
+
+    val (b, a) = trocar((1, "um"))
+    print("trocar: $(a) $(b)")
+
+    val info = Par { primeiro: "nome", segundo: 42 }
+    print("par: $(info.primeiro) $(info.segundo)")
+
+    val caixa = Caixa { conteudo: 100 }
+    print("caixa: $(caixa.obter())")
+    caixa.colocar(200)
+    print("caixa depois: $(caixa.obter())")
+
+    val dobrados = [1, 2, 3].map(fn(x: Int) => x * 2)
+    print("map ok")
+    val pares = [1, 2, 3, 4].filter(fn(x: Int) => x % 2 == 0)
+    print("filter ok")
+    val soma = [1, 2, 3, 4, 5].reduce(fn(acc: Int, x: Int) => acc + x, 0)
+    print("reduce: $(soma)")
+}
