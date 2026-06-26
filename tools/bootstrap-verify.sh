@@ -2,6 +2,7 @@
 # S12: fixed-point bootstrap verification (incremental).
 # Step 1: library verify message matches bootstrap soyuz vs standalone main.sy (vN).
 # Step 2: test_runner success marker matches bootstrap soyuz vs standalone main.sy (vN).
+# Step 3: hello_minimal.sy run output matches bootstrap soyuz vs standalone main.sy (vN).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -63,3 +64,26 @@ if ! grep -q "$TEST_MARKER" <<<"$STANDALONE_TEST"; then
 fi
 
 echo "→ bootstrap-verify test_runner fixed-point (S12 step 2) OK"
+
+HELLO="$ROOT/tools/fixtures/hello_minimal.sy"
+HELLO_MARKER="hello"
+
+if [[ ! -f "$HELLO" ]]; then
+  echo "fixture hello ausente: $HELLO" >&2
+  exit 1
+fi
+
+BOOTSTRAP_RUN="$(soyuz run "$HELLO" 2>&1 || true)"
+STANDALONE_RUN="$("$OUT" run "$HELLO" 2>&1 || true)"
+
+if ! grep -q "$HELLO_MARKER" <<<"$BOOTSTRAP_RUN"; then
+  echo "bootstrap soyuz run sem saída hello: $BOOTSTRAP_RUN" >&2
+  exit 1
+fi
+
+if ! grep -q "$HELLO_MARKER" <<<"$STANDALONE_RUN"; then
+  echo "standalone output run sem saída hello: $STANDALONE_RUN" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify hello run fixed-point (S12 step 3) OK"

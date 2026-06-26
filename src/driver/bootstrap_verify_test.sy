@@ -1,7 +1,9 @@
 import (
-    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, bootstrapVerifyTestMarker, bootstrapVerifyTestStepName, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady, bootstrapVerifyTestStepReady } from @driver/bootstrap_verify
+    { bootstrapVerifyLibraryMarker, bootstrapVerifyLibraryStepName, bootstrapVerifyTestMarker, bootstrapVerifyTestStepName, bootstrapVerifyHelloFixturePath, bootstrapVerifyHelloOutput, bootstrapVerifyHelloStepName, defaultBootstrapVerifyScript, bootstrapVerifyLibraryStepReady, bootstrapVerifyTestStepReady, bootstrapVerifyHelloStepReady } from @driver/bootstrap_verify
     { buildCliLibraryVerifyStubMessage } from @driver/build_cli
     { testRunnerBootstrapSuccessMarker, defaultTestRunnerBootstrapCommand } from @driver/test_runner_gate
+    { defaultBootstrapHelloRunCommand } from @driver/cli
+    { helloMinimalFixturePath } from @driver/export
     { defaultDriverBootstrapVerifyScript } from @driver/build
     { assertMsg } from @soyuz/testing
 )
@@ -15,4 +17,9 @@ test fn testBootstrapVerifyMetadata() {
     assertMsg(testRunnerBootstrapSuccessMarker() == bootstrapVerifyTestMarker(), "test marker matches gate")
     assertMsg(defaultTestRunnerBootstrapCommand().contains("test_runner.sy"), "bootstrap test command")
     assertMsg(bootstrapVerifyTestStepName().contains("fixed-point"), "test step name")
+    assertMsg(bootstrapVerifyHelloStepReady(), "hello step metadata ready")
+    assertMsg(bootstrapVerifyHelloFixturePath() == helloMinimalFixturePath(), "hello fixture path")
+    assertMsg(defaultBootstrapHelloRunCommand().contains(bootstrapVerifyHelloFixturePath()), "bootstrap run command")
+    assertMsg(bootstrapVerifyHelloStepName().contains("fixed-point"), "hello step name")
+    assertMsg(bootstrapVerifyHelloOutput() == "hello", "hello output marker")
 }

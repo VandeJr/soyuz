@@ -17,3 +17,13 @@ pub fn bootstrapVerifyTestStepName() -> String = "test_runner fixed-point"
 pub fn bootstrapVerifyTestStepReady() -> Bool {
     return bootstrapVerifyTestMarker().len() > 0
 }
+
+pub fn bootstrapVerifyHelloFixturePath() -> String = "tools/fixtures/hello_minimal.sy"
+
+pub fn bootstrapVerifyHelloOutput() -> String = "hello"
+
+pub fn bootstrapVerifyHelloStepName() -> String = "hello run fixed-point"
+
+pub fn bootstrapVerifyHelloStepReady() -> Bool {
+    return bootstrapVerifyHelloFixturePath().len() > 0 && bootstrapVerifyHelloOutput().len() > 0
+}
