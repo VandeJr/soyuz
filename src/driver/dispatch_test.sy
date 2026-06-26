@@ -1,7 +1,8 @@
 import (
-    { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliHelloMinimalBuildActionReady } from @driver/dispatch
-    { cliCommandRun, cliCommandBuild, cliCommandNew, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
+    { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliActionTest, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliHelloMinimalBuildActionReady, cliTestActionReady, cliTestExecCommandFromArgv, cliTestRunnerActionReady } from @driver/dispatch
+    { cliCommandRun, cliCommandBuild, cliCommandNew, cliCommandTest, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
     { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput } from @driver/build_cli
+    { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -27,6 +28,12 @@ test fn testCliDispatchAction() {
     assertMsg(cliBuildActionReady(buildArgv), "hello minimal build action ready")
     assertMsg(cliBuildSuccessMessageFromArgv(buildArgv).contains(buildCliLegacyDefaultOutput()), "build success message")
     assertMsg(cliHelloMinimalBuildActionReady(), "hello minimal build helper")
+
+    var testArgv = defaultTestRunnerArgv()
+    assertMsg(cliDispatchAction(testArgv) == cliActionTest(), "test command routed")
+    assertMsg(cliTestActionReady(testArgv), "test runner action ready")
+    assertMsg(cliTestExecCommandFromArgv(testArgv) == testCliDefaultTmpBinPath(), "test exec command")
+    assertMsg(cliTestRunnerActionReady(), "test runner helper")
 
     var runArgv = List[String]{}
     runArgv.append("soyuz")

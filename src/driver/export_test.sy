@@ -1,5 +1,5 @@
 import (
-    { helloCodegenIrExportReady, helloCodegenIrContent, helloFullBuildAppliedLinkPlanReady, helloRunBuildManifestRoundTripReady, helloRunPlanReady, helloMinimalRunPlanReady } from @driver/export
+    { helloCodegenIrExportReady, helloCodegenIrContent, helloFullBuildAppliedLinkPlanReady, helloRunBuildManifestRoundTripReady, helloRunPlanReady, helloMinimalRunPlanReady, helloTestBuildReady } from @driver/export
     { moduleIrHeaderMarker } from @codegen/gen_emit
     { assertMsg } from @soyuz/testing
 )
@@ -26,4 +26,9 @@ test fn testHelloRunPlanReady() {
 
 test fn testHelloMinimalRunPlanReady() {
     assertMsg(helloMinimalRunPlanReady(), "hello minimal run plan ready")
+}
+
+test fn testHelloTestBuildReady() {
+    assertMsg(helloTestBuildReady(""), "hello test build ready without filter")
+    assertMsg(helloTestBuildReady("ok"), "hello test build ready with filter")
 }

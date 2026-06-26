@@ -34,6 +34,17 @@ pub fn buildConfigForEntry(inputFile: String, outputFile: String, release: Bool,
     runtimeSrcDir: runtimeSrcDir
 }
 
+pub fn buildConfigForTest(inputFile: String, outputFile: String, testFilter: String, tmpDir: String, runtimeSrcDir: String) -> BuildConfig = BuildConfig {
+    inputFile: inputFile,
+    outputFile: outputFile,
+    release: false,
+    projectRoot: "",
+    isTestBuild: true,
+    testFilter: testFilter,
+    tmpDir: tmpDir,
+    runtimeSrcDir: runtimeSrcDir
+}
+
 pub fn linkConfigFromBuild(cfg: BuildConfig) -> LinkConfig {
     return defaultLinkConfig(cfg.tmpDir, cfg.outputFile, cfg.release)
 }
@@ -96,5 +107,7 @@ pub fn defaultDriverCliEntryCheckScript() -> String = "tools/driver-cli-entry-ch
 pub fn defaultDriverCliNewCheckScript() -> String = "tools/driver-cli-new-check.sh"
 
 pub fn defaultDriverCliBuildCheckScript() -> String = "tools/driver-cli-build-check.sh"
+
+pub fn defaultDriverCliTestCheckScript() -> String = "tools/driver-cli-test-check.sh"
 
 pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

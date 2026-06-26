@@ -1,0 +1,42 @@
+import (
+    { cliTestFilterFlag, cliTestFilterPrefix, cliTestFilterFromArgs, cliTestEntryFromArgs, cliTestResolvedEntryFromArgs, testCliDefaultTmpBinPath, testCliLegacyPlanFromArgs, testCliLegacyPlanReady, defaultTestRunnerArgv, defaultTestRunnerFilterArgv } from @driver/test_cli
+    { testRunnerCliPath } from @driver/export
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliTestArgsParse() {
+    var args = List[String]{}
+    args.append(testRunnerCliPath())
+    assertMsg(cliTestResolvedEntryFromArgs(args) == testRunnerCliPath(), "explicit entry")
+    assertMsg(cliTestFilterFromArgs(args).len() == 0, "no filter by default")
+
+    var empty = List[String]{}
+    assertMsg(cliTestResolvedEntryFromArgs(empty) == testRunnerCliPath(), "default entry")
+
+    var withEquals = List[String]{}
+    withEquals.append("$(cliTestFilterPrefix())lexer")
+    withEquals.append(testRunnerCliPath())
+    assertMsg(cliTestFilterFromArgs(withEquals) == "lexer", "filter equals form")
+    assertMsg(cliTestEntryFromArgs(withEquals) == testRunnerCliPath(), "entry after filter")
+
+    var withFlag = List[String]{}
+    withFlag.append(cliTestFilterFlag())
+    withFlag.append("parser")
+    withFlag.append(testRunnerCliPath())
+    assertMsg(cliTestFilterFromArgs(withFlag) == "parser", "filter flag form")
+}
+
+test fn testTestCliLegacyPlanFromArgs() {
+    val plan = testCliLegacyPlanFromArgs(List[String]{})
+    assertMsg(testCliLegacyPlanReady(plan), "default plan ready")
+    assertMsg(plan.entry == testRunnerCliPath(), "default entry in plan")
+    assertMsg(plan.tmpBinPath == testCliDefaultTmpBinPath(), "tmp bin path")
+
+    val argv = defaultTestRunnerArgv()
+    assertMsg(argv.size() == 3, "test runner argv shape")
+    val filterArgv = defaultTestRunnerFilterArgv("ok")
+    var filterArgs = List[String]{}
+    filterArgs.append("$(cliTestFilterPrefix())ok")
+    filterArgs.append(testRunnerCliPath())
+    assertMsg(cliTestFilterFromArgs(filterArgs) == "ok", "filter argv helper")
+}

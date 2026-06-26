@@ -6,7 +6,8 @@ import (
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
     { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv } from @driver/build_cli
-    { planHelloFullBuild } from @driver/export
+    { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath, defaultTestRunnerArgv } from @driver/test_cli
+    { planHelloFullBuild, testRunnerCliPath, helloTestBuildReady } from @driver/export
     { fullBuildReady } from @driver/pipeline
 )
 
@@ -119,4 +120,22 @@ pub fn cliBuildSuccessMessageFromArgv(argv: List[String]) -> String {
 
 pub fn cliHelloMinimalBuildActionReady() -> Bool {
     return cliBuildActionReady(defaultHelloMinimalBuildArgv())
+}
+
+pub fn cliTestActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionTest() { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    val plan = testCliLegacyPlanFromArgs(dispatch.args)
+    if !testCliLegacyPlanReady(plan) { return false }
+    if plan.entry != testRunnerCliPath() { return false }
+    return helloTestBuildReady(plan.filter)
+}
+
+pub fn cliTestExecCommandFromArgv(argv: List[String]) -> String {
+    if !cliTestActionReady(argv) { return "" }
+    return testCliDefaultTmpBinPath()
+}
+
+pub fn cliTestRunnerActionReady() -> Bool {
+    return cliTestActionReady(defaultTestRunnerArgv())
 }
