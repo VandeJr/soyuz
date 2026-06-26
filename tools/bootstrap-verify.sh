@@ -6,6 +6,7 @@
 # Step 4: hello IR linkable markers match canonical export template vs bootstrap codegen IR.
 # Step 5: template and bootstrap hello IR both link with runtime and print hello.
 # Step 6: vN (standalone output) rebuilds main.sy into executable vN+1 with same CLI smoke.
+# Step 7: vN+1 matches bootstrap for library, test_runner, and hello run fixed-points.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -203,3 +204,17 @@ if ! grep -q "$MARKER" <<<"$VN1_LIB"; then
 fi
 
 echo "→ bootstrap-verify vN rebuilds vN+1 (S12 step 6) OK"
+
+VN1_TEST="$("$OUT2" test test_runner.sy 2>&1 || true)"
+if ! grep -q "$TEST_MARKER" <<<"$VN1_TEST"; then
+  echo "vN+1 test sem marcador de sucesso: $VN1_TEST" >&2
+  exit 1
+fi
+
+VN1_RUN="$("$OUT2" run "$HELLO" 2>&1 || true)"
+if ! grep -q "$HELLO_MARKER" <<<"$VN1_RUN"; then
+  echo "vN+1 run sem saída hello: $VN1_RUN" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify vN+1 fixed-point (S12 step 7) OK"

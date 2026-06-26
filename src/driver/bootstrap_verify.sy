@@ -61,3 +61,9 @@ pub fn bootstrapVerifySelfRebuildStepName() -> String = "vN rebuilds vN+1"
 pub fn bootstrapVerifySelfRebuildStepReady() -> Bool {
     return bootstrapVerifySelfRebuildEntry().len() > 0 && bootstrapVerifySelfRebuildUsageMarker().len() > 0 && bootstrapVerifySelfRebuildSuccessMarker().len() > 0
 }
+
+pub fn bootstrapVerifyVn1StepName() -> String = "vN+1 fixed-point"
+
+pub fn bootstrapVerifyVn1StepReady() -> Bool {
+    return bootstrapVerifySelfRebuildStepReady() && bootstrapVerifyLibraryStepReady() && bootstrapVerifyTestStepReady() && bootstrapVerifyHelloStepReady()
+}
