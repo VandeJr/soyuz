@@ -14,6 +14,7 @@
 # Step 12: vN, vN+1, vN+2 share the same defined symbol table (nm T/t fingerprint).
 # Step 13: vN, vN+1, vN+2 share the same .data section content hash.
 # Step 14: main.sy delegates via cliOsExecShell; vN..vN+2 export soyuz_os_exec (bootstrap contract).
+# Step 15: vN..vN+2 embed bootstrap delegate command strings (soyuz build/test/run).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -387,3 +388,34 @@ for label in vN vN+1 vN+2; do
 done
 
 echo "→ bootstrap-verify bootstrap delegation contract (S12 step 14) OK"
+
+BOOTSTRAP_CMD_MARKERS=(
+  'soyuz build'
+  'soyuz test'
+  'soyuz run'
+)
+
+binary_has_embedded_string() {
+  local file=$1
+  local needle=$2
+  if strings "$file" 2>/dev/null | grep -Fq "$needle"; then
+    return 0
+  fi
+  grep -aFq "$needle" "$file" 2>/dev/null
+}
+
+GENERATION_BINS=("$OUT" "$OUT2" "$OUT3")
+GENERATION_LABELS=(vN vN+1 vN+2)
+
+for i in 0 1 2; do
+  bin="${GENERATION_BINS[$i]}"
+  label="${GENERATION_LABELS[$i]}"
+  for marker in "${BOOTSTRAP_CMD_MARKERS[@]}"; do
+    if ! binary_has_embedded_string "$bin" "$marker"; then
+      echo "$label sem comando embutido: $marker" >&2
+      exit 1
+    fi
+  done
+done
+
+echo "→ bootstrap-verify bootstrap command strings (S12 step 15) OK"

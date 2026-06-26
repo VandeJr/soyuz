@@ -127,3 +127,19 @@ pub fn bootstrapVerifyBootstrapDelegateStepName() -> String = "bootstrap delegat
 pub fn bootstrapVerifyBootstrapDelegateStepReady() -> Bool {
     return bootstrapVerifyDataSectionStepReady() && bootstrapVerifyCliExecSymbol().len() > 0 && bootstrapVerifyBootstrapDelegateMarker().len() > 0
 }
+
+pub fn bootstrapVerifyBootstrapBuildCommandMarker() -> String = "soyuz build"
+
+pub fn bootstrapVerifyBootstrapTestCommandMarker() -> String = "soyuz test"
+
+pub fn bootstrapVerifyBootstrapRunCommandMarker() -> String = "soyuz run"
+
+pub fn bootstrapVerifyBootstrapCommandStepName() -> String = "bootstrap command strings"
+
+pub fn bootstrapVerifyBootstrapCommandStepReady() -> Bool {
+    return bootstrapVerifyBootstrapDelegateStepReady() && bootstrapVerifyBootstrapBuildCommandMarker().len() > 0
+}
+
+pub fn bootstrapVerifyNativeCompileStepName() -> String = "native compile without bootstrap"
+
+pub fn bootstrapVerifyNativeCompileStepReady() -> Bool = false
