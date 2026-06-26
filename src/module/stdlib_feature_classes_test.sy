@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForClassesFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\nextend Float { pub fn equals(self, other: Float) -> Bool = self == other }\nextend String { pub fn equals(self, other: String) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureClassesPath() -> String = "feature-tests/classes.sy"
+
+// Port of feature-tests/classes.sy — classes subset without $(...) in embed string.
+test fn testFeatureClassesTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/classes.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForClassesFeature(index, stdlibDir)
+    index.fileContents.set(entry, "interface Descritivel { fn descrever(self) -> String }\nclass Retangulo : Descritivel { val largura: Float val altura: Float pub fn area(self) -> Float { return self.largura * self.altura } pub fn perimetro(self) -> Float { return 2.0 * (self.largura + self.altura) } pub fn escalar(self, fator: Float) -> Retangulo { return Retangulo { largura: self.largura * fator, altura: self.altura * fator } } pub fn descrever(self) -> String { return \"Retangulo\" } }\nclass ContaBancaria { val titular: String var saldo: Float pub fn depositar(self, valor: Float) { self.saldo = self.saldo + valor } pub fn getSaldo(self) -> Float { return self.saldo } pub fn descrever(self) -> String { return self.titular } }\nclass Conta2 { var saldo: Float pub fn depositar(self, v: Float) { self.saldo = self.saldo + v } pub fn saldo(self) -> Float { return self.saldo } }\nclass Contador { var count: Int = 0 pub fn incrementar(self) { self.count = self.count + 1 } pub fn valor(self) -> Int { return self.count } }\nfn main() {\n\tval r = Retangulo { largura: 4.0, altura: 3.0 }\n\tprint(r.area())\n\tprint(r.perimetro())\n\tprint(r.descrever())\n\tval r2 = r.escalar(2.0)\n\tprint(r2.area())\n\tval conta = ContaBancaria { titular: \"Vand\", saldo: 100.0 }\n\tconta.depositar(50.0)\n\tprint(conta.descrever())\n\tval c2 = Conta2 { saldo: 0.0 }\n\tc2.depositar(75.0)\n\tprint(c2.saldo())\n\tval ctr = Contador { count: 0 }\n\tctr.incrementar()\n\tctr.incrementar()\n\tprint(ctr.valor())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect classes feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus classes")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature classes type-checks")
+}

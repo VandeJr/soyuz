@@ -22,3 +22,4 @@ import @module/stdlib_feature_funcoes_test
 import @module/stdlib_feature_tipos_test
 import @module/stdlib_feature_strings_test
 import @module/stdlib_feature_pipes_test
+import @module/stdlib_feature_classes_test

@@ -1,0 +1,61 @@
+interface Descritivel {
+    fn descrever(self) -> String
+}
+
+class Retangulo : Descritivel {
+    val largura: Float
+    val altura: Float
+
+    pub fn area(self) -> Float { return self.largura * self.altura }
+    pub fn perimetro(self) -> Float { return 2.0 * (self.largura + self.altura) }
+    pub fn escalar(self, fator: Float) -> Retangulo {
+        return Retangulo { largura: self.largura * fator, altura: self.altura * fator }
+    }
+    pub fn descrever(self) -> String {
+        return "Retangulo $(self.largura)x$(self.altura)"
+    }
+}
+
+class ContaBancaria {
+    val titular: String
+    var saldo: Float
+
+    pub fn depositar(self, valor: Float) { self.saldo = self.saldo + valor }
+    pub fn getSaldo(self) -> Float { return self.saldo }
+    pub fn descrever(self) -> String { return "Conta de $(self.titular): $(self.saldo)" }
+}
+
+// Campo e método com mesmo nome
+class Conta2 {
+    var saldo: Float
+    pub fn depositar(self, v: Float) { self.saldo = self.saldo + v }
+    pub fn saldo(self) -> Float { return self.saldo }
+}
+
+class Contador {
+    var count: Int = 0
+    pub fn incrementar(self) { self.count = self.count + 1 }
+    pub fn valor(self) -> Int { return self.count }
+}
+
+fn main() {
+    val r = Retangulo { largura: 4.0, altura: 3.0 }
+    print("area: $(r.area())")
+    print("perimetro: $(r.perimetro())")
+    print("descrever: $(r.descrever())")
+    val r2 = r.escalar(2.0)
+    print("escalar area: $(r2.area())")
+
+    val conta = ContaBancaria { titular: "Vand", saldo: 100.0 }
+    conta.depositar(50.0)
+    print("$(conta.descrever())")
+
+    val c2 = Conta2 { saldo: 0.0 }
+    c2.depositar(75.0)
+    print("campo/método homônimo: $(c2.saldo())")
+
+    val ctr = Contador { count: 0 }
+    ctr.incrementar()
+    ctr.incrementar()
+    print("contador: $(ctr.valor())")
+}
