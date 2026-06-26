@@ -1,0 +1,28 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+// Mirrors std/async.sy — keep in sync when porting @soyuz/async.
+fn installStdlibAsyncStub(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "async.sy"), "pub fn parallelMap[T](items: List[T], transform: (T) -> T) -> List[T] { val n: Int = items.len() val handles: List[Task[T]] = [] var i = 0 for i < n { val item = items.get(i) handles.append(task transform(item)) i = i + 1 } val out: List[T] = List() var j = 0 for j < n { out.append(handles.get(j).await()) j = j + 1 } return out }\npub fn pipeline[T](items: List[T], ch: Channel[T]) { val n = items.size() var i = 0 for i < n { ch.send(items.get(i)) i = i + 1 } ch.close() }\n")
+}
+
+pub fn defaultStdlibAsyncPath() -> String = "std/async.sy"
+
+// Port of stdlib usage: @soyuz/async parallelMap type-checks with Task/Channel builtins.
+test fn testStdlibAsyncModuleTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibAsyncStub(index, stdlibDir)
+    index.fileContents.set(entry, "import ( { parallelMap } from \"@soyuz/async\" )\nfn inc(x: Int) -> Int = x + 1\nfn main() {\n\tvar items = List[Int]{}\n\titems.append(1)\n\titems.append(2)\n\tval out = parallelMap(items, inc)\n\tprint(out.size())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect async module ok")
+    assertMsg(collected.files.size() == 2, "async.sy plus main")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib async module type-checks")
+}
