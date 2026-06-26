@@ -5,6 +5,7 @@
 # Step 3: hello_minimal.sy run output matches bootstrap soyuz vs standalone main.sy (vN).
 # Step 4: hello IR linkable markers match canonical export template vs bootstrap codegen IR.
 # Step 5: template and bootstrap hello IR both link with runtime and print hello.
+# Step 6: vN (standalone output) rebuilds main.sy into executable vN+1 with same CLI smoke.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -129,6 +130,16 @@ fi
 ir_has_markers "$TEMPLATE_LL" "template export" || exit 1
 ir_has_markers "$BOOTSTRAP_LL" "bootstrap codegen" || exit 1
 
+if ! soyuz build main.sy >/dev/null 2>&1; then
+  echo "restaurar output (main.sy) após hello IR capture falhou" >&2
+  exit 1
+fi
+
+if [[ ! -x "$OUT" ]]; then
+  echo "output ausente após restaurar main.sy" >&2
+  exit 1
+fi
+
 echo "→ bootstrap-verify hello IR marker equivalence (S12 step 4) OK"
 
 # shellcheck source=manifest-format.sh
@@ -164,3 +175,31 @@ if [[ "$BOOTSTRAP_LINK_OUT" != "$HELLO_MARKER" ]]; then
 fi
 
 echo "→ bootstrap-verify hello IR link output (S12 step 5) OK"
+
+OUT2="$VERIFY_IR_TMP/output2"
+rm -f "$OUT2"
+
+REBUILD_OUT="$("$OUT" build main.sy -o "$OUT2" 2>&1 || true)"
+if ! grep -q 'Build concluído' <<<"$REBUILD_OUT"; then
+  echo "vN build main.sy falhou: $REBUILD_OUT" >&2
+  exit 1
+fi
+
+if [[ ! -x "$OUT2" ]]; then
+  echo "vN+1 ausente após vN build main.sy: $OUT2" >&2
+  exit 1
+fi
+
+VN1_USAGE="$("$OUT2" 2>&1 || true)"
+if ! grep -q 'Uso: soyuz' <<<"$VN1_USAGE"; then
+  echo "vN+1 sem usage esperado: $VN1_USAGE" >&2
+  exit 1
+fi
+
+VN1_LIB="$("$OUT2" build 2>&1 || true)"
+if ! grep -q "$MARKER" <<<"$VN1_LIB"; then
+  echo "vN+1 build library sem verify: $VN1_LIB" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify vN rebuilds vN+1 (S12 step 6) OK"

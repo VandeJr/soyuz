@@ -49,3 +49,15 @@ pub fn bootstrapVerifyHelloLinkStepName() -> String = "hello IR link output"
 pub fn bootstrapVerifyHelloLinkStepReady() -> Bool {
     return bootstrapVerifyHelloOutput().len() > 0 && bootstrapVerifyHelloIrStepReady()
 }
+
+pub fn bootstrapVerifySelfRebuildEntry() -> String = "main.sy"
+
+pub fn bootstrapVerifySelfRebuildUsageMarker() -> String = "Uso: soyuz"
+
+pub fn bootstrapVerifySelfRebuildSuccessMarker() -> String = "Build concluído"
+
+pub fn bootstrapVerifySelfRebuildStepName() -> String = "vN rebuilds vN+1"
+
+pub fn bootstrapVerifySelfRebuildStepReady() -> Bool {
+    return bootstrapVerifySelfRebuildEntry().len() > 0 && bootstrapVerifySelfRebuildUsageMarker().len() > 0 && bootstrapVerifySelfRebuildSuccessMarker().len() > 0
+}
