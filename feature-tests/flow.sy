@@ -1,0 +1,105 @@
+// Teste: flow.mdx
+fn fizzBuzz(n: Int) -> String {
+    return match (n % 3, n % 5) {
+        (0, 0) => "FizzBuzz"
+        (0, _) => "Fizz"
+        (_, 0) => "Buzz"
+        _      => "$(n)"
+    }
+}
+
+fn somarLista(nums: List[Int]) -> Int {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    return total
+}
+
+fn primeiroPositivo(nums: List[Int]) -> Option[Int] {
+    for n in nums {
+        if n > 0 { return Some(n) }
+    }
+    return None
+}
+
+fn main() {
+    // if/else
+    val x = 5
+    if x > 0 {
+        print("positivo")
+    } else if x == 0 {
+        print("zero")
+    } else {
+        print("negativo")
+    }
+
+    // for com range exclusivo
+    var soma = 0
+    for i in 0..5 {
+        soma = soma + i
+    }
+    print("0..5 soma: $(soma)")
+
+    // for com range inclusivo
+    var soma2 = 0
+    for i in 0..=5 {
+        soma2 = soma2 + i
+    }
+    print("0..=5 soma: $(soma2)")
+
+    // for em lista
+    val nomes = ["Alice", "Bob", "Carol"]
+    for nome in nomes {
+        print("Olá, $(nome)!")
+    }
+
+    // while
+    var tentativas = 0
+    while tentativas < 3 {
+        tentativas = tentativas + 1
+    }
+    print("tentativas: $(tentativas)")
+
+    // break/continue
+    var count = 0
+    for i in 0..10 {
+        if i == 3 { continue }
+        if i == 7 { break }
+        count = count + 1
+    }
+    print("count (skip 3, stop 7): $(count)")
+
+    // loop como expressão (P-3)
+    var t = 0
+    val resultado = loop {
+        t = t + 1
+        if t == 5 { break t * 10 }
+    }
+    print("loop valor: $(resultado)")
+
+    // match como expressão em for
+    for i in 1..=5 {
+        print(fizzBuzz(i))
+    }
+
+    // funções usando flow
+    print("soma lista: $(somarLista([1,2,3,4,5]))")
+    val pp = primeiroPositivo([-1, -2, 3, 4])
+    match pp {
+        Some(v) => print("primeiro positivo: $(v)")
+        None    => print("nenhum positivo")
+    }
+
+    // break/continue dentro de match arm (P-2)
+    var cond = true
+    var iter = 0
+    while cond {
+        iter = iter + 1
+        match iter {
+            3 => continue
+            5 => break
+            _ => print("iter: $(iter)")
+        }
+    }
+}
