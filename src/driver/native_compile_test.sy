@@ -1,0 +1,19 @@
+import (
+    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled } from @driver/native_compile
+    { bootstrapVerifyLibraryMarker } from @driver/bootstrap_verify
+    { buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectIndex, soyuzLibraryProjectRoot, soyuzLibraryProjectVerifyReady } from @driver/project_cli
+    { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testNativeCompileLibraryBuild() {
+    assertMsg(standaloneCliNativeLibraryBuildEnabled(), "native library build enabled")
+    assertMsg(nativeCompileLibraryBuildReady(), "native library build ready")
+    val out = nativeCompileLibraryBuildOutput()
+    assertMsg(out.contains(bootstrapVerifyLibraryMarker()), "native library verify marker")
+    assertMsg(nativeCompileLibraryBuildArgv() == defaultSoyuzLibraryBuildArgv(), "library argv")
+    assertMsg(argvIsNativeLibraryBuild(defaultSoyuzLibraryBuildArgv()), "argv detects library build")
+    val cfg = buildCliProjectConfigFromRoot(soyuzLibraryProjectRoot(), soyuzLibraryProjectIndex())
+    assertMsg(out == buildCliLibraryVerifyMessage(cfg), "native output matches project verify message")
+    assertMsg(soyuzLibraryProjectVerifyReady(), "frontend verify ready in test")
+}

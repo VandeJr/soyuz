@@ -15,6 +15,7 @@
 # Step 13: vN, vN+1, vN+2 share the same .data section content hash.
 # Step 14: main.sy delegates via cliOsExecShell; vN..vN+2 export soyuz_os_exec (bootstrap contract).
 # Step 15: vN..vN+2 embed bootstrap delegate command strings (soyuz build/test/run).
+# Step 16: standalone library build does not shell out to bootstrap soyuz (fake PATH).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -419,3 +420,30 @@ for i in 0 1 2; do
 done
 
 echo "→ bootstrap-verify bootstrap command strings (S12 step 15) OK"
+
+FAKE_BIN_DIR="$VERIFY_IR_TMP/fakebin"
+mkdir -p "$FAKE_BIN_DIR"
+cat >"$FAKE_BIN_DIR/soyuz" <<'EOF'
+#!/usr/bin/env bash
+echo "bootstrap soyuz should not run" >&2
+exit 99
+EOF
+chmod +x "$FAKE_BIN_DIR/soyuz"
+
+PATH_SAVE="$PATH"
+export PATH="$FAKE_BIN_DIR:$PATH"
+
+NATIVE_LIB="$("$OUT" build 2>&1 || true)"
+export PATH="$PATH_SAVE"
+
+if ! grep -q "$MARKER" <<<"$NATIVE_LIB"; then
+  echo "native library build falhou com soyuz fake no PATH: $NATIVE_LIB" >&2
+  exit 1
+fi
+
+if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_LIB"; then
+  echo "library build ainda delega ao bootstrap soyuz" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native library build (S12 step 16) OK"

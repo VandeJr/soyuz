@@ -143,3 +143,9 @@ pub fn bootstrapVerifyBootstrapCommandStepReady() -> Bool {
 pub fn bootstrapVerifyNativeCompileStepName() -> String = "native compile without bootstrap"
 
 pub fn bootstrapVerifyNativeCompileStepReady() -> Bool = false
+
+pub fn bootstrapVerifyNativeLibraryBuildStepName() -> String = "native library build"
+
+pub fn bootstrapVerifyNativeLibraryBuildStepReady() -> Bool {
+    return bootstrapVerifyBootstrapCommandStepReady()
+}

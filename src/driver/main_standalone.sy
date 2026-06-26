@@ -7,6 +7,7 @@ import (
     { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, defaultSoyuzLibraryBuildArgv, buildCliLegacyBootstrapCommand, buildCliProjectBootstrapCommand } from @driver/build_cli
     { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath, testCliLegacyBootstrapCommand } from @driver/test_cli
     { runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliDefaultExecPath, runCliHelloMinimalFixturePath, runCliLegacyBootstrapCommand } from @driver/run_cli
+    { argvIsNativeLibraryBuild, nativeCompileLibraryBuildOutput, standaloneCliNativeLibraryBuildEnabled } from @driver/native_compile
 )
 
 fn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {
@@ -34,6 +35,9 @@ pub fn runStandaloneCli(argv: List[String]) -> String {
     if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {
         val args = standaloneSubcommandArgsFromArgv(argv)
         if cliBuildProjectModeFromArgs(args) {
+            if standaloneCliNativeLibraryBuildEnabled() {
+                return nativeCompileLibraryBuildOutput()
+            }
             return buildCliLibraryVerifyStubMessage()
         }
         val plan = buildCliLegacyPlanFromArgs(args)
@@ -65,6 +69,7 @@ pub fn standaloneCliBootstrapBuildCommand(argv: List[String]) -> String {
     if argv.size() < 2 || argv.get(1) != cliCommandBuild() { return "" }
     val args = standaloneSubcommandArgsFromArgv(argv)
     if cliBuildProjectModeFromArgs(args) {
+        if standaloneCliNativeLibraryBuildEnabled() { return "" }
         return buildCliProjectBootstrapCommand(args)
     }
     val plan = buildCliLegacyPlanFromArgs(args)

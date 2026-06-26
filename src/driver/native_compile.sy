@@ -1,0 +1,35 @@
+// S12: native library build path — in-memory verify message without bootstrap shell-out.
+// Full frontend verify lives in project_cli (tested separately); main.sy stays thin.
+
+import (
+    { cliCommandBuild } from @driver/cli_usage
+    { cliBuildProjectModeFromArgs, defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyStubMessage } from @driver/build_cli
+)
+
+fn standaloneBuildArgsFromArgv(argv: List[String]) -> List[String] {
+    var args = List[String]{}
+    var i = 2
+    loop {
+        if i >= argv.size() { break }
+        args.append(argv.get(i))
+        i = i + 1
+    }
+    return args
+}
+
+pub fn standaloneCliNativeLibraryBuildEnabled() -> Bool = true
+
+pub fn nativeCompileLibraryBuildArgv() -> List[String] = defaultSoyuzLibraryBuildArgv()
+
+pub fn argvIsNativeLibraryBuild(argv: List[String]) -> Bool {
+    if argv.size() < 2 { return false }
+    if argv.get(1) != cliCommandBuild() { return false }
+    return cliBuildProjectModeFromArgs(standaloneBuildArgsFromArgv(argv))
+}
+
+pub fn nativeCompileLibraryBuildReady() -> Bool = standaloneCliNativeLibraryBuildEnabled()
+
+pub fn nativeCompileLibraryBuildOutput() -> String {
+    if !nativeCompileLibraryBuildReady() { return "" }
+    return buildCliLibraryVerifyStubMessage()
+}
