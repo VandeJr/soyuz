@@ -46,4 +46,10 @@ if ! grep -q 'Build concluído' <<<"$BUILD"; then
   exit 1
 fi
 
+TEST="$("$OUT" test 2>&1 || true)"
+if ! grep -q '/tmp/soyuz-cli-test/test-bin' <<<"$TEST"; then
+  echo "binário main.sy não roteia soyuz test legacy: $TEST" >&2
+  exit 1
+fi
+
 echo "→ driver main-standalone check (bootstrap) OK"

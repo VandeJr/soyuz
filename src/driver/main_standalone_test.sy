@@ -1,5 +1,5 @@
 import (
-    { runStandaloneCli, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady } from @driver/main_standalone
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
     { assertMsg } from @soyuz/testing
@@ -16,4 +16,8 @@ fn testStandaloneCliNew() {
 
 fn testStandaloneCliBuild() {
     assertMsg(standaloneCliBuildReady(), "standalone build legacy message")
+}
+
+fn testStandaloneCliTest() {
+    assertMsg(standaloneCliTestReady(), "standalone test exec path")
 }
