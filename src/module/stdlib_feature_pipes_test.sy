@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForPipesFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\npub interface Error { pub fn message() -> String pub fn code() -> Int }\n")
+}
+
+pub fn defaultFeaturePipesPath() -> String = "feature-tests/pipes.sy"
+
+// Port of feature-tests/pipes.sy — pipes/map/filter subset without $(...) in embed string.
+test fn testFeaturePipesTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/pipes.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForPipesFeature(index, stdlibDir)
+    index.fileContents.set(entry, "fn dobrar(x: Int) -> Int = x * 2\nfn somarMais1(x: Int) -> Int = x + 1\nfn multiplicar(x: Int, y: Int) -> Int = x * y\nclass VErr : Error { val msg: String pub fn message(self) -> String = self.msg pub fn code(self) -> Int = 422 }\nfn validar(n: Int) -> Result[Int] { if n < 0 { return Err(VErr { msg: \"negativo\" }) } return Ok(n) }\nfn transformar(n: Int) -> Result[Int] = Ok(n * 2)\nfn main() {\n\tval resultado = 5 |> dobrar |> somarMais1\n\tprint(resultado)\n\tval dobrados = [1, 2, 3].map(fn(x: Int) => x * 2)\n\tprint(dobrados.len())\n\tval ativos = [1, 2, 3, 4, 5].filter(fn(x: Int) => x > 2)\n\tprint(ativos.len())\n\tval soma = [1, 2, 3, 4, 5].reduce(fn(acc: Int, x: Int) => acc + x, 0)\n\tprint(soma)\n\tval ds = [1, 2, 3].map(dobrar)\n\tprint(ds.len())\n\tval triplicar = multiplicar(3, _)\n\tprint(triplicar(4))\n\tval resultado2 = [1, 2, 3, 4, 5].filter(fn(x: Int) => x > 2).map(fn(x: Int) => x * 10).reduce(fn(acc: Int, x: Int) => acc + x, 0)\n\tprint(resultado2)\n\tval r = validar(5) |?> transformar\n\tmatch r { Ok(v) => print(v) Err(e) => print(e.message()) }\n\tval r2 = validar(-1) |?> transformar\n\tmatch r2 { Ok(v) => print(v) Err(e) => print(e.message()) }\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect pipes feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus pipes")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature pipes type-checks")
+}
