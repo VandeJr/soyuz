@@ -1,12 +1,13 @@
-// Thin entry for root main.sy — usage + new without full driver codegen chain.
+// Thin entry for root main.sy — usage, new, build legacy without full driver codegen chain.
 
 import (
-    { cliUsageText, cliArgvNeedsUsage, cliUsageHeader, cliCommandNew } from @driver/cli_usage
+    { cliUsageText, cliArgvNeedsUsage, cliUsageHeader, cliCommandNew, cliCommandBuild } from @driver/cli_usage
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage } from @driver/build_cli
 )
 
-fn standaloneNewArgsFromArgv(argv: List[String]) -> List[String] {
+fn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {
     var args = List[String]{}
     var i = 2
     loop {
@@ -20,13 +21,21 @@ fn standaloneNewArgsFromArgv(argv: List[String]) -> List[String] {
 pub fn runStandaloneCli(argv: List[String]) -> String {
     if cliArgvNeedsUsage(argv) { return cliUsageText() }
     if argv.size() >= 2 && argv.get(1) == cliCommandNew() {
-        val args = standaloneNewArgsFromArgv(argv)
+        val args = standaloneSubcommandArgsFromArgv(argv)
         if !cliNewArgsReady(args) {
             return "erro: nome do projeto não especificado"
         }
         val plan = newProjectPlanFromArgs(args)
         if !newProjectPlanReady(plan) { return "erro: plano new inválido" }
         return plan.successMessage
+    }
+    if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {
+        val args = standaloneSubcommandArgsFromArgv(argv)
+        val plan = buildCliLegacyPlanFromArgs(args)
+        if !buildCliLegacyPlanReady(plan) {
+            return "erro: build incompleto"
+        }
+        return buildCliLegacySuccessMessage(plan)
     }
     return "erro: binário standalone — use bootstrap soyuz para subcomandos"
 }
@@ -42,4 +51,13 @@ pub fn standaloneCliNewReady() -> Bool {
     argv.append("demo")
     val out = runStandaloneCli(argv)
     return out.contains("demo") && out.contains("criado")
+}
+
+pub fn standaloneCliBuildReady() -> Bool {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandBuild())
+    argv.append("tools/fixtures/hello_minimal.sy")
+    val out = runStandaloneCli(argv)
+    return out.contains("Build concluído") && out.contains("output")
 }
