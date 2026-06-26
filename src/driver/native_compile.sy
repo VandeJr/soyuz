@@ -3,7 +3,7 @@
 
 import (
     { cliCommandBuild } from @driver/cli_usage
-    { cliBuildProjectModeFromArgs, defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyStubMessage } from @driver/build_cli
+    { cliBuildProjectModeFromArgs, defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyStubMessage, BuildCliLegacyPlan, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv } from @driver/build_cli
 )
 
 fn standaloneBuildArgsFromArgv(argv: List[String]) -> List[String] {
@@ -32,4 +32,38 @@ pub fn nativeCompileLibraryBuildReady() -> Bool = standaloneCliNativeLibraryBuil
 pub fn nativeCompileLibraryBuildOutput() -> String {
     if !nativeCompileLibraryBuildReady() { return "" }
     return buildCliLibraryVerifyStubMessage()
+}
+
+pub fn standaloneCliNativeLegacyBuildEnabled() -> Bool = true
+
+// Self-rebuild chain (vN→vN+1) still shells out to bootstrap until native codegen links.
+pub fn nativeCompileLegacyBootstrapEntry() -> String = "main.sy"
+
+pub fn nativeCompileLegacyBuildEnabledForEntry(entry: String) -> Bool {
+    if !standaloneCliNativeLegacyBuildEnabled() { return false }
+    if entry.len() == 0 { return false }
+    if entry == nativeCompileLegacyBootstrapEntry() { return false }
+    return true
+}
+
+pub fn nativeCompileLegacyBuildEnabledForPlan(plan: BuildCliLegacyPlan) -> Bool {
+    if !buildCliLegacyPlanReady(plan) { return false }
+    return nativeCompileLegacyBuildEnabledForEntry(plan.entry)
+}
+
+pub fn nativeCompileHelloMinimalBuildArgv() -> List[String] = defaultHelloMinimalBuildArgv()
+
+pub fn argvIsNativeLegacyBuild(argv: List[String]) -> Bool {
+    if argv.size() < 2 { return false }
+    if argv.get(1) != cliCommandBuild() { return false }
+    val args = standaloneBuildArgsFromArgv(argv)
+    if cliBuildProjectModeFromArgs(args) { return false }
+    return nativeCompileLegacyBuildEnabledForPlan(buildCliLegacyPlanFromArgs(args))
+}
+
+pub fn nativeCompileLegacyBuildOutputFromArgv(argv: List[String]) -> String {
+    val args = standaloneBuildArgsFromArgv(argv)
+    val plan = buildCliLegacyPlanFromArgs(args)
+    if !nativeCompileLegacyBuildEnabledForPlan(plan) { return "" }
+    return buildCliLegacySuccessMessage(plan)
 }

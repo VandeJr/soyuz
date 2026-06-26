@@ -1,5 +1,5 @@
 import (
-    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled } from @driver/native_compile
+    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry } from @driver/native_compile
     { bootstrapVerifyLibraryMarker } from @driver/bootstrap_verify
     { buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectIndex, soyuzLibraryProjectRoot, soyuzLibraryProjectVerifyReady } from @driver/project_cli
     { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
@@ -16,4 +16,19 @@ test fn testNativeCompileLibraryBuild() {
     val cfg = buildCliProjectConfigFromRoot(soyuzLibraryProjectRoot(), soyuzLibraryProjectIndex())
     assertMsg(out == buildCliLibraryVerifyMessage(cfg), "native output matches project verify message")
     assertMsg(soyuzLibraryProjectVerifyReady(), "frontend verify ready in test")
+}
+
+test fn testNativeCompileLegacyBuild() {
+    val helloArgv = nativeCompileHelloMinimalBuildArgv()
+    assertMsg(argvIsNativeLegacyBuild(helloArgv), "argv detects hello legacy build")
+    val out = nativeCompileLegacyBuildOutputFromArgv(helloArgv)
+    assertMsg(out.contains("Build concluído"), "hello legacy success message")
+    assertMsg(!argvIsNativeLegacyBuild(defaultSoyuzLibraryBuildArgv()), "library not legacy")
+
+    var mainArgv = List[String]{}
+    mainArgv.append("soyuz")
+    mainArgv.append("build")
+    mainArgv.append(nativeCompileLegacyBootstrapEntry())
+    assertMsg(!argvIsNativeLegacyBuild(mainArgv), "main.sy still delegates")
+    assertMsg(nativeCompileLegacyBuildOutputFromArgv(mainArgv) == "", "main.sy no native output")
 }

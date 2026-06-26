@@ -16,6 +16,7 @@
 # Step 14: main.sy delegates via cliOsExecShell; vN..vN+2 export soyuz_os_exec (bootstrap contract).
 # Step 15: vN..vN+2 embed bootstrap delegate command strings (soyuz build/test/run).
 # Step 16: standalone library build does not shell out to bootstrap soyuz (fake PATH).
+# Step 17: standalone legacy build (non-main.sy) does not shell out to bootstrap soyuz (fake PATH).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -447,3 +448,20 @@ if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_LIB"; then
 fi
 
 echo "→ bootstrap-verify native library build (S12 step 16) OK"
+
+export PATH="$FAKE_BIN_DIR:$PATH"
+
+NATIVE_LEGACY="$("$OUT" build "$HELLO" 2>&1 || true)"
+export PATH="$PATH_SAVE"
+
+if ! grep -q 'Build concluído' <<<"$NATIVE_LEGACY"; then
+  echo "native legacy build falhou com soyuz fake no PATH: $NATIVE_LEGACY" >&2
+  exit 1
+fi
+
+if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_LEGACY"; then
+  echo "legacy build ainda delega ao bootstrap soyuz" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native legacy build (S12 step 17) OK"

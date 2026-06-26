@@ -4,7 +4,8 @@ import (
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
     { testCliDefaultTmpBinPath } from @driver/test_cli
-    { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { defaultSoyuzLibraryBuildArgv, defaultHelloMinimalBuildArgv } from @driver/build_cli
+    { bootstrapVerifySelfRebuildEntry } from @driver/bootstrap_verify
     { assertMsg } from @soyuz/testing
 )
 
@@ -70,10 +71,18 @@ fn testStandaloneCliBootstrapBuildDelegate() {
     argv.append("soyuz")
     argv.append("build")
     argv.append("tools/fixtures/hello_minimal.sy")
-    assertMsg(standaloneCliShouldDelegateBuild(argv), "legacy build delegates")
-    val cmd = standaloneCliBootstrapBuildCommand(argv)
-    assertMsg(cmd.contains("soyuz build"), "bootstrap command")
-    assertMsg(cmd.contains("hello_minimal"), "bootstrap entry")
+    assertMsg(!standaloneCliShouldDelegateBuild(argv), "hello legacy build native")
+    assertMsg(standaloneCliBootstrapBuildCommand(argv) == "", "hello skips bootstrap")
     assertMsg(!standaloneCliShouldDelegateBuild(defaultSoyuzLibraryBuildArgv()), "library build native")
     assertMsg(standaloneCliBootstrapBuildCommand(defaultSoyuzLibraryBuildArgv()) == "", "library skips bootstrap")
+
+    var mainArgv = List[String]{}
+    mainArgv.append("soyuz")
+    mainArgv.append("build")
+    mainArgv.append(bootstrapVerifySelfRebuildEntry())
+    assertMsg(standaloneCliShouldDelegateBuild(mainArgv), "main.sy rebuild delegates")
+    val mainCmd = standaloneCliBootstrapBuildCommand(mainArgv)
+    assertMsg(mainCmd.contains("soyuz build"), "main bootstrap command")
+    assertMsg(mainCmd.contains(bootstrapVerifySelfRebuildEntry()), "main bootstrap entry")
+    assertMsg(defaultHelloMinimalBuildArgv() == argv, "hello argv fixture")
 }

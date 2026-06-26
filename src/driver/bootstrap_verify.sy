@@ -149,3 +149,13 @@ pub fn bootstrapVerifyNativeLibraryBuildStepName() -> String = "native library b
 pub fn bootstrapVerifyNativeLibraryBuildStepReady() -> Bool {
     return bootstrapVerifyBootstrapCommandStepReady()
 }
+
+pub fn bootstrapVerifyNativeLegacyBuildStepName() -> String = "native legacy build"
+
+pub fn bootstrapVerifyNativeLegacyBuildFixture() -> String = "tools/fixtures/hello_minimal.sy"
+
+pub fn bootstrapVerifyNativeLegacyBuildSuccessMarker() -> String = "Build concluído"
+
+pub fn bootstrapVerifyNativeLegacyBuildStepReady() -> Bool {
+    return bootstrapVerifyNativeLibraryBuildStepReady() && bootstrapVerifyNativeLegacyBuildFixture().len() > 0
+}
