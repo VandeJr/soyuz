@@ -1,0 +1,62 @@
+class DivisaoErro : Error {
+    val dividendo: Float
+    pub fn message(self) -> String { return "Divisão de $(self.dividendo) por zero" }
+    pub fn code(self) -> Int { return 400 }
+}
+
+class ValidacaoErro : Error {
+    val campo: String
+    pub fn message(self) -> String = "Campo inválido: $(self.campo)"
+    pub fn code(self) -> Int = 422
+}
+
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+extend String {
+    pub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub)
+}
+
+fn dividir(a: Float, b: Float) -> Result[Float] {
+    if b == 0.0 { return Err(DivisaoErro { dividendo: a }) }
+    return Ok(a / b)
+}
+
+fn validarEmail(email: String) -> Result[String] {
+    if !email.contains("@") { return Err(ValidacaoErro { campo: "email" }) }
+    return Ok(email)
+}
+
+fn transformar(email: String) -> Result[String] {
+    return Ok("processado: $(email)")
+}
+
+fn main() {
+    match dividir(10.0, 2.0) {
+        Ok(v)  => print("div: $(v)")
+        Err(e) => print("erro: $(e.message())")
+    }
+    match dividir(10.0, 0.0) {
+        Ok(v)  => print("div: $(v)")
+        Err(e) => print("erro: $(e.message())")
+    }
+
+    match validarEmail("vand@soyuz.dev") {
+        Ok(e)  => print("email ok: $(e)")
+        Err(e) => print("email err")
+    }
+    match validarEmail("invalido") {
+        Ok(_)  => print("email ok")
+        Err(e) => print("email err: $(e.message())")
+    }
+
+    // PipeQuest |?>
+    val r = validarEmail("vand@ok.com") |?> transformar
+    match r {
+        Ok(v)  => print("pipe ok: $(v)")
+        Err(e) => print("pipe err: $(e.message())")
+    }
+    val r2 = validarEmail("invalido") |?> transformar
+    match r2 {
+        Ok(v)  => print("pipe ok")
+        Err(e) => print("pipe err: $(e.message())")
+    }
+}

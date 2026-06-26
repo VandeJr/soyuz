@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForErrorsFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Float { pub fn equals(self, other: Float) -> Bool = self == other }\nextend String { pub fn equals(self, other: String) -> Bool = self == other }\npub interface Error { pub fn message() -> String pub fn code() -> Int }\n")
+}
+
+pub fn defaultFeatureErrorsPath() -> String = "feature-tests/errors.sy"
+
+// Port of feature-tests/errors.sy — Result/Error subset without $(...) in embed string.
+test fn testFeatureErrorsTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/errors.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForErrorsFeature(index, stdlibDir)
+    index.fileContents.set(entry, "class DivisaoErro : Error { val dividendo: Float pub fn message(self) -> String { return \"div zero\" } pub fn code(self) -> Int { return 400 } }\nclass ValidacaoErro : Error { val campo: String pub fn message(self) -> String = self.campo pub fn code(self) -> Int = 422 }\nextern fn soyuz_str_contains(s: String, sub: String) -> Bool\nextend String { pub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub) }\nfn dividir(a: Float, b: Float) -> Result[Float] { if b == 0.0 { return Err(DivisaoErro { dividendo: a }) } return Ok(a / b) }\nfn validarEmail(email: String) -> Result[String] { if !email.contains(\"@\") { return Err(ValidacaoErro { campo: \"email\" }) } return Ok(email) }\nfn transformar(email: String) -> Result[String] { return Ok(email) }\nfn main() {\n\tmatch dividir(10.0, 2.0) { Ok(v) => print(v) Err(e) => print(e.message()) }\n\tmatch dividir(10.0, 0.0) { Ok(v) => print(v) Err(e) => print(e.message()) }\n\tmatch validarEmail(\"vand@soyuz.dev\") { Ok(e) => print(e) Err(e) => print(e.message()) }\n\tmatch validarEmail(\"invalido\") { Ok(_) => print(\"ok\") Err(e) => print(e.message()) }\n\tval r = validarEmail(\"vand@ok.com\") |?> transformar\n\tmatch r { Ok(v) => print(v) Err(e) => print(e.message()) }\n\tval r2 = validarEmail(\"invalido\") |?> transformar\n\tmatch r2 { Ok(v) => print(v) Err(e) => print(e.message()) }\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect errors feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus errors")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature errors type-checks")
+}
