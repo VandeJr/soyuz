@@ -1,0 +1,29 @@
+// Future main.sy entry: argv in → usage text or run exec path out (no OS spawn).
+
+import (
+    { cliActionRun, cliDispatchAction, cliDispatchUsageOutput, cliRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, defaultHelloMinimalRunArgv } from @driver/dispatch
+)
+
+pub fn cliEntryOutput(argv: List[String]) -> String {
+    val usage = cliDispatchUsageOutput(argv)
+    if usage.len() > 0 { return usage }
+    if cliDispatchAction(argv) == cliActionRun() {
+        if !cliRunActionOrderedCommandsReady(argv) {
+            return "erro: pipeline run incompleto"
+        }
+        val execCmd = cliRunActionExecCommand(argv)
+        if execCmd.len() == 0 {
+            return "erro: comando exec run vazio"
+        }
+        return execCmd
+    }
+    return "erro: subcomando ainda não portado no driver Soyuz"
+}
+
+pub fn cliHelloMinimalEntryOutput() -> String {
+    return cliEntryOutput(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliHelloMinimalEntryOutputReady() -> Bool {
+    return cliHelloMinimalRunActionExecReady()
+}

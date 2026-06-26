@@ -1,0 +1,15 @@
+import (
+    { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady } from @driver/entry
+    { cliUsageHeader, cliHelloMinimalBinaryPath } from @driver/cli
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliEntryOutput() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliEntryOutput(argv).contains(cliUsageHeader()), "short argv prints usage")
+
+    val helloOut = cliHelloMinimalEntryOutput()
+    assertMsg(helloOut == cliHelloMinimalBinaryPath(), "hello minimal entry returns exec path")
+    assertMsg(cliHelloMinimalEntryOutputReady(), "hello minimal entry output ready")
+}

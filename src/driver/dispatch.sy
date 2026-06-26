@@ -1,7 +1,7 @@
 // Mirrors soyuz-go/cmd/main.go switch on os.Args[1] (routing only, no OS spawn).
 
 import (
-    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, cliRunEntryFromArgs, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliUsageText, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
+    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, cliRunEntryFromArgs, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliHelloMinimalRunExecCommandFromArgv, cliHelloMinimalBinaryPath, cliUsageText, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
     { helloMinimalFixturePath } from @driver/export
     { runPlanOrderedMaterializeCommandCount } from @driver/run
 )
@@ -71,4 +71,16 @@ pub fn cliRunActionOrderedCommandsReady(argv: List[String]) -> Bool {
 
 pub fn cliHelloMinimalRunActionOrderedCommandsReady() -> Bool {
     return cliRunActionOrderedCommandsReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliRunActionExecCommand(argv: List[String]) -> String {
+    if !cliRunActionPipelineReady(argv) { return "" }
+    val dispatch = cliDispatchFromArgv(argv)
+    val entry = cliRunEntryFromArgs(dispatch.args)
+    if entry != helloMinimalFixturePath() { return "" }
+    return cliHelloMinimalRunExecCommandFromArgv(argv)
+}
+
+pub fn cliHelloMinimalRunActionExecReady() -> Bool {
+    return cliRunActionExecCommand(defaultHelloMinimalRunArgv()) == cliHelloMinimalBinaryPath()
 }

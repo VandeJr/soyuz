@@ -1,6 +1,6 @@
 import (
-    { cliActionUsage, cliActionRun, cliActionBuild, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady } from @driver/dispatch
-    { cliCommandRun, cliCommandBuild, cliUsageHeader, defaultHelloMinimalFixturePath } from @driver/cli
+    { cliActionUsage, cliActionRun, cliActionBuild, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady } from @driver/dispatch
+    { cliCommandRun, cliCommandBuild, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing
 )
@@ -40,4 +40,6 @@ test fn testCliDispatchUsageAndOrderedCommands() {
     assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "run action ordered commands")
     assertMsg(cliRunActionOrderedCommandsReady(runArgv), "run action ordered commands ready")
     assertMsg(cliHelloMinimalRunActionOrderedCommandsReady(), "hello minimal ordered commands ready")
+    assertMsg(cliRunActionExecCommand(runArgv) == cliHelloMinimalBinaryPath(), "run action exec command")
+    assertMsg(cliHelloMinimalRunActionExecReady(), "hello minimal run action exec ready")
 }
