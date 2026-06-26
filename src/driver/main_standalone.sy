@@ -1,10 +1,10 @@
-// Thin entry for root main.sy — usage, new, build, test, run legacy without full driver codegen chain.
+// Thin entry for root main.sy — usage, new, build (legacy + project), test, run without full driver codegen chain.
 
 import (
     { cliUsageText, cliArgvNeedsUsage, cliUsageHeader, cliCommandNew, cliCommandBuild, cliCommandTest, cliCommandRun } from @driver/cli_usage
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
-    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage } from @driver/build_cli
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath } from @driver/test_cli
     { runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliDefaultExecPath, runCliHelloMinimalFixturePath } from @driver/run_cli
 )
@@ -33,6 +33,9 @@ pub fn runStandaloneCli(argv: List[String]) -> String {
     }
     if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {
         val args = standaloneSubcommandArgsFromArgv(argv)
+        if cliBuildProjectModeFromArgs(args) {
+            return buildCliLibraryVerifyStubMessage()
+        }
         val plan = buildCliLegacyPlanFromArgs(args)
         if !buildCliLegacyPlanReady(plan) {
             return "erro: build incompleto"
@@ -78,6 +81,11 @@ pub fn standaloneCliBuildReady() -> Bool {
     argv.append("tools/fixtures/hello_minimal.sy")
     val out = runStandaloneCli(argv)
     return out.contains("Build concluído") && out.contains("output")
+}
+
+pub fn standaloneCliLibraryBuildReady() -> Bool {
+    val out = runStandaloneCli(defaultSoyuzLibraryBuildArgv())
+    return out.contains("verificada com sucesso")
 }
 
 pub fn standaloneCliTestReady() -> Bool {

@@ -2,8 +2,8 @@ import (
     { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady, defaultCliEntryCheckScript, cliEntryOrderedCommands, cliHelloMinimalEntryOrderedCommandsReady, cliEntryReady, cliHelloMinimalEntryReady } from @driver/entry
     { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv, cliCommandNew, cliCommandBuild, cliCommandTest } from @driver/cli
     { newProjectSuccessMessage } from @driver/new
-    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput } from @driver/build_cli
-    { defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyMessage } from @driver/project_cli
+    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { buildCliLibraryVerifyMessage } from @driver/project_cli
     { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing

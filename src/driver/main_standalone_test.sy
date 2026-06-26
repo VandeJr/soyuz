@@ -1,5 +1,5 @@
 import (
-    { runStandaloneCli, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady } from @driver/main_standalone
+    { runStandaloneCli, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
     { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
     { cliUsageHeader } from @driver/cli_usage
     { assertMsg } from @soyuz/testing
@@ -24,4 +24,8 @@ fn testStandaloneCliTest() {
 
 fn testStandaloneCliRun() {
     assertMsg(standaloneCliRunReady(), "standalone run exec path")
+}
+
+fn testStandaloneCliLibraryBuild() {
+    assertMsg(standaloneCliLibraryBuildReady(), "standalone library build message")
 }

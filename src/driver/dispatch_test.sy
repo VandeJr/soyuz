@@ -1,8 +1,8 @@
 import (
     { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliActionTest, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliHelloMinimalBuildActionReady, cliSoyuzLibraryBuildActionReady, cliTestActionReady, cliTestExecCommandFromArgv, cliTestRunnerActionReady } from @driver/dispatch
     { cliCommandRun, cliCommandBuild, cliCommandNew, cliCommandTest, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
-    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput } from @driver/build_cli
-    { defaultSoyuzLibraryBuildArgv, buildCliLibraryVerifyMessage } from @driver/project_cli
+    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { buildCliLibraryVerifyMessage } from @driver/project_cli
     { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { assertMsg } from @soyuz/testing

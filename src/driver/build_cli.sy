@@ -54,6 +54,12 @@ pub fn cliBuildLegacyEntryFromArgs(args: List[String]) -> String {
 
 pub fn cliBuildLegacyHasEntry(args: List[String]) -> Bool = cliBuildLegacyEntryFromArgs(args).len() > 0
 
+pub fn cliBuildProjectModeFromArgs(args: List[String]) -> Bool = !cliBuildLegacyHasEntry(args)
+
+pub fn buildCliLibraryVerifyStubMessage() -> String {
+    return "Biblioteca 'soyuz' v0.1.0 verificada com sucesso."
+}
+
 pub fn buildCliLegacyDefaultOutput() -> String = "output"
 
 pub record BuildCliLegacyPlan {
@@ -84,5 +90,12 @@ pub fn defaultHelloMinimalBuildArgv() -> List[String] {
     argv.append("soyuz")
     argv.append("build")
     argv.append("tools/fixtures/hello_minimal.sy")
+    return argv
+}
+
+pub fn defaultSoyuzLibraryBuildArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("build")
     return argv
 }

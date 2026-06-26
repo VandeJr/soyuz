@@ -1,5 +1,6 @@
 import (
-    { soyuzLibraryProjectRoot, buildCliProjectConfigFromRoot, buildCliProjectConfigReady, buildCliLibraryVerifyMessage, cliBuildProjectModeFromArgs, soyuzLibraryProjectVerifyReady, planSoyuzLibraryProjectFrontendBuild, defaultSoyuzLibraryBuildArgv, soyuzLibraryProjectIndex } from @driver/project_cli
+    { soyuzLibraryProjectRoot, buildCliProjectConfigFromRoot, buildCliProjectConfigReady, buildCliLibraryVerifyMessage, soyuzLibraryProjectVerifyReady, planSoyuzLibraryProjectFrontendBuild, soyuzLibraryProjectIndex } from @driver/project_cli
+    { cliBuildProjectModeFromArgs, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { frontendBuildReady } from @driver/frontend
     { assertMsg } from @soyuz/testing
 )

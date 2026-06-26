@@ -5,8 +5,8 @@ import (
     { helloMinimalFixturePath } from @driver/export
     { runPlanOrderedMaterializeCommandCount } from @driver/run
     { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
-    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv, cliBuildLegacyHasEntry } from @driver/build_cli
-    { cliBuildProjectModeFromArgs, soyuzLibraryProjectVerifyReady, buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectRoot, soyuzLibraryProjectIndex, defaultSoyuzLibraryBuildArgv } from @driver/project_cli
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { soyuzLibraryProjectVerifyReady, buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectRoot, soyuzLibraryProjectIndex } from @driver/project_cli
     { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath, defaultTestRunnerArgv } from @driver/test_cli
     { planHelloFullBuild, testRunnerCliPath, helloTestBuildReady } from @driver/export
     { fullBuildReady } from @driver/pipeline

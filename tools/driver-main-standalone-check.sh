@@ -46,6 +46,12 @@ if ! grep -q 'Build concluído' <<<"$BUILD"; then
   exit 1
 fi
 
+LIB="$("$OUT" build 2>&1 || true)"
+if ! grep -q 'verificada com sucesso' <<<"$LIB"; then
+  echo "binário main.sy não roteia soyuz build project-aware: $LIB" >&2
+  exit 1
+fi
+
 TEST="$("$OUT" test 2>&1 || true)"
 if ! grep -q '/tmp/soyuz-cli-test/test-bin' <<<"$TEST"; then
   echo "binário main.sy não roteia soyuz test legacy: $TEST" >&2
