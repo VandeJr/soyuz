@@ -231,3 +231,9 @@ pub fn bootstrapVerifyNativeMainStandaloneLegacyBuildStepName() -> String = "nat
 pub fn bootstrapVerifyNativeMainStandaloneLegacyBuildStepReady() -> Bool {
     return bootstrapVerifyNativeMainBuildCliStepReady()
 }
+
+pub fn bootstrapVerifyNativeMainTestCliStepName() -> String = "native main.sy real test_cli"
+
+pub fn bootstrapVerifyNativeMainTestCliStepReady() -> Bool {
+    return bootstrapVerifyNativeMainStandaloneLegacyBuildStepReady()
+}
