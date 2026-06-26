@@ -175,3 +175,9 @@ pub fn bootstrapVerifyNativeTestStepName() -> String = "native test runner"
 pub fn bootstrapVerifyNativeTestStepReady() -> Bool {
     return bootstrapVerifyNativeNewStepReady() && bootstrapVerifyTestMarker().len() > 0
 }
+
+pub fn bootstrapVerifyNativeRunStepName() -> String = "native hello run"
+
+pub fn bootstrapVerifyNativeRunStepReady() -> Bool {
+    return bootstrapVerifyNativeTestStepReady() && bootstrapVerifyHelloOutput().len() > 0
+}

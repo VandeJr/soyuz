@@ -61,3 +61,5 @@ pub fn defaultHelloMinimalRunArgv() -> List[String] {
     argv.append(runCliHelloMinimalFixturePath())
     return argv
 }
+
+pub fn runCliNativeHelloStubMessage() -> String = "hello"

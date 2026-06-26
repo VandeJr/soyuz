@@ -68,7 +68,7 @@ fi
 
 RUN="$("$OUT" run tools/fixtures/hello_minimal.sy 2>&1 || true)"
 if ! grep -q 'hello' <<<"$RUN"; then
-  echo "binário main.sy não delega soyuz run ao bootstrap: $RUN" >&2
+  echo "binário main.sy soyuz run sem saída hello: $RUN" >&2
   exit 1
 fi
 

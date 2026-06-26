@@ -1,7 +1,8 @@
 import (
-    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv, standaloneCliNativeTestEnabled, nativeCompileTestRunnerArgv, argvIsNativeTest, nativeCompileTestOutputFromArgv, nativeCompileTestSuccessMarker } from @driver/native_compile
+    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv, standaloneCliNativeTestEnabled, nativeCompileTestRunnerArgv, argvIsNativeTest, nativeCompileTestOutputFromArgv, nativeCompileTestSuccessMarker, standaloneCliNativeRunEnabled, nativeCompileHelloMinimalRunArgv, argvIsNativeRun, nativeCompileRunOutputFromArgv, nativeCompileRunSuccessMarker } from @driver/native_compile
     { bootstrapVerifyLibraryMarker } from @driver/bootstrap_verify
     { testCliNativeSuccessStubMessage } from @driver/test_cli
+    { runCliNativeHelloStubMessage } from @driver/run_cli
     { buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectIndex, soyuzLibraryProjectRoot, soyuzLibraryProjectVerifyReady } from @driver/project_cli
     { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { assertMsg } from @soyuz/testing
@@ -50,4 +51,13 @@ test fn testNativeCompileTest() {
     val out = nativeCompileTestOutputFromArgv(argv)
     assertMsg(out == testCliNativeSuccessStubMessage(), "native test stub message")
     assertMsg(out.contains(nativeCompileTestSuccessMarker()), "native test success marker")
+}
+
+test fn testNativeCompileRun() {
+    assertMsg(standaloneCliNativeRunEnabled(), "native run enabled")
+    val argv = nativeCompileHelloMinimalRunArgv()
+    assertMsg(argvIsNativeRun(argv), "argv detects run")
+    val out = nativeCompileRunOutputFromArgv(argv)
+    assertMsg(out == runCliNativeHelloStubMessage(), "native run stub message")
+    assertMsg(out.contains(nativeCompileRunSuccessMarker()), "native run success marker")
 }

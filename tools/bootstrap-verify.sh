@@ -19,6 +19,7 @@
 # Step 17: standalone legacy build (non-main.sy) does not shell out to bootstrap soyuz (fake PATH).
 # Step 18: standalone `new` does not shell out to bootstrap soyuz (fake PATH).
 # Step 19: standalone `test` does not shell out to bootstrap soyuz (fake PATH).
+# Step 20: standalone `run` does not shell out to bootstrap soyuz (fake PATH).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -501,3 +502,20 @@ if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_TEST"; then
 fi
 
 echo "→ bootstrap-verify native test runner (S12 step 19) OK"
+
+export PATH="$FAKE_BIN_DIR:$PATH"
+
+NATIVE_RUN="$("$OUT" run "$HELLO" 2>&1 || true)"
+export PATH="$PATH_SAVE"
+
+if ! grep -q "$HELLO_MARKER" <<<"$NATIVE_RUN"; then
+  echo "native run falhou com soyuz fake no PATH: $NATIVE_RUN" >&2
+  exit 1
+fi
+
+if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_RUN"; then
+  echo "run ainda delega ao bootstrap soyuz" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify native hello run (S12 step 20) OK"

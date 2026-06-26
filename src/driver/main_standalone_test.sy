@@ -54,8 +54,8 @@ fn testStandaloneCliBootstrapShellCommand() {
     runArgv.append("run")
     runArgv.append("tools/fixtures/hello_minimal.sy")
     val runCmd = standaloneCliBootstrapRunCommand(runArgv)
-    assertMsg(runCmd.contains("soyuz run"), "bootstrap run command")
-    assertMsg(standaloneCliBootstrapShellCommand(runArgv) == runCmd, "shell picks run")
+    assertMsg(runCmd == "", "run skips bootstrap")
+    assertMsg(standaloneCliBootstrapShellCommand(runArgv) == "", "run shell empty")
 
     var newArgv = List[String]{}
     newArgv.append("soyuz")
