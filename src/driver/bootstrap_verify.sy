@@ -73,3 +73,9 @@ pub fn bootstrapVerifyVn2StepName() -> String = "vN+1 rebuilds vN+2"
 pub fn bootstrapVerifyVn2StepReady() -> Bool {
     return bootstrapVerifySelfRebuildStepReady() && bootstrapVerifyLibraryStepReady()
 }
+
+pub fn bootstrapVerifyVn2FixedPointStepName() -> String = "vN+2 fixed-point"
+
+pub fn bootstrapVerifyVn2FixedPointStepReady() -> Bool {
+    return bootstrapVerifyVn2StepReady() && bootstrapVerifyTestStepReady() && bootstrapVerifyHelloStepReady()
+}

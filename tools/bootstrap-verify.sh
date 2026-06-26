@@ -8,6 +8,7 @@
 # Step 6: vN (standalone output) rebuilds main.sy into executable vN+1 with same CLI smoke.
 # Step 7: vN+1 matches bootstrap for library, test_runner, and hello run fixed-points.
 # Step 8: vN+1 rebuilds main.sy into executable vN+2 with same CLI smoke.
+# Step 9: vN+2 passes test_runner and hello run fixed-points.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -247,3 +248,17 @@ if ! grep -q "$MARKER" <<<"$VN2_LIB"; then
 fi
 
 echo "→ bootstrap-verify vN+1 rebuilds vN+2 (S12 step 8) OK"
+
+VN2_TEST="$("$OUT3" test test_runner.sy 2>&1 || true)"
+if ! grep -q "$TEST_MARKER" <<<"$VN2_TEST"; then
+  echo "vN+2 test sem marcador de sucesso: $VN2_TEST" >&2
+  exit 1
+fi
+
+VN2_RUN="$("$OUT3" run "$HELLO" 2>&1 || true)"
+if ! grep -q "$HELLO_MARKER" <<<"$VN2_RUN"; then
+  echo "vN+2 run sem saída hello: $VN2_RUN" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify vN+2 fixed-point (S12 step 9) OK"
