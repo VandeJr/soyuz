@@ -7,6 +7,7 @@
 # Step 5: template and bootstrap hello IR both link with runtime and print hello.
 # Step 6: vN (standalone output) rebuilds main.sy into executable vN+1 with same CLI smoke.
 # Step 7: vN+1 matches bootstrap for library, test_runner, and hello run fixed-points.
+# Step 8: vN+1 rebuilds main.sy into executable vN+2 with same CLI smoke.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -218,3 +219,31 @@ if ! grep -q "$HELLO_MARKER" <<<"$VN1_RUN"; then
 fi
 
 echo "→ bootstrap-verify vN+1 fixed-point (S12 step 7) OK"
+
+OUT3="$VERIFY_IR_TMP/output3"
+rm -f "$OUT3"
+
+REBUILD2_OUT="$("$OUT2" build main.sy -o "$OUT3" 2>&1 || true)"
+if ! grep -q 'Build concluído' <<<"$REBUILD2_OUT"; then
+  echo "vN+1 build main.sy falhou: $REBUILD2_OUT" >&2
+  exit 1
+fi
+
+if [[ ! -x "$OUT3" ]]; then
+  echo "vN+2 ausente após vN+1 build main.sy: $OUT3" >&2
+  exit 1
+fi
+
+VN2_USAGE="$("$OUT3" 2>&1 || true)"
+if ! grep -q 'Uso: soyuz' <<<"$VN2_USAGE"; then
+  echo "vN+2 sem usage esperado: $VN2_USAGE" >&2
+  exit 1
+fi
+
+VN2_LIB="$("$OUT3" build 2>&1 || true)"
+if ! grep -q "$MARKER" <<<"$VN2_LIB"; then
+  echo "vN+2 build library sem verify: $VN2_LIB" >&2
+  exit 1
+fi
+
+echo "→ bootstrap-verify vN+1 rebuilds vN+2 (S12 step 8) OK"
