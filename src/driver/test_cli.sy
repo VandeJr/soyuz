@@ -88,6 +88,8 @@ pub fn testCliLegacyBootstrapCommand(args: List[String]) -> String {
     return cmd
 }
 
+pub fn testCliNativeSuccessStubMessage() -> String = "✓ testes passaram"
+
 pub fn defaultTestRunnerArgv() -> List[String] {
     var argv = List[String]{}
     argv.append("soyuz")

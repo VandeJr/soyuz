@@ -46,8 +46,8 @@ fn testStandaloneCliBootstrapShellCommand() {
     testArgv.append("test")
     testArgv.append("test_runner.sy")
     val testCmd = standaloneCliBootstrapTestCommand(testArgv)
-    assertMsg(testCmd.contains("soyuz test"), "bootstrap test command")
-    assertMsg(standaloneCliBootstrapShellCommand(testArgv) == testCmd, "shell picks test")
+    assertMsg(testCmd == "", "test skips bootstrap")
+    assertMsg(standaloneCliBootstrapShellCommand(testArgv) == "", "test shell empty")
 
     var runArgv = List[String]{}
     runArgv.append("soyuz")

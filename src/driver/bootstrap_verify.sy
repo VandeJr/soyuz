@@ -169,3 +169,9 @@ pub fn bootstrapVerifyNativeNewSuccessMarker() -> String = "criado"
 pub fn bootstrapVerifyNativeNewStepReady() -> Bool {
     return bootstrapVerifyNativeLegacyBuildStepReady() && bootstrapVerifyNativeNewProjectName().len() > 0
 }
+
+pub fn bootstrapVerifyNativeTestStepName() -> String = "native test runner"
+
+pub fn bootstrapVerifyNativeTestStepReady() -> Bool {
+    return bootstrapVerifyNativeNewStepReady() && bootstrapVerifyTestMarker().len() > 0
+}

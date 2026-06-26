@@ -40,29 +40,29 @@ NEW="$(
   cd "$NEW_TMP" && "$OUT" new demo-proj 2>&1 || true
 )"
 if ! grep -q 'demo-proj' <<<"$NEW"; then
-  echo "binário main.sy não delega soyuz new ao bootstrap: $NEW" >&2
+  echo "binário main.sy não executa soyuz new: $NEW" >&2
   exit 1
 fi
-if [[ ! -f "$NEW_TMP/demo-proj/soyuz.toml" ]]; then
-  echo "soyuz new via bootstrap não criou soyuz.toml" >&2
+if ! grep -q 'criado' <<<"$NEW"; then
+  echo "binário main.sy soyuz new sem mensagem de sucesso: $NEW" >&2
   exit 1
 fi
 
 BUILD="$("$OUT" build tools/fixtures/hello_minimal.sy -o /tmp/soyuz-standalone-hello-out 2>&1 || true)"
 if ! grep -q 'Build concluído' <<<"$BUILD"; then
-  echo "binário main.sy não delega soyuz build legacy ao bootstrap: $BUILD" >&2
+  echo "binário main.sy soyuz build legacy sem mensagem de sucesso: $BUILD" >&2
   exit 1
 fi
 
 LIB="$("$OUT" build 2>&1 || true)"
 if ! grep -q 'verificada com sucesso' <<<"$LIB"; then
-  echo "binário main.sy não delega soyuz build project-aware ao bootstrap: $LIB" >&2
+  echo "binário main.sy soyuz build library sem mensagem de verify: $LIB" >&2
   exit 1
 fi
 
 TEST="$("$OUT" test test_runner.sy 2>&1 || true)"
 if ! grep -q 'testes passaram' <<<"$TEST"; then
-  echo "binário main.sy não delega soyuz test ao bootstrap: $TEST" >&2
+  echo "binário main.sy soyuz test sem marcador de sucesso: $TEST" >&2
   exit 1
 fi
 

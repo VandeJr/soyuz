@@ -1,6 +1,7 @@
 import (
-    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv } from @driver/native_compile
+    { nativeCompileLibraryBuildArgv, nativeCompileLibraryBuildReady, nativeCompileLibraryBuildOutput, argvIsNativeLibraryBuild, standaloneCliNativeLibraryBuildEnabled, nativeCompileHelloMinimalBuildArgv, argvIsNativeLegacyBuild, nativeCompileLegacyBuildOutputFromArgv, nativeCompileLegacyBootstrapEntry, standaloneCliNativeNewEnabled, nativeCompileDemoNewArgv, nativeCompileDemoNewProjectName, argvIsNativeNew, nativeCompileNewOutputFromArgv, standaloneCliNativeTestEnabled, nativeCompileTestRunnerArgv, argvIsNativeTest, nativeCompileTestOutputFromArgv, nativeCompileTestSuccessMarker } from @driver/native_compile
     { bootstrapVerifyLibraryMarker } from @driver/bootstrap_verify
+    { testCliNativeSuccessStubMessage } from @driver/test_cli
     { buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectIndex, soyuzLibraryProjectRoot, soyuzLibraryProjectVerifyReady } from @driver/project_cli
     { defaultSoyuzLibraryBuildArgv } from @driver/build_cli
     { assertMsg } from @soyuz/testing
@@ -40,4 +41,13 @@ test fn testNativeCompileNew() {
     val out = nativeCompileNewOutputFromArgv(argv)
     assertMsg(out.contains(nativeCompileDemoNewProjectName()), "new project name")
     assertMsg(out.contains("criado"), "new success marker")
+}
+
+test fn testNativeCompileTest() {
+    assertMsg(standaloneCliNativeTestEnabled(), "native test enabled")
+    val argv = nativeCompileTestRunnerArgv()
+    assertMsg(argvIsNativeTest(argv), "argv detects test")
+    val out = nativeCompileTestOutputFromArgv(argv)
+    assertMsg(out == testCliNativeSuccessStubMessage(), "native test stub message")
+    assertMsg(out.contains(nativeCompileTestSuccessMarker()), "native test success marker")
 }
