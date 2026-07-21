@@ -26,6 +26,8 @@ check "Expressões e funções tipadas" tools/fixtures/typed_expr_invariants_tes
 check "Resultados estruturados do driver" tools/fixtures/native_results_test.sy || failed=1
 check "Lowering AST de expressões" tools/fixtures/typed_ast_expr_test.sy || failed=1
 check "Módulo AST tipado" tools/fixtures/typed_ast_module_test.sy || failed=1
+check "Declarações de structs, enums e classes" src/codegen/gen_structs_test.sy || failed=1
+check "Funções, variantes e extensions" src/codegen/gen_funcs_test.sy || failed=1
 check "Parser codegen" tests/parser/parser_test.sy || failed=1
 check "Checker baseline e List.slice" tests/checker/checker_test.sy || failed=1
 check "Checker extern e store LLVM" tests/checker/m10_extern_test.sy || failed=1

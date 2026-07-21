@@ -141,13 +141,19 @@ fn classMethodNonSelfArity(fd: FuncDeclData) -> Int {
     return arity
 }
 
-fn mapStringKeyCount(m: Map[String, Int], key: String) -> Int {
-    for k in m.keys() { if k == key { return m.get(key) } }
+fn mapStringKeyCount(m: Map[String, List[Int]], key: String) -> Int {
+    for k in m.keys() { if k == key { return m.get(key).size() } }
     return 0
 }
 
-fn incrementMapStringCount(m: Map[String, Int], key: String) {
-    m.set(key, mapStringKeyCount(m, key) + 1)
+fn incrementMapStringCount(m: Map[String, List[Int]], key: String) {
+    for k in m.keys() {
+        if k == key {
+            m.get(key).append(1)
+            return
+        }
+    }
+    m.set(key, [1])
 }
 
 fn mapHasStringKey(m: Map[String, String], key: String) -> Bool {
@@ -310,7 +316,7 @@ fn appendClassMethodVariantNode(group: Map[String, List[Node]], key: String, mem
 }
 
 fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: List[Node], methods: Map[String, List[LlvmFunc]]) {
-    var methodCounts: Map[String, Int] = Map[String, Int]{}
+    var methodCounts: Map[String, List[Int]] = Map[String, List[Int]]{}
     for member in body {
         if match member {
             FuncDecl(_, _, fd) => { incrementMapStringCount(methodCounts, fd.name); true }

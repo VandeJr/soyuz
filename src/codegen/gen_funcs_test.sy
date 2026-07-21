@@ -3,7 +3,7 @@ import (
     { Span } from @lexer/tokens
     { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
     { newGenerator } from @codegen/generator
-    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, generatePendingClassBodies, generatePendingExtendBodies, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { FuncResult, ProgramResult, mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclInto, generateProgramBodyInto, generatePendingClassBodies, generatePendingExtendBodies, shouldSkipFuncVariants } from @codegen/gen_funcs
     { generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol } from @codegen/gen_structs
     { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
     { llvmI64, llvmTypesEqual } from @codegen/llvm_types
@@ -36,6 +36,33 @@ fn funcCheckerWithNodeType(id: Int, t: Type) -> CheckResult {
         i = i + 1
     }
     return cr
+}
+
+fn setFuncNodeType(cr: CheckResult, id: Int, t: Type) {
+    loop {
+        if cr.nodeTypes.size() > id { break }
+        cr.nodeTypes.append(None)
+    }
+    cr.nodeTypes.set(id, Some(t))
+}
+
+fn seedPickVariantTypes(cr: CheckResult) {
+    setFuncNodeType(cr, 10, IntType)
+    setFuncNodeType(cr, 11, IntType)
+    setFuncNodeType(cr, 12, IntType)
+    setFuncNodeType(cr, 20, StringType)
+    setFuncNodeType(cr, 21, StringType)
+}
+
+fn seedAbsVariantTypes(cr: CheckResult) {
+    setFuncNodeType(cr, 10, IntType)
+    setFuncNodeType(cr, 11, IntType)
+    setFuncNodeType(cr, 12, Type.Basic("Bool"))
+    setFuncNodeType(cr, 30, IntType)
+    setFuncNodeType(cr, 31, IntType)
+    setFuncNodeType(cr, 32, IntType)
+    setFuncNodeType(cr, 40, IntType)
+    setFuncNodeType(cr, 41, IntType)
 }
 
 test fn testMangleSpecializedFuncName() {
@@ -182,6 +209,7 @@ test fn testWhenVariantBeforeCatchall() {
     guarded.body = Some(makePickReturnBody(span, "positive"))
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [catchall, guarded])
+    seedPickVariantTypes(cr)
     cr.nodeTypes.append(Some(StringType))
     cr.nodeTypes.append(Some(StringType))
     val g = newGenerator(cr)
@@ -290,29 +318,19 @@ test fn testGenerateFuncVariantsBodyBindingParamAliasesArg() {
     }
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [bindingVariant])
+    seedPickVariantTypes(cr)
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
     assertMsg(generateFuncVariantsBody(g, "pick"), "binding param variant body codegen")
-    var argHandle = 0
-    var xHandle = 0
     var hasArg = false
     var hasX = false
     for k in g.vars.keys() {
-        if k == "arg0" {
-            hasArg = true
-            val argValue = g.vars.get("arg0")
-            argHandle = argValue.handle
-        }
-        if k == "x" {
-            hasX = true
-            val xValue = g.vars.get("x")
-            xHandle = xValue.handle
-        }
+        if k == "arg0" { hasArg = true }
+        if k == "x" { hasX = true }
     }
     assertMsg(hasArg, "arg0 present after variant dispatch")
-    assertMsg(hasX, "binding x present after variant dispatch")
-    assertMsg(argHandle == xHandle, "x aliases arg0 alloca")
+    assertMsg(!hasX, "binding x does not leak after variant dispatch")
 }
 
 test fn testBuildFuncVariantPlanWhenGuard() {
@@ -337,6 +355,7 @@ test fn testBuildFuncVariantPlansFromCheckResult() {
     val guarded = makePickVariant(span, Some(guardCond))
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [catchall, guarded])
+    seedPickVariantTypes(cr)
     val g = newGenerator(cr)
     val plans = buildFuncVariantPlans(g, "pick")
     assertMsg(plans.size() == 2, "two variant plans")
@@ -370,6 +389,7 @@ test fn testGenerateFuncVariantsBodyWhenGuard() {
     guardedBody.body = Some(ret)
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    seedPickVariantTypes(cr)
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
@@ -388,6 +408,7 @@ test fn testGenerateFuncVariantsBodyWhenGuardCreatesBlocks() {
     guardedBody.body = Some(ret)
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    seedPickVariantTypes(cr)
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
@@ -411,6 +432,7 @@ test fn testWhenGuardCodegen() {
     catchall.body = Some(makeAbsReturnX(span))
     var cr = funcTestCheckResult()
     cr.funcVariants.set("abs", [guarded, catchall])
+    seedAbsVariantTypes(cr)
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
@@ -442,6 +464,7 @@ test fn testGenerateFuncVariantsBodyLiteralParam() {
     }
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [literalVariant])
+    seedPickVariantTypes(cr)
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
@@ -473,14 +496,14 @@ test fn testGenerateProgramBodyMultiVariant() {
     val guardedNode = Node.FuncDecl(2, span, guardedBody)
     var cr = funcTestCheckResult()
     cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    seedPickVariantTypes(cr)
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(IntType))
     val g = newGenerator(cr)
-    match generateProgramBody(g, [catchallNode, guardedNode]) {
-        None => assertMsg(false, "expected program result for multi-variant pick")
-        Some(r) => assertMsg(r.funcCount == 1, "multi-variant name counted once")
-    }
+    var results: List[ProgramResult] = []
+    assertMsg(generateProgramBodyInto(g, [catchallNode, guardedNode], results), "expected program result for multi-variant pick")
+    assertMsg(results.get(0).funcCount == 1, "multi-variant name counted once")
 }
 
 test fn testGenerateFuncDeclNode() {
@@ -505,15 +528,14 @@ test fn testGenerateFuncDeclNode() {
     cr.nodeTypes.append(Some(IntType))
     cr.nodeTypes.append(Some(UnitType))
     val g = newGenerator(cr)
-    match generateFuncDeclNode(g, node, fd) {
-        None => assertMsg(false, "expected func result")
-        Some(r) => {
-            assertMsg(r.name == "main", "func name")
-            assertMsg(r.paramCount == 0, "no params")
-            assertMsg(r.hasBody, "has body")
-            assertMsg(llvmTypesEqual(r.returnLlvm, llvmI64()), "returns i64")
-        }
-    }
+    var results: List[FuncResult] = []
+    val generated = generateFuncDeclInto(g, node, fd, results)
+    assertMsg(generated, "expected func result")
+    val r = results.get(0)
+    assertMsg(r.name == "main", "func name")
+    assertMsg(r.paramCount == 0, "no params")
+    assertMsg(r.hasBody, "has body")
+    assertMsg(llvmTypesEqual(r.returnLlvm, llvmI64()), "returns i64")
 }
 
 test fn testGenerateProgramBody() {
@@ -535,12 +557,11 @@ test fn testGenerateProgramBody() {
     }
     val funcNode = Node.FuncDecl(1, span, fd)
     var cr = funcCheckerWithNodeType(1, Type.Func(ft))
-    cr.nodeTypes.append(Some(UnitType))
+    setFuncNodeType(cr, 4, UnitType)
     val g = newGenerator(cr)
-    match generateProgramBody(g, [funcNode]) {
-        None => assertMsg(false, "expected program result")
-        Some(r) => assertMsg(r.funcCount == 1, "one func generated")
-    }
+    var results: List[ProgramResult] = []
+    assertMsg(generateProgramBodyInto(g, [funcNode], results), "expected program result")
+    assertMsg(results.get(0).funcCount == 1, "one func generated")
 }
 
 test fn testGeneratePendingClassMethodBody() {
@@ -565,13 +586,15 @@ test fn testGeneratePendingClassMethodBody() {
     var classBody: List[Node] = []
     classBody.append(methodNode)
     val classDecl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: classBody }
-    val g = newGenerator(funcTestCheckResult())
+    var cr = funcTestCheckResult()
+    setFuncNodeType(cr, 20, UnitType)
+    val g = newGenerator(cr)
     assertMsg(generateClassDecl(g, classDecl), "class decl ok")
     assertMsg(g.pendingClassBodies.size() == 1, "pending class body")
     assertMsg(generatePendingClassBodies(g), "generate class method bodies")
     assertMsg(g.pendingClassBodies.size() == 0, "pending cleared")
     assertMsg(g.classMethodBodiesGenerated == 1, "one body generated")
-    assertMsg(blockNameRegistered(g, "entry"), "entry block from method body")
+    assertMsg(!blockNameRegistered(g, "entry"), "method body block names do not leak")
 }
 
 test fn testGeneratePendingExtendMethodBody() {
@@ -595,7 +618,9 @@ test fn testGeneratePendingExtendMethodBody() {
     var methods: List[Node] = []
     methods.append(Node.FuncDecl(10, span, fd))
     val extendDecl = ExtendDeclData { typeName: "Int", methods: methods }
-    val g = newGenerator(funcTestCheckResult())
+    var cr = funcTestCheckResult()
+    setFuncNodeType(cr, 20, UnitType)
+    val g = newGenerator(cr)
     assertMsg(generateExtendDecl(g, extendDecl), "extend decl ok")
     assertMsg(g.pendingExtendBodies.size() == 1, "pending extend body")
     assertMsg(generatePendingExtendBodies(g), "generate extend method bodies")

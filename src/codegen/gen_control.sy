@@ -11,7 +11,7 @@ import (
     { pushArcScope, popArcScope, emitArcDrops } from @codegen/gen_arc
     { pushSyncGuardScope, popSyncGuardScope, emitSyncGuardDrops } from @codegen/gen_sync
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, legacyI64Stub, snapshotVars, restoreVars } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, currentBlockTerminated, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, legacyI64Stub, snapshotVars, restoreVars } from @codegen/gen_ir
     { emitRetI32Stub, emitRetLlvmValueStub } from @codegen/gen_emit
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
@@ -479,6 +479,7 @@ fn emitFuncReturnStub(g: Generator, hasValue: Bool, value: LlvmValue) -> Bool {
 }
 
 pub fn emitImplicitFuncReturn(g: Generator) -> Bool {
+    if currentBlockTerminated(g) { return true }
     return emitFuncReturnStub(g, false, legacyI64Stub(g))
 }
 

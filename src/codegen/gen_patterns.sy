@@ -197,7 +197,18 @@ pub fn matchPatternSupportedForSubject(g: Generator, pat: Pattern, subjectType: 
 }
 
 pub fn matchPatternSupported(g: Generator, pat: Pattern) -> Bool {
-    return matchPatternSupportedForSubject(g, pat, None)
+    return match pat {
+        Wildcard(_, _) => true
+        Binding(_, _, _) => true
+        Literal(_, _, _) => true
+        Constructor(_, _, name, args) => match enumVariantForPatternNoSubject(g, name) {
+            None => false
+            Some(lookup) => constructorPatternArgsOk(args, lookup.variantInfo)
+        }
+        Record(_, _, _, _) => true
+        Tuple(_, _, _) => true
+        Range(_, _, _, _, _) => true
+    }
 }
 
 pub fn constructorPatternMatchOkBlockName(variantName: String) -> String {

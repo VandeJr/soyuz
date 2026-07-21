@@ -5,7 +5,7 @@ import (
     { FuncType, Type, UnitType, typeToString } from @checker/types
     { Generator } from @codegen/generator
     { generateStmtNode, emitImplicitFuncReturn } from @codegen/gen_control
-    { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
+    { generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl, generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol, extendSelfLLVM } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
     { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, legacyI64Stub, blockNameRegistered } from @codegen/gen_ir
@@ -21,44 +21,48 @@ pub record FuncResult {
     hasBody: Bool
 }
 
-fn funcDeclFuncType(g: Generator, node: Node) -> Option[FuncType] {
-    return match checkerTypeForNode(g, nodeId(node)) {
-        None => None
-        Some(Func(ft)) => Some(ft)
-        _ => None
-    }
-}
-
-pub fn generateFuncDeclNode(g: Generator, node: Node, data: FuncDeclData) -> Option[FuncResult] {
-    return match funcDeclFuncType(g, node) {
-        None => None
-        Some(ft) => {
-            val hasBody = match data.body {
-                None => false
-                Some(_) => true
-            }
-            val result = FuncResult {
-                name: data.name,
-                returnLlvm: mapTypeToLLVM(g, ft.returnType.get(0)),
-                paramCount: data.params.size(),
-                hasBody: hasBody
-            }
-            match data.body {
-                None => Some(result)
-                Some(body) => {
-                    g.currentReturnType = ft.returnType.get(0)
-                    setCurrentBlock(g, newBlock(g, "entry"))
-                    match generateStmtNode(g, body) {
-                        None => None
-                        Some(_) => {
-                            if !emitImplicitFuncReturn(g) { return None }
-                            Some(result)
+pub fn generateFuncDeclInto(g: Generator, node: Node, data: FuncDeclData, results: List[FuncResult]) -> Bool {
+    val id = nodeId(node)
+    if id >= g.check.nodeTypes.size() { return false }
+    return match g.check.nodeTypes.get(id) {
+        None => false
+        Some(t) => match t {
+            Func(funcType) => {
+                val hasBody = match data.body {
+                    None => false
+                    Some(_) => true
+                }
+                val result = FuncResult {
+                    name: data.name,
+                    returnLlvm: mapTypeToLLVM(g, funcType.returnType.get(0)),
+                    paramCount: data.params.size(),
+                    hasBody: hasBody
+                }
+                match data.body {
+                    None => { results.append(result); true }
+                    Some(body) => {
+                        g.currentReturnType = funcType.returnType.get(0)
+                        setCurrentBlock(g, newBlock(g, "entry"))
+                        match generateStmtNode(g, body) {
+                            None => false
+                            Some(_) => {
+                                if !emitImplicitFuncReturn(g) { return false }
+                                results.append(result)
+                                true
+                            }
                         }
                     }
                 }
             }
+            _ => false
         }
     }
+}
+
+pub fn generateFuncDeclNode(g: Generator, node: Node, data: FuncDeclData) -> Option[FuncResult] {
+    var results: List[FuncResult] = []
+    if !generateFuncDeclInto(g, node, data, results) { return None }
+    return Some(results.get(0))
 }
 
 pub fn mangleSpecializedFuncName(name: String, params: List[Type]) -> String {
@@ -280,10 +284,8 @@ fn funcVariantsListHasName(names: List[String], name: String) -> Bool {
     return false
 }
 
-fn appendFuncVariantName(names: List[String], name: String) -> List[String] {
-    var result = names
-    result.append(name)
-    return result
+fn appendFuncVariantName(names: List[String], name: String) {
+    names.append(name)
 }
 
 fn generateFuncVariantBlocks(g: Generator, plan: FuncVariantPlan) -> Bool {
@@ -334,6 +336,10 @@ fn generateFuncVariantsBodyLoop(g: Generator, plans: List[FuncVariantPlan], inde
 pub fn generateFuncVariantsBody(g: Generator, name: String) -> Bool {
     val plans = buildFuncVariantPlans(g, name)
     if plans.size() == 0 { return true }
+    match g.current {
+        None => setCurrentBlock(g, newBlock(g, "entry"))
+        Some(_) => {}
+    }
     val firstPlan = plans.get(0)
     if !seedFuncVariantParams(g, firstPlan.variant.params.size()) { return false }
     return generateFuncVariantsBodyLoop(g, plans, 0)
@@ -348,57 +354,63 @@ pub record ProgramFuncStep {
     addedCount: Int
 }
 
-fn programFuncStep(processed: List[String], addedCount: Int) -> ProgramFuncStep {
-    return ProgramFuncStep { processed: processed, addedCount: addedCount }
-}
-
-fn generateProgramFuncDecl(g: Generator, node: Node, data: FuncDeclData, processed: List[String]) -> Option[ProgramFuncStep] {
+fn generateProgramFuncDecl(g: Generator, node: Node, data: FuncDeclData, processed: List[String], addedCounts: List[Int]) -> Bool {
     if funcVariantsListHasName(processed, data.name) {
-        return Some(programFuncStep(processed, 0))
+        addedCounts.append(0)
+        return true
     }
     val variants = funcVariantsForName(g, data.name)
     if variants.size() > 0 {
         if shouldSkipFuncVariants(g, data.name, variants) {
-            return Some(programFuncStep(appendFuncVariantName(processed, data.name), 0))
+            appendFuncVariantName(processed, data.name)
+            addedCounts.append(0)
+            return true
         }
-        if !generateFuncVariantsBody(g, data.name) { return None }
-        return Some(programFuncStep(appendFuncVariantName(processed, data.name), 1))
+        if !generateFuncVariantsBody(g, data.name) { return false }
+        appendFuncVariantName(processed, data.name)
+        addedCounts.append(1)
+        return true
     }
-    return match generateFuncDeclNode(g, node, data) {
-        None => None
-        Some(_) => Some(programFuncStep(processed, 1))
-    }
+    var funcResults: List[FuncResult] = []
+    if !generateFuncDeclInto(g, node, data, funcResults) { return false }
+    addedCounts.append(1)
+    return true
 }
 
-fn generateProgramTopLevelDecl(g: Generator, decl: Node, processed: List[String]) -> Option[ProgramFuncStep] {
-    if !generateTopLevelDecl(g, decl) { return None }
-    return Some(programFuncStep(processed, 0))
+fn generateProgramTopLevelDecl(g: Generator, decl: Node, addedCounts: List[Int]) -> Bool {
+    if !generateTopLevelDecl(g, decl) { return false }
+    addedCounts.append(0)
+    return true
 }
 
-fn generateProgramBodyLoop(g: Generator, body: List[Node], index: Int, processed: List[String], count: Int) -> Option[ProgramResult] {
+fn generateProgramBodyLoop(g: Generator, body: List[Node], index: Int, processed: List[String], count: Int, resultCounts: List[Int]) -> Bool {
     if index >= body.size() {
-        return Some(ProgramResult { funcCount: count })
+        resultCounts.append(count)
+        return true
     }
     val decl = body.get(index)
-    val step = match decl {
-        FuncDecl(_, _, data) => generateProgramFuncDecl(g, decl, data, processed)
-        _ => generateProgramTopLevelDecl(g, decl, processed)
+    var addedCounts: List[Int] = []
+    val ok = match decl {
+        FuncDecl(_, _, data) => generateProgramFuncDecl(g, decl, data, processed, addedCounts)
+        _ => generateProgramTopLevelDecl(g, decl, addedCounts)
     }
-    return match step {
-        None => None
-        Some(result) => generateProgramBodyLoop(g, body, index + 1, result.processed, count + result.addedCount)
-    }
+    if !ok { return false }
+    return generateProgramBodyLoop(g, body, index + 1, processed, count + addedCounts.get(0), resultCounts)
+}
+
+pub fn generateProgramBodyInto(g: Generator, body: List[Node], results: List[ProgramResult]) -> Bool {
+    var resultCounts: List[Int] = []
+    if !generateProgramBodyLoop(g, body, 0, [], 0, resultCounts) { return false }
+    if !generatePendingClassBodies(g) { return false }
+    if !generatePendingExtendBodies(g) { return false }
+    results.append(ProgramResult { funcCount: resultCounts.get(0) })
+    return true
 }
 
 pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResult] {
-    return match generateProgramBodyLoop(g, body, 0, [], 0) {
-        None => None
-        Some(result) => {
-            if !generatePendingClassBodies(g) { return None }
-            if !generatePendingExtendBodies(g) { return None }
-            Some(result)
-        }
-    }
+    var results: List[ProgramResult] = []
+    if !generateProgramBodyInto(g, body, results) { return None }
+    return Some(results.get(0))
 }
 
 record ClassMethodCodegenSnapshot {
@@ -449,12 +461,14 @@ fn resetClassMethodCodegen(g: Generator) {
     g.blockNames = Map[String, List[Int]]{}
 }
 
-fn classMethodBodyReturnType(g: Generator, member: Node, fd: FuncDeclData) -> Type = match funcDeclFuncType(g, member) {
-    None => match fd.returnType {
-        None => UnitType
-        Some(_) => UnitType
-    }
-    Some(ft) => ft.returnType.get(0)
+fn setClassMethodBodyReturnType(g: Generator, member: Node, fd: FuncDeclData) {
+    g.currentReturnType = UnitType
+    val id = nodeId(member)
+    if id >= g.check.nodeTypes.size() { return }
+    if match g.check.nodeTypes.get(id) {
+        Some(Func(ft)) => { g.currentReturnType = ft.returnType.get(0); true }
+        _ => false
+    } { () }
 }
 
 fn bindClassMethodSelf(g: Generator, si: StructInfo) -> Bool {
@@ -493,7 +507,7 @@ fn bindClassMethodParams(g: Generator, fd: FuncDeclData) -> Bool {
 fn generateClassMethodBody(g: Generator, pm: PendingClassMethodBody) -> Bool {
     val snap = snapshotClassMethodCodegen(g)
     resetClassMethodCodegen(g)
-    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setClassMethodBodyReturnType(g, pm.member, pm.fd)
     setCurrentBlock(g, newBlock(g, "entry"))
     if !bindClassMethodSelf(g, pm.si) {
         restoreClassMethodCodegen(g, snap)
@@ -543,7 +557,7 @@ fn generateClassMethodVariantBody(g: Generator, v: FuncDeclData, snap: ClassMeth
 fn generateClassMethodVariantsBody(g: Generator, pm: PendingClassMethodBody) -> Bool {
     val snap = snapshotClassMethodCodegen(g)
     resetClassMethodCodegen(g)
-    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setClassMethodBodyReturnType(g, pm.member, pm.fd)
     setCurrentBlock(g, newBlock(g, "entry"))
     if !bindClassMethodSelf(g, pm.si) {
         restoreClassMethodCodegen(g, snap)
@@ -588,7 +602,7 @@ fn bindExtendMethodSelf(g: Generator, selfLlvm: LlvmType) -> Bool {
 fn generateExtendMethodBody(g: Generator, pm: PendingExtendMethodBody) -> Bool {
     val snap = snapshotClassMethodCodegen(g)
     resetClassMethodCodegen(g)
-    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setClassMethodBodyReturnType(g, pm.member, pm.fd)
     setCurrentBlock(g, newBlock(g, "entry"))
     if !bindExtendMethodSelf(g, pm.selfLlvm) {
         restoreClassMethodCodegen(g, snap)
