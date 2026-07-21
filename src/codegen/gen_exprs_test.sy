@@ -292,14 +292,30 @@ test fn testGenerateVarDeclNode() {
 
 test fn testGenerateAssignExprNode() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 6 }
+    val initial = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
+    val declaration = Node.VarDecl(5, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Var,
+        name: "x",
+        pattern: None,
+        typeExpr: None,
+        init: Some(initial)
+    })
     val left = Node.Identifier(2, span, IdentifierData { name: "x" })
     val right = Node.IntLiteral(3, span, IntLiteralData { value: "20" })
     val node = Node.AssignExpr(4, span, AssignExprData { left: [left], right: [right] })
     var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
     types.set(2, IntType)
     types.set(3, IntType)
     types.set(4, IntType)
+    types.set(5, IntType)
     val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, declaration) {
+        None => assertMsg(false, "expected mutable var declaration")
+        Some(_) => {}
+    }
     assertMsg(isAssignNode(node), "assign expr")
     match generateExprNode(g, node) {
         None => assertMsg(false, "expected assign result")
@@ -1525,17 +1541,8 @@ test fn testChannelSendCallExprCodegen() {
     }
 }
 
-fn optionIntType() -> Type {
-    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
-    variants.set("Some", [IntType])
-    variants.set("None", [])
-    val optEnum = EnumType {
-        name: "Option",
-        variants: variants,
-        variantFieldNames: Map[String, List[String]]{},
-        generics: ["T"]
-    }
-    return Type.Specialized([Type.Enum(optEnum)], [IntType])
+fn appendOptionIntType(types: List[Type]) {
+    types.append(Type.Specialized([Type.Basic("Option")], [IntType]))
 }
 
 // Port of m_channel_test.go TestChannelRecvEmitsSrtChanRecv — ch.recv() call expr dispatch.
@@ -1543,7 +1550,9 @@ test fn testChannelRecvCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
     val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
-    val optionInt = optionIntType()
+    var optionTypes: List[Type] = []
+    appendOptionIntType(optionTypes)
+    val optionInt = optionTypes.get(0)
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "recv" })
     var args: List[Node] = []
@@ -1569,7 +1578,9 @@ test fn testChannelTryRecvCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
     val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
-    val optionInt = optionIntType()
+    var optionTypes: List[Type] = []
+    appendOptionIntType(optionTypes)
+    val optionInt = optionTypes.get(0)
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "tryRecv" })
     var args: List[Node] = []

@@ -3,8 +3,8 @@ import (
     { nodeId } from @ast/ast_helpers
     { Type } from @checker/types
     { Generator } from @codegen/generator
-    { LlvmValue } from @codegen/llvm_types
-    { legacyI64Stub, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
+    { LlvmValue, llvmI8Ptr } from @codegen/llvm_types
+    { legacyI64Stub, typedLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
 )
@@ -142,15 +142,12 @@ pub fn taskFanFnArgsValid(args: List[Node]) -> Bool {
     return true
 }
 
-fn taskCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
-    if id >= g.check.nodeTypes.size() { return None }
-    return g.check.nodeTypes.get(id)
-}
-
 pub fn isTaskInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match taskCheckerNodeType(g, nodeId(memberData.object.get(0))) {
+        val id = nodeId(memberData.object.get(0))
+        if id >= g.check.nodeTypes.size() { return false }
+        match g.check.nodeTypes.get(id) {
             None => false
             Some(t) => isTaskInstanceType(t)
         }
@@ -186,7 +183,9 @@ pub fn isTaskHandleInstanceType(t: Type) -> Bool = match t {
 pub fn isTaskHandleInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match taskCheckerNodeType(g, nodeId(memberData.object.get(0))) {
+        val id = nodeId(memberData.object.get(0))
+        if id >= g.check.nodeTypes.size() { return false }
+        match g.check.nodeTypes.get(id) {
             None => false
             Some(t) => isTaskHandleInstanceType(t)
         }
@@ -550,10 +549,9 @@ pub fn nullifyTaskVarAfterConsume(g: Generator, object: Node) -> Bool = match ob
     Identifier(_, _, idData) => {
         if !taskVarsMapHasKey(g.vars, idData.name) { return true }
         val alloca = g.vars.get(idData.name)
-        if !emitStoreStub(g, legacyI64Stub(g), alloca) { return false }
-        var names = g.taskNullStoreVars
-        names.append(idData.name)
-        g.taskNullStoreVars = names
+        val nullHandle = typedLlvmValue(g, llvmI8Ptr(), "task-null-handle")
+        if !emitStoreStub(g, nullHandle, alloca) { return false }
+        g.taskNullStoreVars.append(idData.name)
         return true
     }
     _ => true

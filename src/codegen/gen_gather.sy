@@ -150,6 +150,10 @@ fn emitGatherAwaitLoopStubs(g: Generator) -> Bool {
 
 pub fn generateTaskGatherStub(g: Generator) -> Option[LlvmValue] {
     registerGatherRuntimeSymbols(g)
+    match g.current {
+        None => setCurrentBlock(g, newBlock(g, "gather_entry"))
+        Some(_) => {}
+    }
     g.gatherTaskWrapperName = Some(nextTaskWrapperName(g))
     g.gatherHandlesListStub = Some(legacyI64Stub(g))
     g.gatherResultsListStub = Some(legacyI64Stub(g))

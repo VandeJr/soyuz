@@ -1,9 +1,8 @@
 import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
-    { StructInfo } from @codegen/types
-    { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmI8Ptr, llvmPointerType, llvmStructType } from @codegen/llvm_types
-    { structInfoRegistered } from @codegen/gen_structs
+    { LlvmType, LlvmValue, LlvmBasicBlock } from @codegen/llvm_types
+    { ensureRuntimeCollectionLlvmTypes } from @codegen/gen_types
     { legacyI64Stub, newBlock, setCurrentBlock, emitCondBrToBlockStub, emitBrToBlockStub, emitLoadStub } from @codegen/gen_ir
 )
 
@@ -52,30 +51,7 @@ pub fn iterNextMergeBlockName() -> String {
 }
 
 pub fn ensureRuntimeCollectionStructs(g: Generator) {
-    if !structInfoRegistered(g, "SoyuzList") {
-        var listFields: Map[String, Int] = Map[String, Int]{}
-        listFields.set("size", 0)
-        listFields.set("capacity", 1)
-        listFields.set("data", 2)
-        val listTy = llvmStructType("SoyuzList", [llvmI64(), llvmI64(), llvmPointerType(llvmI8Ptr())])
-        g.structs.set("SoyuzList", StructInfo { typ: listTy, fieldIndices: listFields })
-    }
-    if !structInfoRegistered(g, "SoyuzMap") {
-        var mapFields: Map[String, Int] = Map[String, Int]{}
-        mapFields.set("size", 0)
-        mapFields.set("capacity", 1)
-        mapFields.set("entries", 2)
-        mapFields.set("is_string_key", 3)
-        val mapTy = llvmStructType("SoyuzMap", [llvmI64(), llvmI64(), llvmI8Ptr(), llvmI64()])
-        g.structs.set("SoyuzMap", StructInfo { typ: mapTy, fieldIndices: mapFields })
-    }
-    if !structInfoRegistered(g, "SoyuzIterator") {
-        var iterFields: Map[String, Int] = Map[String, Int]{}
-        iterFields.set("list", 0)
-        iterFields.set("index", 1)
-        val iterTy = llvmStructType("SoyuzIterator", [llvmI8Ptr(), llvmI64()])
-        g.structs.set("SoyuzIterator", StructInfo { typ: iterTy, fieldIndices: iterFields })
-    }
+    ensureRuntimeCollectionLlvmTypes(g)
 }
 
 pub fn iteratorStructType(g: Generator) -> LlvmType {

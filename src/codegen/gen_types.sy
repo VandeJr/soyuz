@@ -98,22 +98,52 @@ fn isSyncHandleClass(name: String) -> Bool {
 }
 
 fn mapClassByName(g: Generator, name: String) -> LlvmType {
-    if name == "List" { return mapNamedAggregate(g, "SoyuzList") }
-    if name == "Map" { return mapNamedAggregate(g, "SoyuzMap") }
+    if name == "List" {
+        ensureRuntimeCollectionLlvmTypes(g)
+        return mapNamedAggregate(g, "SoyuzList")
+    }
+    if name == "Map" {
+        ensureRuntimeCollectionLlvmTypes(g)
+        return mapNamedAggregate(g, "SoyuzMap")
+    }
     if isSyncHandleClass(name) { return llvmI8Ptr() }
     return mapNamedAggregate(g, name)
 }
 
-fn mapSpecializedType(g: Generator, base: Type, params: List[Type]) -> LlvmType = match base {
-    Enum(data) => mapSpecializedEnum(g, data.name, params)
-    Class(data) => mapClassByName(g, data.name)
-    Record(name, _, _) => mapSpecializedRecord(g, name, params)
-    _ => unknownLlvmType(g, "base especializada não suportada")
+pub fn ensureRuntimeCollectionLlvmTypes(g: Generator) {
+    if !mapHasStructInfo(g.structs, "SoyuzList") {
+        var listFields: Map[String, Int] = Map[String, Int]{}
+        listFields.set("size", 0)
+        listFields.set("capacity", 1)
+        listFields.set("data", 2)
+        val listTy = llvmStructType("SoyuzList", [llvmI64(), llvmI64(), llvmPointerType(llvmI8Ptr())])
+        g.structs.set("SoyuzList", StructInfo { typ: listTy, fieldIndices: listFields })
+    }
+    if !mapHasStructInfo(g.structs, "SoyuzMap") {
+        var mapFields: Map[String, Int] = Map[String, Int]{}
+        mapFields.set("size", 0)
+        mapFields.set("capacity", 1)
+        mapFields.set("entries", 2)
+        mapFields.set("is_string_key", 3)
+        val mapTy = llvmStructType("SoyuzMap", [llvmI64(), llvmI64(), llvmI8Ptr(), llvmI64()])
+        g.structs.set("SoyuzMap", StructInfo { typ: mapTy, fieldIndices: mapFields })
+    }
+    if !mapHasStructInfo(g.structs, "SoyuzIterator") {
+        var iterFields: Map[String, Int] = Map[String, Int]{}
+        iterFields.set("list", 0)
+        iterFields.set("index", 1)
+        val iterTy = llvmStructType("SoyuzIterator", [llvmI8Ptr(), llvmI64()])
+        g.structs.set("SoyuzIterator", StructInfo { typ: iterTy, fieldIndices: iterFields })
+    }
+}
+
+fn mapSpecializedBuiltin(g: Generator, name: String) -> LlvmType = match name {
+    "Option" => llvmPointerType(llvmStructType("Option", [llvmI64(), llvmArrayType(llvmI8(), 64)]))
+    "Result" => llvmPointerType(llvmStructType("Result", [llvmI64(), llvmArrayType(llvmI8(), 64)]))
+    _ => unknownLlvmType(g, "tipo especializado builtin desconhecido $(name)")
 }
 
 fn mapSpecializedEnum(g: Generator, name: String, params: List[Type]) -> LlvmType = match name {
-    "Option" => mapNamedAggregate(g, "Option")
-    "Result" => mapNamedAggregate(g, "Result")
     _ => {
         if mapHasEnumDecl(g.genericEnumDecls, name) {
             val decl = g.genericEnumDecls.get(name)
@@ -140,7 +170,21 @@ pub fn mapTypeToLLVM(g: Generator, t: Type) -> LlvmType = match t {
     Record(name, _, _) => mapNamedAggregate(g, name)
     Enum(data) => mapNamedAggregate(g, data.name)
     Tuple(elements) => mapTupleElements(g, elements)
-    Specialized(base, params) => mapSpecializedType(g, base.get(0), params)
+    Specialized(base, params) => match base.get(0) {
+        Enum(data) => {
+            if data.name == "Option" {
+                return llvmPointerType(llvmStructType("Option", [llvmI64(), llvmArrayType(llvmI8(), 64)]))
+            }
+            if data.name == "Result" {
+                return llvmPointerType(llvmStructType("Result", [llvmI64(), llvmArrayType(llvmI8(), 64)]))
+            }
+            mapSpecializedEnum(g, data.name, params)
+        }
+        Class(data) => mapClassByName(g, data.name)
+        Record(name, _, _) => mapSpecializedRecord(g, name, params)
+        Basic(name) => mapSpecializedBuiltin(g, name)
+        _ => unknownLlvmType(g, "base especializada não suportada")
+    }
     Class(data) => mapClassByName(g, data.name)
     TypeParam(name) => unknownLlvmType(g, "parâmetro de tipo não resolvido $(name)")
 }
@@ -159,10 +203,16 @@ fn mapSoyuzTypeExpr(g: Generator, te: TypeExpr) -> LlvmType = match te {
 }
 
 fn mapSoyuzGenericType(g: Generator, name: String, params: List[TypeExpr]) -> LlvmType = match name {
-    "List" => mapNamedAggregate(g, "SoyuzList")
-    "Map" => mapNamedAggregate(g, "SoyuzMap")
-    "Option" => mapNamedAggregate(g, "Option")
-    "Result" => mapNamedAggregate(g, "Result")
+    "List" => {
+        ensureRuntimeCollectionLlvmTypes(g)
+        mapNamedAggregate(g, "SoyuzList")
+    }
+    "Map" => {
+        ensureRuntimeCollectionLlvmTypes(g)
+        mapNamedAggregate(g, "SoyuzMap")
+    }
+    "Option" => llvmPointerType(llvmStructType("Option", [llvmI64(), llvmArrayType(llvmI8(), 64)]))
+    "Result" => llvmPointerType(llvmStructType("Result", [llvmI64(), llvmArrayType(llvmI8(), 64)]))
     _ => {
         if mapHasRecordDecl(g.genericRecordDecls, name) {
             val decl = g.genericRecordDecls.get(name)

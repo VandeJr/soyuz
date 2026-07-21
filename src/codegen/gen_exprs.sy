@@ -4,7 +4,7 @@ import (
     { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
     { VariantInfo } from @codegen/types
-    { LlvmType, LlvmValue } from @codegen/llvm_types
+    { LlvmType, LlvmValue, llvmPointerType } from @codegen/llvm_types
     { irAllocaForValue, irBinary, irBoolConstant, irCompare, irFloatConstant, irIntConstant, irLoad, irStore, irStringLiteral } from @codegen/ir_builder
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, extractChannelFromRecvCall, selectRecvArmCount, selectHasDefaultArm, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, generateSelectStub } from @codegen/gen_channel
@@ -231,6 +231,15 @@ fn exprResultWithValueFromNode(g: Generator, node: Node, value: LlvmValue) -> Op
             hasLlvmValue: true
         })
     }
+}
+
+fn enumConstructorResult(lookup: EnumVariantLookup) -> Option[ExprResult] {
+    return Some(ExprResult {
+        llvmType: llvmPointerType(lookup.enumInfo.typ),
+        maybeConst: MaybeConst.NoConst,
+        llvmValue: LlvmValue { handle: 0 },
+        hasLlvmValue: false
+    })
 }
 
 fn nativeVariableKnown(g: Generator, name: String) -> Bool {
@@ -906,7 +915,7 @@ fn generateIdentifierExprResult(g: Generator, node: Node, data: IdentifierData) 
     }
     Some(lookup) => {
         if !emitEnumConstructorExprStubs(g, lookup.variantInfo, 0) { return None }
-        exprResultFromNode(g, node, NoConst)
+        enumConstructorResult(lookup)
     }
 }
 
