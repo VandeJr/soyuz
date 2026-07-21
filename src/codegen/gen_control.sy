@@ -1,0 +1,652 @@
+import (
+    { Node, BlockStmtData, IfStmtData, WhileStmtData, LoopStmtData, ForStmtData, ReturnStmtData, BreakStmtData, RangeExprData } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type, UnitType, IntType, typeToString } from @checker/types
+    { Generator } from @codegen/generator
+    { LoopCtx } from @codegen/types
+    { generateExprNode, checkerTypeForNode } from @codegen/gen_exprs
+    { isListType, listElemType, isMapType, mapKeyType, isIteratorType, iteratorElemType, generateMapKeysStub } from @codegen/gen_collections
+    { ensureRuntimeCollectionStructs, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, forIteratorCondBlockName, forIteratorBodyBlockName, forIteratorIncrBlockName, forIteratorAfterBlockName } from @codegen/gen_iter
+    { pushTaskScope, popTaskScope, emitTaskDrops } from @codegen/gen_task
+    { pushArcScope, popArcScope, emitArcDrops } from @codegen/gen_arc
+    { pushSyncGuardScope, popSyncGuardScope, emitSyncGuardDrops } from @codegen/gen_sync
+    { mapTypeToLLVM } from @codegen/gen_types
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
+    { emitRetI32Stub, emitRetLlvmValueStub } from @codegen/gen_emit
+    { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
+)
+
+pub enum TerminatorKind {
+    NoTerminator
+    ReturnTerm
+    BreakTerm
+    ContinueTerm
+}
+
+pub record StmtResult {
+    llvmType: LlvmType,
+    terminator: TerminatorKind
+}
+
+fn stmtResultFromNode(g: Generator, node: Node, term: TerminatorKind) -> Option[StmtResult] {
+    return match checkerTypeForNode(g, nodeId(node)) {
+        None => None
+        Some(t) => Some(StmtResult { llvmType: mapTypeToLLVM(g, t), terminator: term })
+    }
+}
+
+pub fn noneLlvmValueOption() -> Option[LlvmValue] {
+    return None
+}
+
+fn hasCurrentLoop(g: Generator) -> Bool {
+    match currentLoop(g) {
+        None => false
+        Some(_) => true
+    }
+}
+
+fn exprGeneratesOk(g: Generator, node: Node) -> Bool {
+    match generateExprNode(g, node) {
+        None => false
+        Some(_) => true
+    }
+}
+
+pub enum BlockStep {
+    Failed
+    Continue
+    Done(r: StmtResult)
+}
+
+fn generateBlockStmts(g: Generator, stmts: List[Node], index: Int) -> BlockStep {
+    if index >= stmts.size() { return Continue }
+    return match generateStmtNode(g, stmts.get(index)) {
+        None => Failed
+        Some(r) => {
+            if hasTerminator(r) { return Done(r) }
+            return generateBlockStmts(g, stmts, index + 1)
+        }
+    }
+}
+
+fn generateBlockStmt(g: Generator, node: Node, data: BlockStmtData) -> Option[StmtResult] {
+    pushTaskScope(g)
+    pushArcScope(g)
+    pushSyncGuardScope(g)
+    return match generateBlockStmts(g, data.statements, 0) {
+        Failed => {
+            popTaskScope(g)
+            popArcScope(g)
+            popSyncGuardScope(g)
+            None
+        }
+        Continue => {
+            val taskOwned = popTaskScope(g)
+            val arcOwned = popArcScope(g)
+            val guardOwned = popSyncGuardScope(g)
+            if !emitTaskDrops(g, taskOwned) { return None }
+            if !emitArcDrops(g, arcOwned) { return None }
+            if !emitSyncGuardDrops(g, guardOwned) { return None }
+            stmtResultFromNode(g, node, NoTerminator)
+        }
+        Done(r) => {
+            val taskOwned = popTaskScope(g)
+            val arcOwned = popArcScope(g)
+            val guardOwned = popSyncGuardScope(g)
+            if !hasTerminator(r) {
+                if !emitTaskDrops(g, taskOwned) { return None }
+                if !emitArcDrops(g, arcOwned) { return None }
+                if !emitSyncGuardDrops(g, guardOwned) { return None }
+            }
+            Some(r)
+        }
+    }
+}
+
+fn finishIfBranchFromNode(g: Generator, mergeBlock: LlvmBasicBlock, branch: Node) -> Bool {
+    return match generateStmtNode(g, branch) {
+        None => false
+        Some(r) => {
+            if !hasTerminator(r) {
+                emitBrToBlockStub(g, mergeBlock)
+            }
+            true
+        }
+    }
+}
+
+fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResult] {
+    if !exprGeneratesOk(g, data.condition) { return None }
+    val thenBlock = newBlock(g, "then")
+    val elseBlock = newBlock(g, "else")
+    val mergeBlock = newBlock(g, "if_merge")
+    if !emitCondBrToBlockStub(g, thenBlock, elseBlock) { return None }
+    setCurrentBlock(g, thenBlock)
+    if !finishIfBranchFromNode(g, mergeBlock, data.consequent) { return None }
+    setCurrentBlock(g, elseBlock)
+    return match data.alternate {
+        None => {
+            emitBrToBlockStub(g, mergeBlock)
+            setCurrentBlock(g, mergeBlock)
+            stmtResultFromNode(g, node, NoTerminator)
+        }
+        Some(alt) => {
+            if !finishIfBranchFromNode(g, mergeBlock, alt) { return None }
+            setCurrentBlock(g, mergeBlock)
+            stmtResultFromNode(g, node, NoTerminator)
+        }
+    }
+}
+
+fn emitWhileCondStub(g: Generator, condition: Node, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if !exprGeneratesOk(g, condition) { return false }
+    g.whileCondValue = Some(stubLlvmValue(g))
+    return emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+}
+
+fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[StmtResult] {
+    val condBlock = newBlock(g, "while_cond")
+    val bodyBlock = newBlock(g, "while_body")
+    val afterBlock = newBlock(g, "while_after")
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !emitWhileCondStub(g, data.condition, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: condBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    if !finishLoopBodyFromNode(g, condBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, afterBlock)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn storeLoopResultDefault(g: Generator, resultLlvm: LlvmType, resultAlloca: LlvmValue) {
+    match defaultLlvmValue(g, resultLlvm) {
+        None => {}
+        Some(def) => {
+            emitStoreStub(g, def, resultAlloca)
+            recordLoopResultDefaultStore(g, def)
+        }
+    }
+}
+
+fn recordLoopResultDefaultStore(g: Generator, def: LlvmValue) {
+    g.loopResultDefaultStore = Some(def)
+}
+
+fn finishLoopBodyFromNode(g: Generator, bodyBlock: LlvmBasicBlock, body: Node) -> Bool {
+    return match generateStmtNode(g, body) {
+        None => false
+        Some(r) => {
+            if !hasTerminator(r) {
+                emitBrToBlockStub(g, bodyBlock)
+            }
+            true
+        }
+    }
+}
+
+fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[StmtResult] {
+    val loopType = match checkerTypeForNode(g, nodeId(node)) {
+        None => UnitType
+        Some(t) => t
+    }
+    val bodyBlock = newBlock(g, "loop_body")
+    val afterBlock = newBlock(g, "loop_after")
+    emitBrToBlockStub(g, bodyBlock)
+    if loopNeedsResultAlloca(loopType) {
+        val resultLlvm = mapTypeToLLVM(g, loopType)
+        val resultAlloca = newAlloca(g, resultLlvm)
+        storeLoopResultDefault(g, resultLlvm, resultAlloca)
+        pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: Some(resultAlloca), resultLlvm: resultLlvm })
+        if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
+        popLoop(g)
+        setCurrentBlock(g, afterBlock)
+        setLoopResultLoad(g, resultAlloca)
+        return stmtResultFromNode(g, node, NoTerminator)
+    }
+    pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, afterBlock)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn clearForRangeStubs(g: Generator) {
+    g.forRangeCounterAlloca = None
+    g.forRangeFromValue = None
+    g.forRangeToValue = None
+    g.forRangeIncrLoad = None
+    g.forRangeIncrStore = None
+    g.forRangeCondLoad = None
+    g.forRangeCondInclusive = false
+}
+
+fn registerForRangeBinding(g: Generator, binding: String, startVal: LlvmValue) -> Bool {
+    val alloca = newAlloca(g, mapTypeToLLVM(g, IntType))
+    emitStoreStub(g, startVal, alloca)
+    g.vars.set(binding, alloca)
+    g.forRangeCounterAlloca = Some(alloca)
+    return true
+}
+
+fn emitForRangeCondStub(g: Generator, inclusive: Bool, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if g.forRangeToValue == None { return false }
+    return match g.forRangeCounterAlloca {
+        None => false
+        Some(alloca) => {
+            val counter = emitLoadFromAlloca(g, alloca)
+            g.forRangeCondLoad = Some(counter)
+            g.forRangeCondInclusive = inclusive
+            emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+        }
+    }
+}
+
+fn emitForRangeIncrStub(g: Generator) -> Bool {
+    return match g.forRangeCounterAlloca {
+        None => false
+        Some(alloca) => {
+            val cur = emitLoadFromAlloca(g, alloca)
+            g.forRangeIncrLoad = Some(cur)
+            val next = stubLlvmValue(g)
+            emitStoreStub(g, next, alloca)
+            g.forRangeIncrStore = Some(next)
+            true
+        }
+    }
+}
+
+fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: RangeExprData, body: Node) -> Option[StmtResult] {
+    clearForRangeStubs(g)
+    if !exprGeneratesOk(g, rangeData.from) { return None }
+    if !exprGeneratesOk(g, rangeData.to) { return None }
+    val fromVal = stubLlvmValue(g)
+    val toVal = stubLlvmValue(g)
+    g.forRangeFromValue = Some(fromVal)
+    g.forRangeToValue = Some(toVal)
+    if !registerForRangeBinding(g, binding, fromVal) { return None }
+    val condBlock = newBlock(g, "for_cond")
+    val bodyBlock = newBlock(g, "for_body")
+    val incrBlock = newBlock(g, "for_incr")
+    val afterBlock = newBlock(g, "for_after")
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !emitForRangeCondStub(g, rangeData.inclusive, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    if !finishLoopBodyFromNode(g, incrBlock, body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, incrBlock)
+    if !emitForRangeIncrStub(g) { return None }
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, afterBlock)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn clearForListStubs(g: Generator) {
+    g.forListIndexAlloca = None
+    g.forListBindingAlloca = None
+    g.forListSizeLoad = None
+    g.forListGetStub = None
+    g.forListIncrLoad = None
+    g.forListIncrStore = None
+    g.forListCondLoad = None
+    g.forMapKeysStub = None
+}
+
+fn emitForListCondStub(g: Generator, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if g.forListSizeLoad == None { return false }
+    return match g.forListIndexAlloca {
+        None => false
+        Some(alloca) => {
+            val counter = emitLoadFromAlloca(g, alloca)
+            g.forListCondLoad = Some(counter)
+            emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+        }
+    }
+}
+
+fn emitForListIncrStub(g: Generator) -> Bool {
+    return match g.forListIndexAlloca {
+        None => false
+        Some(alloca) => {
+            val cur = emitLoadFromAlloca(g, alloca)
+            g.forListIncrLoad = Some(cur)
+            val next = stubLlvmValue(g)
+            emitStoreStub(g, next, alloca)
+            g.forListIncrStore = Some(next)
+            true
+        }
+    }
+}
+
+fn runForListInLoop(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
+    ensureRuntimeCollectionStructs(g)
+    val savedVars = snapshotVars(g)
+    val indexAlloca = newAlloca(g, mapTypeToLLVM(g, IntType))
+    g.forListIndexAlloca = Some(indexAlloca)
+    val bindAlloc = newAlloca(g, mapTypeToLLVM(g, elemType))
+    g.vars.set(data.binding, bindAlloc)
+    g.forListBindingAlloca = Some(bindAlloc)
+    g.forListSizeLoad = Some(stubLlvmValue(g))
+    val condBlock = newBlock(g, forListCondBlockName())
+    val bodyBlock = newBlock(g, forListBodyBlockName())
+    val incrBlock = newBlock(g, forListIncrBlockName())
+    val afterBlock = newBlock(g, forListAfterBlockName())
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !emitForListCondStub(g, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    g.forListGetStub = Some(stubLlvmValue(g))
+    emitStoreStub(g, stubLlvmValue(g), bindAlloc)
+    if !finishLoopBodyFromNode(g, incrBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, incrBlock)
+    if !emitForListIncrStub(g) { return None }
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, afterBlock)
+    restoreVars(g, savedVars)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateForListStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
+    clearForListStubs(g)
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    return runForListInLoop(g, node, data, elemType)
+}
+
+fn generateForMapStmt(g: Generator, node: Node, data: ForStmtData, mapType: Type, keyType: Type) -> Option[StmtResult] {
+    clearForListStubs(g)
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    match generateMapKeysStub(g, stubLlvmValue(g), mapType) {
+        None => None
+        Some(_keysList) => runForListInLoop(g, node, data, keyType)
+    }
+}
+
+fn clearForIteratorStubs(g: Generator) {
+    g.forIteratorListLoad = None
+    g.forIteratorIndexLoad = None
+    g.forIteratorSizeLoad = None
+    g.forIteratorGetStub = None
+    g.forIteratorIndexStore = None
+    g.forIteratorCondLoad = None
+    g.forIteratorBindingAlloca = None
+}
+
+fn emitForIteratorCondStub(g: Generator, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
+    if g.forIteratorSizeLoad == None { return false }
+    val index = emitLoadStub(g)
+    g.forIteratorCondLoad = Some(index)
+    return emitCondBrToBlockStub(g, bodyBlock, afterBlock)
+}
+
+fn emitForIteratorIncrStub(g: Generator) -> Bool {
+    val next = stubLlvmValue(g)
+    g.forIteratorIndexStore = Some(next)
+    return true
+}
+
+fn generateForIteratorStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
+    clearForIteratorStubs(g)
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    ensureRuntimeCollectionStructs(g)
+    val savedVars = snapshotVars(g)
+    g.forIteratorListLoad = Some(stubLlvmValue(g))
+    g.forIteratorIndexLoad = Some(stubLlvmValue(g))
+    g.forIteratorSizeLoad = Some(stubLlvmValue(g))
+    val bindAlloc = newAlloca(g, mapTypeToLLVM(g, elemType))
+    g.vars.set(data.binding, bindAlloc)
+    g.forIteratorBindingAlloca = Some(bindAlloc)
+    val condBlock = newBlock(g, forIteratorCondBlockName())
+    val bodyBlock = newBlock(g, forIteratorBodyBlockName())
+    val incrBlock = newBlock(g, forIteratorIncrBlockName())
+    val afterBlock = newBlock(g, forIteratorAfterBlockName())
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, condBlock)
+    if !emitForIteratorCondStub(g, bodyBlock, afterBlock) { return None }
+    pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    setCurrentBlock(g, bodyBlock)
+    g.forIteratorGetStub = Some(stubLlvmValue(g))
+    emitStoreStub(g, stubLlvmValue(g), bindAlloc)
+    if !finishLoopBodyFromNode(g, incrBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, incrBlock)
+    if !emitForIteratorIncrStub(g) { return None }
+    emitBrToBlockStub(g, condBlock)
+    setCurrentBlock(g, afterBlock)
+    restoreVars(g, savedVars)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateForStmtGeneric(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
+    if !exprGeneratesOk(g, data.iterable) { return None }
+    val bodyBlock = newBlock(g, "for_body")
+    val afterBlock = newBlock(g, "for_after")
+    emitBrToBlockStub(g, bodyBlock)
+    pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
+    if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
+    popLoop(g)
+    setCurrentBlock(g, afterBlock)
+    return stmtResultFromNode(g, node, NoTerminator)
+}
+
+fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] = match data.iterable {
+    RangeExpr(_, _, rangeData) => generateForRangeStmt(g, node, data.binding, rangeData, data.body)
+    _ => match checkerTypeForNode(g, nodeId(data.iterable)) {
+        None => generateForStmtGeneric(g, node, data)
+        Some(t) => {
+            if isListType(t) {
+                return match listElemType(t) {
+                    None => generateForStmtGeneric(g, node, data)
+                    Some(elemType) => generateForListStmt(g, node, data, elemType)
+                }
+            }
+            if isMapType(t) {
+                return match mapKeyType(t) {
+                    None => generateForStmtGeneric(g, node, data)
+                    Some(keyType) => generateForMapStmt(g, node, data, t, keyType)
+                }
+            }
+            if isIteratorType(t) {
+                return match iteratorElemType(t) {
+                    None => generateForStmtGeneric(g, node, data)
+                    Some(elemType) => generateForIteratorStmt(g, node, data, elemType)
+                }
+            }
+            generateForStmtGeneric(g, node, data)
+        }
+    }
+}
+
+fn isUnitReturnType(t: Type) -> Bool = match t {
+    Basic(name) => name == "Unit"
+    _ => false
+}
+
+fn emitFuncReturnStub(g: Generator, hasValue: Bool, value: LlvmValue) -> Bool {
+    if isUnitReturnType(g.currentReturnType) {
+        return emitRetI32Stub(g, 0)
+    }
+    val retTy = mapTypeToLLVM(g, g.currentReturnType)
+    val retVal = match hasValue {
+        true => value
+        false => stubLlvmValue(g)
+    }
+    return emitRetLlvmValueStub(g, retTy, retVal)
+}
+
+pub fn emitImplicitFuncReturn(g: Generator) -> Bool {
+    return emitFuncReturnStub(g, false, stubLlvmValue(g))
+}
+
+fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {
+    match data.value {
+        None => {
+            if !emitFuncReturnStub(g, false, stubLlvmValue(g)) { return None }
+        }
+        Some(v) => {
+            if !exprGeneratesOk(g, v) { return None }
+            if !emitFuncReturnStub(g, true, stubLlvmValue(g)) { return None }
+        }
+    }
+    return stmtResultFromNode(g, node, ReturnTerm)
+}
+
+fn currentLoopNeedsBreakValue(g: Generator) -> Bool {
+    match currentLoop(g) {
+        None => false
+        Some(ctx) => loopCtxHasResult(ctx)
+    }
+}
+
+fn branchToLoopAfter(g: Generator, ctx: LoopCtx) {
+    emitBrToBlockStub(g, ctx.after)
+}
+
+fn branchToLoopCond(g: Generator, ctx: LoopCtx) {
+    emitBrToBlockStub(g, ctx.cond)
+}
+
+fn generateBreakStmt(g: Generator, node: Node, data: BreakStmtData) -> Option[StmtResult] {
+    if !hasCurrentLoop(g) { return None }
+    val needsValue = currentLoopNeedsBreakValue(g)
+    match data.value {
+        None => {
+            if needsValue { return None }
+        }
+        Some(v) => {
+            if !exprGeneratesOk(g, v) { return None }
+            match currentLoop(g) {
+                None => {}
+                Some(ctx) => recordBreakValueStore(g, ctx)
+            }
+        }
+    }
+    match currentLoop(g) {
+        None => return None
+        Some(ctx) => {
+            branchToLoopAfter(g, ctx)
+            return stmtResultFromNode(g, node, BreakTerm)
+        }
+    }
+}
+
+fn generateContinueStmt(g: Generator, node: Node) -> Option[StmtResult] {
+    if !hasCurrentLoop(g) { return None }
+    match currentLoop(g) {
+        None => return None
+        Some(ctx) => {
+            branchToLoopCond(g, ctx)
+            return stmtResultFromNode(g, node, ContinueTerm)
+        }
+    }
+}
+
+fn stmtFromExpr(g: Generator, node: Node) -> Option[StmtResult] {
+    return match generateExprNode(g, node) {
+        None => None
+        Some(er) => stmtResultFromNode(g, node, NoTerminator)
+    }
+}
+
+pub fn generateStmtNode(g: Generator, node: Node) -> Option[StmtResult] = match node {
+    BlockStmt(_, _, data) => generateBlockStmt(g, node, data)
+    IfStmt(_, _, data) => generateIfStmt(g, node, data)
+    WhileStmt(_, _, data) => generateWhileStmt(g, node, data)
+    LoopStmt(_, _, data) => generateLoopStmt(g, node, data)
+    ForStmt(_, _, data) => generateForStmt(g, node, data)
+    ForTaskStmt(_, _, data) => generateForStmt(g, node, data)
+    ReturnStmt(_, _, data) => generateReturnStmt(g, node, data)
+    BreakStmt(_, _, data) => generateBreakStmt(g, node, data)
+    ContinueStmt(_, _) => generateContinueStmt(g, node)
+    _ => stmtFromExpr(g, node)
+}
+
+pub fn hasTerminator(result: StmtResult) -> Bool = match result.terminator {
+    NoTerminator => false
+    ReturnTerm => true
+    BreakTerm => true
+    ContinueTerm => true
+}
+
+pub fn loopCtxHasResult(ctx: LoopCtx) -> Bool {
+    return !llvmTypesEqual(ctx.resultLlvm, llvmVoid())
+}
+
+pub fn loopNeedsResultAlloca(loopType: Type) -> Bool {
+    return typeToString(loopType) != "Unit"
+}
+
+fn setLoopResultLoad(g: Generator, alloca: LlvmValue) {
+    g.loopResultLoad = Some(stubLoopResultLoad(g, alloca))
+}
+
+fn recordBreakValueStore(g: Generator, ctx: LoopCtx) {
+    match loopCtxResultAlloca(ctx) {
+        None => {}
+        Some(alloca) => emitBreakValueStoreStub(g, alloca)
+    }
+}
+
+fn stubLoopResultLoad(g: Generator, alloca: LlvmValue) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn loopCtxResultAlloca(ctx: LoopCtx) -> Option[LlvmValue] {
+    return ctx.resultAlloca
+}
+
+pub fn newLoopCtx(cond: LlvmBasicBlock, after: LlvmBasicBlock, resultLlvm: LlvmType, resultAlloca: Option[LlvmValue]) -> LoopCtx {
+    return LoopCtx { cond: cond, after: after, resultAlloca: resultAlloca, resultLlvm: resultLlvm }
+}
+
+pub fn pushLoop(g: Generator, ctx: LoopCtx) {
+    g.loops.append(ctx)
+}
+
+pub fn popLoop(g: Generator) {
+    if g.loops.size() > 0 {
+        g.loops = g.loops.slice(0, g.loops.size() - 1)
+    }
+}
+
+pub fn currentLoop(g: Generator) -> Option[LoopCtx] {
+    if g.loops.size() == 0 { return None }
+    return Some(g.loops.get(g.loops.size() - 1))
+}
+
+pub fn loopDepth(g: Generator) -> Int {
+    return g.loops.size()
+}
+
+pub fn isControlFlowStmt(node: Node) -> Bool = match node {
+    BlockStmt(_, _, _) => true
+    ReturnStmt(_, _, _) => true
+    BreakStmt(_, _, _) => true
+    ContinueStmt(_, _) => true
+    IfStmt(_, _, _) => true
+    ForStmt(_, _, _) => true
+    ForTaskStmt(_, _, _) => true
+    WhileStmt(_, _, _) => true
+    LoopStmt(_, _, _) => true
+    _ => false
+}
+
+pub fn isLoopStmt(node: Node) -> Bool = match node {
+    WhileStmt(_, _, _) => true
+    LoopStmt(_, _, _) => true
+    ForStmt(_, _, _) => true
+    ForTaskStmt(_, _, _) => true
+    _ => false
+}
+
+pub fn isBreakOrContinue(node: Node) -> Bool = match node {
+    BreakStmt(_, _, _) => true
+    ContinueStmt(_, _) => true
+    _ => false
+}

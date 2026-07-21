@@ -1,0 +1,49 @@
+import (
+    { cliEntryOutput, cliHelloMinimalEntryOutput, cliHelloMinimalEntryOutputReady, defaultCliEntryCheckScript, cliEntryOrderedCommands, cliHelloMinimalEntryOrderedCommandsReady, cliEntryReady, cliHelloMinimalEntryReady } from @driver/entry
+    { cliUsageHeader, cliHelloMinimalBinaryPath, defaultHelloMinimalRunArgv, cliCommandNew, cliCommandBuild, cliCommandTest } from @driver/cli
+    { newProjectSuccessMessage } from @driver/new
+    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { buildCliLibraryVerifyMessage } from @driver/project_cli
+    { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
+    { runPlanOrderedMaterializeCommandCount } from @driver/run
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliEntryOutput() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliEntryOutput(argv).contains(cliUsageHeader()), "short argv prints usage")
+
+    val helloOut = cliHelloMinimalEntryOutput()
+    assertMsg(helloOut == cliHelloMinimalBinaryPath(), "hello minimal entry returns exec path")
+    assertMsg(cliHelloMinimalEntryOutputReady(), "hello minimal entry output ready")
+}
+
+test fn testCliHelloMinimalEntryReady() {
+    val argv = defaultHelloMinimalRunArgv()
+    val cmds = cliEntryOrderedCommands(argv)
+    assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "entry ordered commands")
+    assertMsg(cliHelloMinimalEntryOrderedCommandsReady(), "hello minimal entry ordered commands ready")
+    assertMsg(cliEntryReady(argv), "hello minimal entry ready")
+    assertMsg(cliHelloMinimalEntryReady(), "hello minimal entry ready helper")
+    assertMsg(defaultCliEntryCheckScript() == "tools/driver-cli-entry-check.sh", "cli entry check script")
+
+    var newArgv = List[String]{}
+    newArgv.append("soyuz")
+    newArgv.append(cliCommandNew())
+    newArgv.append("app")
+    assertMsg(cliEntryReady(newArgv), "new entry ready")
+    assertMsg(cliEntryOutput(newArgv) == newProjectSuccessMessage("app", false), "new entry success message")
+
+    val buildArgv = defaultHelloMinimalBuildArgv()
+    assertMsg(cliEntryReady(buildArgv), "build entry ready")
+    assertMsg(cliEntryOutput(buildArgv).contains(buildCliLegacyDefaultOutput()), "build entry success message")
+
+    val libraryArgv = defaultSoyuzLibraryBuildArgv()
+    assertMsg(cliEntryReady(libraryArgv), "library build entry ready")
+    assertMsg(cliEntryOutput(libraryArgv).contains("verificada com sucesso"), "library verify message")
+
+    val testArgv = defaultTestRunnerArgv()
+    assertMsg(cliEntryReady(testArgv), "test entry ready")
+    assertMsg(cliEntryOutput(testArgv) == testCliDefaultTmpBinPath(), "test entry exec path")
+}

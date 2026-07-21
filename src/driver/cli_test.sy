@@ -1,0 +1,117 @@
+import (
+    { cliCommandRun, defaultHelloMinimalFixturePath, defaultBootstrapHelloRunCommand, isKnownCliCommand, cliUsageHeader, cliUsageCommandsMarker, cliUsageText, cliUsageNewLine, cliUsageBuildLine, cliUsageRunLine, cliUsageTestLine, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliHelloMinimalRunFromArgvReady, defaultHelloMinimalRunArgv, cliRunMaterializeReadyFromArgv, cliHelloMinimalRunMaterializeSteps, cliHelloMinimalRunPipelineReadyFromArgv, cliHelloMinimalRunPipelineReady, defaultCliRunPipelineCheckScript, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliHelloMinimalRunExecCommandFromArgv, cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, cliRunProgramArgsFromArgs, cliRunEntryReadyForArgs, cliHelloMinimalRunFromArgsReady, cliRunPlanReadyForEntry, planHelloMinimalRunFromCli, cliRunDispatchReady, cliHelloMinimalRunDispatchReady, helloMinimalRunPlanReadyFromCli, defaultCliHelloMinimalManifestPath, defaultCliRunDispatchCheckScript, cliHelloMinimalMaterializePrefix, cliHelloMinimalBinaryPath, cliHelloMinimalRunMaterializeCommandsReady, cliHelloMinimalRunExportManifestCommand, cliHelloMinimalRunApplyManifestCommand, cliHelloMinimalRunLinkCommand, cliHelloMinimalRunExecCommand } from @driver/cli
+    { runPlanReady, runPlanMaterializeStepsReady, runPlanOrderedMaterializeCommandCount } from @driver/run
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliCommands() {
+    assertMsg(isKnownCliCommand("run"), "run is known")
+    assertMsg(isKnownCliCommand("build"), "build is known")
+    assertMsg(!isKnownCliCommand("unknown"), "unknown rejected")
+    assertMsg(defaultHelloMinimalFixturePath() == "tools/fixtures/hello_minimal.sy", "hello fixture path")
+    assertMsg(defaultBootstrapHelloRunCommand().contains("soyuz run"), "bootstrap run command")
+    assertMsg(defaultBootstrapHelloRunCommand().contains(defaultHelloMinimalFixturePath()), "bootstrap uses fixture")
+    val usage = cliUsageText()
+    assertMsg(usage.contains(cliUsageHeader()), "usage has header")
+    assertMsg(usage.contains(cliUsageCommandsMarker()), "usage has commands marker")
+    assertMsg(usage.contains(cliUsageNewLine()), "usage has new line")
+    assertMsg(usage.contains(cliUsageBuildLine()), "usage has build line")
+    assertMsg(usage.contains(cliUsageRunLine()), "usage has run line")
+    assertMsg(usage.contains(cliUsageTestLine()), "usage has test line")
+    assertMsg(usage.contains(cliRunReleaseFlag()), "usage mentions release flag")
+    assertMsg(usage.contains(cliRunArgsDelimiter()), "usage mentions program args delimiter")
+}
+
+test fn testCliDispatchFromArgv() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliArgvNeedsUsage(argv), "program name only needs usage")
+    val emptyDispatch = cliDispatchFromArgv(argv)
+    assertMsg(!emptyDispatch.known, "no command when argv too short")
+
+    argv.append(cliCommandRun())
+    argv.append(defaultHelloMinimalFixturePath())
+    val dispatch = cliDispatchFromArgv(argv)
+    assertMsg(dispatch.known, "run command known")
+    assertMsg(dispatch.command == cliCommandRun(), "dispatch command is run")
+    assertMsg(dispatch.args.size() == 1, "dispatch args after command")
+    assertMsg(cliRunReadyFromArgv(argv), "hello run ready from argv")
+    assertMsg(cliHelloMinimalRunFromArgvReady(), "hello minimal run from argv helper")
+}
+
+test fn testCliRunEntryFromArgs() {
+    var args = List[String]{}
+    args.append(defaultHelloMinimalFixturePath())
+    assertMsg(cliRunEntryFromArgs(args) == defaultHelloMinimalFixturePath(), "entry from positional arg")
+    assertMsg(cliRunEntryReadyForArgs(cliCommandRun(), args), "hello entry ready from args")
+    assertMsg(cliHelloMinimalRunFromArgsReady(), "hello minimal run from args helper")
+
+    var withRelease = List[String]{}
+    withRelease.append(cliRunReleaseFlag())
+    withRelease.append(defaultHelloMinimalFixturePath())
+    assertMsg(cliRunEntryFromArgs(withRelease) == defaultHelloMinimalFixturePath(), "entry after release flag")
+
+    var withProgramArgs = List[String]{}
+    withProgramArgs.append(defaultHelloMinimalFixturePath())
+    withProgramArgs.append(cliRunArgsDelimiter())
+    withProgramArgs.append("extra")
+    assertMsg(cliRunEntryFromArgs(withProgramArgs) == defaultHelloMinimalFixturePath(), "entry before delimiter")
+    val programArgs = cliRunProgramArgsFromArgs(withProgramArgs)
+    assertMsg(programArgs.size() == 1, "program args after delimiter")
+    assertMsg(programArgs.get(0) == "extra", "program arg preserved")
+}
+
+test fn testCliRunDispatchHelloMinimal() {
+    val plan = planHelloMinimalRunFromCli()
+    assertMsg(runPlanReady(plan), "hello minimal cli run plan ready")
+    assertMsg(cliRunPlanReadyForEntry(cliCommandRun(), defaultHelloMinimalFixturePath()), "cli run plan ready for entry")
+    assertMsg(cliRunDispatchReady(cliCommandRun(), defaultHelloMinimalFixturePath()), "cli run dispatch ready")
+    assertMsg(cliHelloMinimalRunDispatchReady(), "cli hello minimal dispatch helper")
+    assertMsg(helloMinimalRunPlanReadyFromCli(), "cli hello minimal run plan ready helper")
+}
+
+test fn testCliHelloMinimalRunMaterializeCommands() {
+    val manifestPath = defaultCliHelloMinimalManifestPath()
+    val plan = planHelloMinimalRunFromCli()
+    assertMsg(cliHelloMinimalBinaryPath() == "$(cliHelloMinimalMaterializePrefix())/app", "cli binary under materialize prefix")
+    assertMsg(runPlanReady(plan), "cli hello minimal run plan ready")
+    assertMsg(cliHelloMinimalRunMaterializeCommandsReady(manifestPath), "cli materialize commands ready")
+    assertMsg(cliHelloMinimalRunExportManifestCommand(manifestPath).contains("export-hello-run-manifest.sh"), "cli export manifest command")
+    assertMsg(cliHelloMinimalRunApplyManifestCommand(manifestPath).contains("apply-path-index-manifest.sh"), "cli apply manifest command")
+    assertMsg(cliHelloMinimalRunLinkCommand().contains("runtime-run-link.sh"), "cli link command")
+    assertMsg(cliHelloMinimalRunLinkCommand().contains(cliHelloMinimalBinaryPath()), "cli link command has binary path")
+    assertMsg(cliHelloMinimalRunExecCommand() == cliHelloMinimalBinaryPath(), "cli exec command is binary path")
+    assertMsg(defaultCliRunDispatchCheckScript() == "tools/driver-cli-run-dispatch-check.sh", "cli run dispatch check script")
+}
+
+test fn testCliHelloMinimalRunPipeline() {
+    val manifestPath = defaultCliHelloMinimalManifestPath()
+    val argv = defaultHelloMinimalRunArgv()
+    assertMsg(argv.size() == 3, "hello minimal argv shape")
+    assertMsg(cliRunMaterializeReadyFromArgv(argv, manifestPath), "cli run materialize ready from argv")
+    assertMsg(cliHelloMinimalRunPipelineReadyFromArgv(), "cli hello minimal pipeline from argv")
+    assertMsg(cliHelloMinimalRunPipelineReady(), "cli hello minimal pipeline ready")
+    val steps = cliHelloMinimalRunMaterializeSteps(manifestPath)
+    assertMsg(runPlanMaterializeStepsReady(steps, planHelloMinimalRunFromCli()), "cli materialize steps ready")
+    assertMsg(steps.execCommand == cliHelloMinimalRunExecCommand(), "pipeline exec matches cli exec command")
+}
+
+test fn testCliHelloMinimalRunOrderedCommands() {
+    val cmds = cliHelloMinimalRunOrderedCommands()
+    assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "ordered pipeline has four steps")
+    assertMsg(cliHelloMinimalRunOrderedCommandsReady(), "cli ordered commands ready")
+    assertMsg(defaultCliRunPipelineCheckScript() == "tools/driver-cli-run-pipeline-check.sh", "cli pipeline check script")
+    val argv = defaultHelloMinimalRunArgv()
+    assertMsg(cliHelloMinimalRunExecCommandFromArgv(argv) == cliHelloMinimalBinaryPath(), "exec without program args")
+    var withProgramArgs = List[String]{}
+    withProgramArgs.append(defaultHelloMinimalFixturePath())
+    withProgramArgs.append(cliRunArgsDelimiter())
+    withProgramArgs.append("extra")
+    var fullArgv = List[String]{}
+    fullArgv.append("soyuz")
+    fullArgv.append(cliCommandRun())
+    fullArgv.append(defaultHelloMinimalFixturePath())
+    fullArgv.append(cliRunArgsDelimiter())
+    fullArgv.append("extra")
+    assertMsg(cliHelloMinimalRunExecCommandFromArgv(fullArgv).contains("extra"), "exec with program args")
+}

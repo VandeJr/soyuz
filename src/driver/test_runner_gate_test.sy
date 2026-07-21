@@ -1,0 +1,16 @@
+import (
+    { defaultTestRunnerEntry, testRunnerBootstrapSuccessMarker, defaultTestRunnerBootstrapCommand } from @driver/test_runner_gate
+    { cliTestDefaultEntry } from @driver/test_cli
+    { testRunnerCliPath } from @driver/export
+    { defaultDriverTestRunnerCheckScript } from @driver/build
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testTestRunnerGateMetadata() {
+    assertMsg(defaultTestRunnerEntry() == "test_runner.sy", "test runner entry")
+    assertMsg(cliTestDefaultEntry() == defaultTestRunnerEntry(), "cli test default matches gate")
+    assertMsg(testRunnerCliPath() == defaultTestRunnerEntry(), "export test runner path matches")
+    assertMsg(defaultTestRunnerBootstrapCommand().contains(defaultTestRunnerEntry()), "bootstrap command")
+    assertMsg(testRunnerBootstrapSuccessMarker().len() > 0, "success marker non-empty")
+    assertMsg(defaultDriverTestRunnerCheckScript() == "tools/driver-test-runner-check.sh", "gate script path")
+}

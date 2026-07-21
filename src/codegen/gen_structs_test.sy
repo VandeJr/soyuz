@@ -1,0 +1,344 @@
+import (
+    { Node, FuncDeclData, TypeExpr, GenericParam, RecordDeclData, RecordField, EnumDeclData, EnumVariant, EnumField, ClassDeclData, VarDeclData, VarKind, FuncParam, Pattern, BlockStmtData, InterfaceDeclData, InterfaceMethod, ExtendDeclData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, FuncType, UnitType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { generateRecordDecl, generateEnumDecl, generateClassDecl, generateInterfaceDecl, generateExtendDecl, generateTopLevelDecl, structInfoRegistered, classInfoRegistered, classHasMethodSymbol, classHasVtableSymbol, classMethodSymbolName, classVtableSlotCount, vtableSymbolName, extendHasMethodSymbol, extendMethodSymbolName, extendSelfLLVM, enumInfoRegistered, enumVariantTag, enumVariantCount, recordFieldIndex, recordFieldLlvmType } from @codegen/gen_structs
+    { ensureSoyuzStringLlvmTypes } from @codegen/gen_types
+    { LlvmType, llvmI64, llvmF64, llvmTypesEqual, llvmStructType, llvmArrayType, llvmI8, llvmPointerType } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn structsZeroSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 0 }
+
+fn structsEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testGenerateRecordDecl() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val xField = RecordField { span: structsZeroSpan(), name: "x", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Int") }
+    val yField = RecordField { span: structsZeroSpan(), name: "y", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Int") }
+    val decl = RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xField, yField] }
+    assertMsg(generateRecordDecl(g, decl), "record decl ok")
+    assertMsg(structInfoRegistered(g, "Point"), "Point registered")
+    match recordFieldIndex(g, "Point", "x") {
+        None => assertMsg(false, "field x index")
+        Some(idx) => assertMsg(idx == 0, "x at index 0")
+    }
+    match recordFieldLlvmType(g, "Point", "x") {
+        None => assertMsg(false, "field x llvm type")
+        Some(t) => assertMsg(llvmTypesEqual(t, llvmI64()), "x field is i64")
+    }
+    val expected = llvmStructType("Point", [llvmI64(), llvmI64()])
+    assertMsg(llvmTypesEqual(g.structs.get("Point").typ, expected), "Point struct type")
+}
+
+test fn testGenerateEnumSimple() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val v0 = EnumVariant { span: structsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: structsZeroSpan(), name: "Verde", fields: [] }
+    val v2 = EnumVariant { span: structsZeroSpan(), name: "Azul", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1, v2] }
+    assertMsg(generateEnumDecl(g, decl), "enum decl ok")
+    assertMsg(enumInfoRegistered(g, "Cor"), "Cor registered")
+    assertMsg(enumVariantCount(g, "Cor") == 3, "three variants")
+    match enumVariantTag(g, "Cor", "Verde") {
+        None => assertMsg(false, "Verde tag")
+        Some(tag) => assertMsg(tag == 1, "Verde tag is 1")
+    }
+    val expected = llvmStructType("Cor", [llvmI64(), llvmArrayType(llvmI8(), 64)])
+    assertMsg(llvmTypesEqual(g.enums.get("Cor").typ, expected), "Cor enum layout")
+}
+
+test fn testGenerateEnumWithFields() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val circuloField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Float") }
+    val retField = EnumField { name: "largura", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "Float") }
+    val circulo = EnumVariant { span: structsZeroSpan(), name: "Circulo", fields: [circuloField] }
+    val retangulo = EnumVariant { span: structsZeroSpan(), name: "Retangulo", fields: [retField] }
+    val decl = EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo, retangulo] }
+    assertMsg(generateEnumDecl(g, decl), "enum with fields ok")
+    assertMsg(structInfoRegistered(g, "Forma__Circulo__payload"), "Circulo payload registered")
+    val payload = g.structs.get("Forma__Circulo__payload")
+    assertMsg(llvmTypesEqual(payload.typ, llvmStructType("Forma__Circulo__payload", [llvmF64()])), "payload type")
+    match recordFieldIndex(g, "Forma__Circulo__payload", "raio") {
+        None => assertMsg(false, "raio field")
+        Some(idx) => assertMsg(idx == 0, "raio at 0")
+    }
+}
+
+test fn testGenerateTwoEnumsSameVariantName() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val sOk = EnumVariant { span: structsZeroSpan(), name: "Ok", fields: [] }
+    val sErro = EnumVariant { span: structsZeroSpan(), name: "Erro", fields: [] }
+    val rOk = EnumVariant { span: structsZeroSpan(), name: "Ok", fields: [] }
+    val rFalha = EnumVariant { span: structsZeroSpan(), name: "Falha", fields: [] }
+    val status = EnumDeclData { isPub: true, name: "Status", generics: [], variants: [sOk, sErro] }
+    val resultado = EnumDeclData { isPub: true, name: "Resultado", generics: [], variants: [rOk, rFalha] }
+    assertMsg(generateEnumDecl(g, status), "Status ok")
+    assertMsg(generateEnumDecl(g, resultado), "Resultado ok")
+    assertMsg(enumInfoRegistered(g, "Status"), "Status registered")
+    assertMsg(enumInfoRegistered(g, "Resultado"), "Resultado registered")
+    match enumVariantTag(g, "Status", "Ok") {
+        None => assertMsg(false, "Status.Ok tag")
+        Some(tag) => assertMsg(tag == 0, "Status.Ok is 0")
+    }
+    match enumVariantTag(g, "Resultado", "Ok") {
+        None => assertMsg(false, "Resultado.Ok tag")
+        Some(tag) => assertMsg(tag == 0, "Resultado.Ok is 0")
+    }
+}
+
+test fn testGenericRecordDeferred() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val valueField = RecordField { span: structsZeroSpan(), name: "value", typeExpr: TypeExpr.Named(0, structsZeroSpan(), "T") }
+    val decl = RecordDeclData {
+        isPub: true,
+        name: "Box",
+        generics: [GenericParam { name: "T", constraints: [] }],
+        fields: [valueField]
+    }
+    assertMsg(generateRecordDecl(g, decl), "generic record deferred")
+    assertMsg(!structInfoRegistered(g, "Box"), "Box not concrete yet")
+    var hasGeneric = false
+    for k in g.genericRecordDecls.keys() {
+        if k == "Box" { hasGeneric = true }
+    }
+    assertMsg(hasGeneric, "Box in genericRecordDecls")
+}
+
+test fn testGenerateTopLevelDeclEnumNode() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val v = EnumVariant { span: structsZeroSpan(), name: "Vermelho", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v] }
+    val node = Node.EnumDecl(1, structsZeroSpan(), decl)
+    assertMsg(generateTopLevelDecl(g, node), "top-level enum ok")
+    assertMsg(enumInfoRegistered(g, "Cor"), "Cor via top-level")
+}
+
+test fn testGenerateClassDeclFields() {
+    val g = newGenerator(structsEmptyCheckResult())
+    ensureSoyuzStringLlvmTypes(g)
+    val countField = VarDeclData {
+        namePos: structsZeroSpan(),
+        isPub: false,
+        kind: VarKind.Var,
+        name: "count",
+        pattern: None,
+        typeExpr: Some(TypeExpr.Named(0, structsZeroSpan(), "Int")),
+        init: None
+    }
+    val labelField = VarDeclData {
+        namePos: structsZeroSpan(),
+        isPub: false,
+        kind: VarKind.Var,
+        name: "label",
+        pattern: None,
+        typeExpr: Some(TypeExpr.Named(0, structsZeroSpan(), "String")),
+        init: None
+    }
+    val decl = ClassDeclData {
+        isPub: true,
+        name: "Contador",
+        generics: [],
+        interfaces: [],
+        body: []
+    }
+    var body: List[Node] = []
+    body.append(Node.VarDecl(2, structsZeroSpan(), countField))
+    body.append(Node.VarDecl(3, structsZeroSpan(), labelField))
+    val classDecl = ClassDeclData {
+        isPub: decl.isPub,
+        name: decl.name,
+        generics: decl.generics,
+        interfaces: decl.interfaces,
+        body: body
+    }
+    assertMsg(generateClassDecl(g, classDecl), "class decl ok")
+    assertMsg(classInfoRegistered(g, "Contador"), "Contador in classes")
+    assertMsg(structInfoRegistered(g, "Contador"), "Contador data struct")
+    match recordFieldIndex(g, "Contador", "count") {
+        None => assertMsg(false, "count field index")
+        Some(idx) => assertMsg(idx == 0, "count at index 0")
+    }
+    match recordFieldIndex(g, "Contador", "label") {
+        None => assertMsg(false, "label field index")
+        Some(idx) => assertMsg(idx == 1, "label at index 1")
+    }
+    val strPtr = match g.soyuzStringPtrType {
+        None => llvmPointerType(llvmStructType("SoyuzString", [llvmI64()]))
+        Some(t) => t
+    }
+    val expected = llvmStructType("Contador", [llvmI64(), strPtr])
+    assertMsg(llvmTypesEqual(g.classes.get("Contador").typ, expected), "Contador class layout")
+}
+
+test fn testGenerateTopLevelDeclClassNode() {
+    val g = newGenerator(structsEmptyCheckResult())
+    val countField = VarDeclData {
+        namePos: structsZeroSpan(),
+        isPub: false,
+        kind: VarKind.Var,
+        name: "count",
+        pattern: None,
+        typeExpr: Some(TypeExpr.Named(0, structsZeroSpan(), "Int")),
+        init: None
+    }
+    var body: List[Node] = []
+    body.append(Node.VarDecl(2, structsZeroSpan(), countField))
+    val decl = ClassDeclData {
+        isPub: true,
+        name: "Contador",
+        generics: [],
+        interfaces: [],
+        body: body
+    }
+    val node = Node.ClassDecl(1, structsZeroSpan(), decl)
+    assertMsg(generateTopLevelDecl(g, node), "top-level class ok")
+    assertMsg(classInfoRegistered(g, "Contador"), "Contador via top-level")
+}
+
+fn makeClassSelfMethod(span: Span, methodNodeId: Int, name: String, extraParams: List[FuncParam], body: Option[Node]) -> Node {
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(methodNodeId + 100, span, "self"), typeExpr: None, defaultExpr: None })
+    for p in extraParams {
+        params.append(p)
+    }
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: name,
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: body,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    return Node.FuncDecl(methodNodeId, span, fd)
+}
+
+test fn testGenerateClassMethodDecl() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    val incrementar = makeClassSelfMethod(span, 10, "incrementar", [], Some(emptyBody))
+    var body: List[Node] = []
+    body.append(incrementar)
+    val decl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: body }
+    assertMsg(generateClassDecl(g, decl), "class with method ok")
+    assertMsg(classHasMethodSymbol(g, "Contador", "Contador_incrementar"), "incrementar symbol")
+    assertMsg(g.pendingClassBodies.size() == 1, "pending method body")
+}
+
+test fn testGenerateClassMethodOverloading() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    val zeroArg = makeClassSelfMethod(span, 10, "incrementar", [], Some(emptyBody))
+    val nParam = FuncParam { span: span, pattern: Pattern.Binding(11, span, "n"), typeExpr: Some(TypeExpr.Named(0, span, "Int")), defaultExpr: None }
+    var extra: List[FuncParam] = []
+    extra.append(nParam)
+    val oneArg = makeClassSelfMethod(span, 12, "incrementar", extra, Some(emptyBody))
+    var body: List[Node] = []
+    body.append(zeroArg)
+    body.append(oneArg)
+    val decl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: body }
+    assertMsg(generateClassDecl(g, decl), "overloaded class ok")
+    assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 0, 2)), "incrementar_0")
+    assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 1, 2)), "incrementar_1")
+    assertMsg(g.classes.get("Contador").methods.get("incrementar").size() == 2, "two overloads registered")
+}
+
+test fn testGenerateClassVtable() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val selfParam = FuncParam { span: span, pattern: Pattern.Binding(1, span, "self"), typeExpr: None, defaultExpr: None }
+    val incrementarIface = InterfaceMethod {
+        span: span,
+        isPub: false,
+        name: "incrementar",
+        params: [],
+        returnType: None
+    }
+    var ifaceParams: List[FuncParam] = []
+    ifaceParams.append(selfParam)
+    val incrementarMethod = InterfaceMethod {
+        span: incrementarIface.span,
+        isPub: incrementarIface.isPub,
+        name: incrementarIface.name,
+        params: ifaceParams,
+        returnType: incrementarIface.returnType
+    }
+    var ifaceMethods: List[InterfaceMethod] = []
+    ifaceMethods.append(incrementarMethod)
+    val contavel = InterfaceDeclData {
+        isPub: true,
+        name: "Contavel",
+        generics: [],
+        methods: ifaceMethods
+    }
+    assertMsg(generateInterfaceDecl(g, contavel), "interface decl ok")
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    val incrementar = makeClassSelfMethod(span, 10, "incrementar", [], Some(emptyBody))
+    var body: List[Node] = []
+    body.append(incrementar)
+    var interfaces: List[TypeExpr] = []
+    interfaces.append(TypeExpr.Named(0, span, "Contavel"))
+    val decl = ClassDeclData {
+        isPub: true,
+        name: "Contador",
+        generics: [],
+        interfaces: interfaces,
+        body: body
+    }
+    assertMsg(generateClassDecl(g, decl), "class with vtable ok")
+    assertMsg(classHasVtableSymbol(g, "Contador", vtableSymbolName("Contador", "Contavel")), "vtable symbol")
+    assertMsg(classVtableSlotCount(g, "Contador", "Contavel") == 1, "one vtable slot")
+    var hasVtable = false
+    for k in g.classes.get("Contador").vtables.keys() {
+        if k == "Contavel" { hasVtable = true }
+    }
+    assertMsg(hasVtable, "Contavel vtable registered")
+}
+
+test fn testGenerateExtendDeclInt() {
+    val span = structsZeroSpan()
+    val g = newGenerator(structsEmptyCheckResult())
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(100, span, "self"), typeExpr: None, defaultExpr: None })
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: "double",
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: Some(emptyBody),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var methods: List[Node] = []
+    methods.append(Node.FuncDecl(10, span, fd))
+    val decl = ExtendDeclData { typeName: "Int", methods: methods }
+    assertMsg(generateExtendDecl(g, decl), "extend decl ok")
+    assertMsg(extendHasMethodSymbol(g, "Int", extendMethodSymbolName("Int", "double")), "Int_double symbol")
+    assertMsg(llvmTypesEqual(extendSelfLLVM(g, "Int"), llvmI64()), "Int self llvm type")
+    assertMsg(g.pendingExtendBodies.size() == 1, "pending extend body")
+    assertMsg(g.extensionMethods.get("Int").get("double").size() == 1, "extension method registered")
+}

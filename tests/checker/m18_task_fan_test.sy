@@ -1,9 +1,13 @@
-// M18 — task_fan tests (stub — port from soyuz-go/internal/checker/)
+// M18 — Task.fan tests (port of soyuz-go/internal/checker/m18_task_fan_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM18(src: String) -> List[TypeError] {
@@ -12,8 +16,82 @@ fn checkM18(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM18Baseline() {
-    // TODO: port milestone 18 tests from soyuz-go
-    val errs = checkM18("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M18 baseline stub")
+test fn testM18TaskFanReturnsTuple() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn negate(n: Int) -> Int = n * -1
+
+fn main() {
+    val input = 5
+    val (t1, t2) = Task.fan(input, double, negate)
+    t1.detach()
+    t2.detach()
+}
+"
+    val errs = checkM18(src)
+    assertMsg(errs.size() == 0, "Task.fan não deve gerar erros")
+}
+
+test fn testM18TaskFanWithPipe() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn toString(n: Int) -> String = \"x\"
+
+fn main() {
+    val n = 10
+    val (t1, t2) = n |> Task.fan(double, toString)
+    t1.detach()
+    t2.detach()
+}
+"
+    val errs = checkM18(src)
+    assertMsg(errs.size() == 0, "n |> Task.fan(f, g) não deve gerar erros")
+}
+
+test fn testM18TaskFanDestructureAndAwait() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn triple(n: Int) -> Int = n * 3
+
+fn main() -> Int {
+    val n = 7
+    val (t1, t2) = n |> Task.fan(double, triple)
+    val r1 = t1.await()
+    val r2 = t2.await()
+    return r1 + r2
+}
+"
+    val errs = checkM18(src)
+    assertMsg(errs.size() == 0, "destructure e await de Task.fan não deve gerar erros")
+}
+
+test fn testM18TaskFanThreeFunctionsDistinctTypes() {
+    val src = "
+fn toInt(n: Int) -> Int = n
+fn toBool(n: Int) -> Bool = n > 0
+fn toStr(n: Int) -> String = \"x\"
+
+fn main() {
+    val n = 42
+    val (t1, t2, t3) = n |> Task.fan(toInt, toBool, toStr)
+    t1.detach()
+    t2.detach()
+    t3.detach()
+}
+"
+    val errs = checkM18(src)
+    assertMsg(errs.size() == 0, "Task.fan com 3 funções distintas não deve gerar erros")
+}
+
+test fn testM18TaskFanFirstArgIsFunction() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn triple(n: Int) -> Int = n * 3
+
+fn main() {
+    val _ = Task.fan(double, triple)
+}
+"
+    val errs = checkM18(src)
+    assertMsg(errs.size() > 0, "Task.fan(fn, fn) sem valor de entrada deve gerar erro")
 }

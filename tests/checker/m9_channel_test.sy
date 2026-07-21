@@ -1,9 +1,13 @@
-// M9 — channel tests (stub — port from soyuz-go/internal/checker/)
+// M9 — Channel[T] tests (port of soyuz-go/internal/checker/m_channel_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM9(src: String) -> List[TypeError] {
@@ -12,8 +16,77 @@ fn checkM9(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM9Baseline() {
-    // TODO: port milestone 9 tests from soyuz-go
-    val errs = checkM9("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M9 baseline stub")
+test fn testM9ChannelNewReturnsSpecializedType() {
+    val src = "
+fn main() {
+    val ch = Channel.new(4)
+}
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "Channel.new(4) não deve gerar erros")
+}
+
+test fn testM9ChannelSendAcceptsValue() {
+    val src = "
+fn sendInt(ch: Channel[Int]) {
+    ch.send(42)
+}
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "ch.send(42) não deve gerar erros")
+}
+
+test fn testM9ChannelRecvReturnsOptionT() {
+    val src = "
+fn recvInt(ch: Channel[Int]) -> Option[Int] = ch.recv()
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "ch.recv() deve retornar Option[Int]")
+}
+
+test fn testM9ChannelTryRecvReturnsOptionT() {
+    val src = "
+fn tryRecvInt(ch: Channel[Int]) -> Option[Int] = ch.tryRecv()
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "ch.tryRecv() deve retornar Option[Int]")
+}
+
+test fn testM9ChannelCloseIsUnit() {
+    val src = "
+fn closeChannel(ch: Channel[Int]) {
+    ch.close()
+}
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "ch.close() não deve gerar erros")
+}
+
+test fn testM9ChannelIsClosedReturnsBool() {
+    val src = "
+fn checkClosed(ch: Channel[Int]) -> Bool = ch.isClosed()
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "ch.isClosed() deve retornar Bool")
+}
+
+test fn testM9ChannelZeroCapacityIsRendezvous() {
+    val src = "
+fn main() {
+    val sc = Channel.new(0)
+    val _ = task fn() => sc.send(42)
+}
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() == 0, "Channel.new(0) não deve gerar erros")
+}
+
+test fn testM9SyncChannelIsUndefined() {
+    val src = "
+fn main() {
+    val sc = SyncChannel.new()
+}
+"
+    val errs = checkM9(src)
+    assertMsg(errs.size() > 0, "SyncChannel deve ser undefined após M-27")
 }

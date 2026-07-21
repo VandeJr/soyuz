@@ -1,10 +1,13 @@
 // Side-effect imports: register checker dispatch and split check modules.
 import @checker/assign
-import @checker/dispatch
-import @checker/check_decls
-import @checker/check_exprs
-import @checker/check_patterns
+import @checker/map_util
+import @checker/type_builders
+import @checker/builtins
 import @checker/check_generics
+import @checker/check_patterns
 import @checker/named_args
 import @checker/specialized_expr
-import @checker/builtins
+import @checker/check_decls
+import @checker/check_exprs
+import @checker/dispatch
+import @checker/check_node

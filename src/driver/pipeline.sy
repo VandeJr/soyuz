@@ -1,0 +1,117 @@
+import (
+    { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript } from @driver/build
+    { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
+    { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
+    { Resolver } from @module/resolver
+    { PathIndex, emptyPathIndex } from @module/paths
+    { applyManifestToPathIndex, defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
+    { defaultRunLinkScript, llFileWritten, buildCompileLinkPlanFromMaterializedIndex, compileLinkPlanReady, clangInvocationMatchesBundle, CompileLinkPlan } from @runtime/link
+    { runtimeWritePlanFullyApplied } from @runtime/embed
+)
+
+pub record FullBuildScripts {
+    exportPipelineManifestScript: String,
+    runtimeExportManifestScript: String,
+    applyManifestScript: String,
+    runLinkScript: String,
+    driverLinkStubCheckScript: String,
+    driverFullBuildCheckScript: String,
+    exportDriverHelloIrScript: String,
+    driverExportCodegenIrCheckScript: String,
+    driverHelloIrLinkCheckScript: String,
+    driverAppliedManifestLinkCheckScript: String,
+    driverRunPlanLinkCheckScript: String,
+    exportHelloRunManifestScript: String,
+    driverRunManifestRoundTripCheckScript: String,
+    driverRunPlanMaterializeCheckScript: String,
+    driverBootstrapHelloRunCheckScript: String
+}
+
+pub fn defaultFullBuildScripts() -> FullBuildScripts = FullBuildScripts {
+    exportPipelineManifestScript: defaultExportManifestScript(),
+    runtimeExportManifestScript: defaultRuntimeExportManifestScript(),
+    applyManifestScript: defaultApplyManifestScript(),
+    runLinkScript: defaultRunLinkScript(),
+    driverLinkStubCheckScript: defaultDriverLinkStubCheckScript(),
+    driverFullBuildCheckScript: defaultDriverFullBuildCheckScript(),
+    exportDriverHelloIrScript: defaultExportDriverHelloIrScript(),
+    driverExportCodegenIrCheckScript: defaultDriverExportCodegenIrCheckScript(),
+    driverHelloIrLinkCheckScript: defaultDriverHelloIrLinkCheckScript(),
+    driverAppliedManifestLinkCheckScript: defaultDriverAppliedManifestLinkCheckScript(),
+    driverRunPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
+    exportHelloRunManifestScript: defaultExportHelloRunManifestScript(),
+    driverRunManifestRoundTripCheckScript: defaultDriverRunManifestRoundTripCheckScript(),
+    driverRunPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript(),
+    driverBootstrapHelloRunCheckScript: defaultDriverBootstrapHelloRunCheckScript()
+}
+
+pub record FullBuildPlan {
+    cfg: BuildConfig,
+    frontend: FrontendBuildPlan,
+    codegen: CodegenBuildPlan,
+    artifacts: BuildArtifacts,
+    scripts: FullBuildScripts,
+    ready: Bool,
+    error: String
+}
+
+pub fn fullBuildReady(plan: FullBuildPlan) -> Bool = plan.ready
+
+pub fn fullBuildManifest(plan: FullBuildPlan) -> String = plan.artifacts.manifest
+
+// Mirrors tools/apply-path-index-manifest.sh on a planned full-build manifest.
+pub fn applyFullBuildManifest(plan: FullBuildPlan) -> PathIndex {
+    return applyManifestToPathIndex(emptyPathIndex(), fullBuildManifest(plan))
+}
+
+pub fn fullBuildAppliedIndexReady(plan: FullBuildPlan, index: PathIndex) -> Bool {
+    if !fullBuildReady(plan) { return false }
+    val output = plan.artifacts.pipeline.output
+    if !runtimeWritePlanFullyApplied(index, output.bundle.writePlan) { return false }
+    return llFileWritten(index, output.cfg.llFile, output.irContent)
+}
+
+pub fn fullBuildLinkPlanFromAppliedIndex(plan: FullBuildPlan, index: PathIndex) -> CompileLinkPlan {
+    val cfg = linkConfigFromBuild(plan.cfg)
+    return buildCompileLinkPlanFromMaterializedIndex(cfg, index)
+}
+
+pub fn fullBuildAppliedLinkPlanReady(plan: FullBuildPlan, index: PathIndex) -> Bool {
+    if !fullBuildAppliedIndexReady(plan, index) { return false }
+    val linkPlan = fullBuildLinkPlanFromAppliedIndex(plan, index)
+    if !compileLinkPlanReady(linkPlan) { return false }
+    val cfg = linkConfigFromBuild(plan.cfg)
+    return clangInvocationMatchesBundle(cfg, plan.artifacts.pipeline.linkPlan.bundle, linkPlan.invocation)
+}
+
+fn fullBuildError(frontend: FrontendBuildPlan, codegen: CodegenBuildPlan, artifacts: BuildArtifacts) -> String {
+    if !frontendBuildReady(frontend) { return frontend.error }
+    if !codegenBuildReady(codegen) { return codegen.error }
+    if !buildArtifactsReady(artifacts) { return "runtime assets incompletos para link" }
+    return ""
+}
+
+// Mirrors cmd/main.go buildInternal: collect+check → codegen → runtime materialize+link plan.
+pub fn planFullBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> FullBuildPlan {
+    val frontend = planFrontendBuild(entryFile, r, index)
+    val codegen = planCodegenBuild(frontend, cfg)
+    var ir = ""
+    if codegenBuildReady(codegen) {
+        ir = codegen.irContent
+    }
+    val artifacts = planPostCodegenBuild(cfg, sourceIndex, ir)
+    val ready = frontendBuildReady(frontend) && codegenBuildReady(codegen) && buildArtifactsReady(artifacts)
+    var err = ""
+    if !ready {
+        err = fullBuildError(frontend, codegen, artifacts)
+    }
+    return FullBuildPlan {
+        cfg: cfg,
+        frontend: frontend,
+        codegen: codegen,
+        artifacts: artifacts,
+        scripts: defaultFullBuildScripts(),
+        ready: ready,
+        error: err
+    }
+}

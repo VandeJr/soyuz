@@ -1,0 +1,295 @@
+import (
+    { Node, SelectArm } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue, llvmI64 } from @codegen/llvm_types
+    { stubLlvmValue, newBlock, setCurrentBlock, newAlloca, emitLoadStub, emitCondBrToBlockStub, emitBrToBlockStub, blockNameRegistered } from @codegen/gen_ir
+)
+
+pub fn channelRuntimeNew() -> String {
+    return "srt_chan_new"
+}
+
+pub fn channelRuntimeSend() -> String {
+    return "srt_chan_send"
+}
+
+pub fn channelRuntimeRecv() -> String {
+    return "srt_chan_recv"
+}
+
+pub fn channelRuntimeTryRecv() -> String {
+    return "srt_chan_try_recv"
+}
+
+pub fn channelRuntimeClose() -> String {
+    return "srt_chan_close"
+}
+
+pub fn channelRuntimeIsClosed() -> String {
+    return "srt_chan_is_closed"
+}
+
+pub fn isChannelType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "Channel" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn channelInnerType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "Channel" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn isChannelStaticNew(typeName: String, methodName: String) -> Bool {
+    return typeName == "Channel" && methodName == "new"
+}
+
+pub fn isChannelNewCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isChannelStaticNew(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+fn checkerNodeType(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
+}
+
+pub fn isChannelSendCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "send")
+}
+
+pub fn isChannelInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match checkerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isChannelType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isChannelRecvCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "recv")
+}
+
+pub fn isChannelTryRecvCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "tryRecv")
+}
+
+pub fn isChannelCloseCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "close")
+}
+
+pub fn isChannelIsClosedCall(callee: Node, g: Generator) -> Bool {
+    return isChannelInstanceMethodCall(callee, g, "isClosed")
+}
+
+pub fn chanSomeBlockName() -> String {
+    return "chan_some"
+}
+
+pub fn chanNoneBlockName() -> String {
+    return "chan_none"
+}
+
+pub fn chanMergeBlockName() -> String {
+    return "chan_merge"
+}
+
+fn registerChannelRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.channelRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.channelRuntimeSymbols
+        syms.append(symbol)
+        g.channelRuntimeSymbols = syms
+    }
+}
+
+pub fn channelRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.channelRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn generateChannelNewStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeNew())
+    val stub = stubLlvmValue(g)
+    g.channelNewStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateChannelSendStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeSend())
+    val stub = stubLlvmValue(g)
+    g.channelSendStub = Some(stub)
+    return Some(stub)
+}
+
+fn clearChannelRecvStubs(g: Generator) {
+    g.channelRecvOutAlloca = None
+    g.channelRecvRawLoad = None
+    g.channelRecvSomeResult = None
+    g.channelRecvNoneResult = None
+    g.channelRecvPhiResult = None
+}
+
+pub fn generateChannelRecvStub(g: Generator, tryMode: Bool) -> Option[LlvmValue] {
+    clearChannelRecvStubs(g)
+    g.channelRecvTryMode = tryMode
+    if tryMode {
+        registerChannelRuntimeSymbol(g, channelRuntimeTryRecv())
+    } else {
+        registerChannelRuntimeSymbol(g, channelRuntimeRecv())
+    }
+    g.channelRecvOutAlloca = Some(newAlloca(g, llvmI64()))
+    val someBlock = newBlock(g, chanSomeBlockName())
+    val noneBlock = newBlock(g, chanNoneBlockName())
+    val mergeBlock = newBlock(g, chanMergeBlockName())
+    if !emitCondBrToBlockStub(g, someBlock, noneBlock) { return None }
+    setCurrentBlock(g, someBlock)
+    g.channelRecvRawLoad = Some(emitLoadStub(g))
+    g.channelRecvSomeResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, noneBlock)
+    g.channelRecvNoneResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, mergeBlock)
+    val phi = stubLlvmValue(g)
+    g.channelRecvPhiResult = Some(phi)
+    return Some(phi)
+}
+
+pub fn generateChannelCloseStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeClose())
+    val stub = stubLlvmValue(g)
+    g.channelCloseStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateChannelIsClosedStub(g: Generator) -> Option[LlvmValue] {
+    registerChannelRuntimeSymbol(g, channelRuntimeIsClosed())
+    val stub = stubLlvmValue(g)
+    g.channelIsClosedStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn channelRuntimeSelect() -> String {
+    return "srt_select"
+}
+
+pub fn channelRuntimeSelectTry() -> String {
+    return "srt_select_try"
+}
+
+pub fn selectMergeBlockName() -> String {
+    return "sel_merge"
+}
+
+pub fn selectArmBlockName(index: Int) -> String {
+    return "sel_arm$(index)"
+}
+
+pub fn selectDefaultBlockName() -> String {
+    return "sel_default"
+}
+
+pub fn selectDispatchBlockName() -> String {
+    return "sel_dispatch"
+}
+
+pub fn selectRecvArmCount(arms: List[SelectArm]) -> Int {
+    var count = 0
+    for arm in arms {
+        if !arm.isDefault { count = count + 1 }
+    }
+    return count
+}
+
+pub fn selectHasDefaultArm(arms: List[SelectArm]) -> Bool {
+    for arm in arms {
+        if arm.isDefault { return true }
+    }
+    return false
+}
+
+pub fn extractChannelFromRecvCall(node: Node) -> Option[Node] = match node {
+    CallExpr(_, _, callData) => match callData.callee {
+        MemberExpr(_, _, memberData) => {
+            if memberData.property == "recv" { return Some(memberData.object) }
+            if memberData.property == "tryRecv" { return Some(memberData.object) }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+fn emitSelectArmBlocks(g: Generator, recvArmCount: Int, hasDefault: Bool) -> Bool {
+    var i = 0
+    loop {
+        if i >= recvArmCount { break }
+        newBlock(g, selectArmBlockName(i))
+        i = i + 1
+    }
+    if hasDefault {
+        newBlock(g, selectDefaultBlockName())
+        if recvArmCount > 0 {
+            newBlock(g, selectDispatchBlockName())
+        }
+    }
+    newBlock(g, selectMergeBlockName())
+    return true
+}
+
+pub fn generateSelectStub(g: Generator, recvArmCount: Int, hasDefault: Bool) -> Option[LlvmValue] {
+    if recvArmCount > 0 {
+        if hasDefault {
+            registerChannelRuntimeSymbol(g, channelRuntimeSelectTry())
+        } else {
+            registerChannelRuntimeSymbol(g, channelRuntimeSelect())
+        }
+    }
+    if !emitSelectArmBlocks(g, recvArmCount, hasDefault) { return None }
+    g.selectRecvArmCount = recvArmCount
+    g.selectHasDefault = hasDefault
+    val stub = stubLlvmValue(g)
+    g.selectStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn selectBlockNamesRegistered(g: Generator, recvArmCount: Int, hasDefault: Bool) -> Bool {
+    if !blockNameRegistered(g, selectMergeBlockName()) { return false }
+    var i = 0
+    loop {
+        if i >= recvArmCount { break }
+        if !blockNameRegistered(g, selectArmBlockName(i)) { return false }
+        i = i + 1
+    }
+    if hasDefault {
+        if !blockNameRegistered(g, selectDefaultBlockName()) { return false }
+        if recvArmCount > 0 {
+            if !blockNameRegistered(g, selectDispatchBlockName()) { return false }
+        }
+    }
+    return true
+}

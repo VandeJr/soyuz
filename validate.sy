@@ -1,0 +1,9 @@
+// Type-check entry: validates parser + checker + codegen packages compile.
+import @parser/load
+import @checker/load
+import @codegen/load
+import @module/load
+import @runtime/load
+import @driver/load
+
+fn main() {}

@@ -1,0 +1,28 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+// Mirrors std/collections.sy — keep in sync when porting @soyuz/collections.
+fn installStdlibCollectionsStub(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "collections.sy"), "extern fn soyuz_range(from: Int, to: Int) -> List[Int]\nextern fn soyuz_range_inclusive(from: Int, to: Int) -> List[Int]\nextern fn soyuz_range_step(from: Int, to: Int, step: Int) -> List[Int]\npub fn range(from: Int, to: Int) -> List[Int] = soyuz_range(from, to)\npub fn rangeInclusive(from: Int, to: Int) -> List[Int] = soyuz_range_inclusive(from, to)\npub fn rangeStep(from: Int, to: Int, step: Int) -> List[Int] = soyuz_range_step(from, to, step)\n")
+}
+
+pub fn defaultStdlibCollectionsPath() -> String = "std/collections.sy"
+
+// Port of stdlib usage: @soyuz/collections range helpers resolve and type-check.
+test fn testStdlibCollectionsModuleTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibCollectionsStub(index, stdlibDir)
+    index.fileContents.set(entry, "import ( { range, rangeInclusive, rangeStep } from \"@soyuz/collections\" )\nfn main() {\n\tval xs = range(0, 3)\n\tval ys = rangeInclusive(1, 2)\n\tval zs = rangeStep(0, 4, 2)\n\tprint(xs.size())\n\tprint(ys.size())\n\tprint(zs.size())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect collections module ok")
+    assertMsg(collected.files.size() == 2, "collections.sy plus main")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib collections module type-checks")
+}

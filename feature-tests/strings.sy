@@ -1,0 +1,55 @@
+extern fn soyuz_str_to_upper(s: String) -> String
+extern fn soyuz_str_to_lower(s: String) -> String
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+extern fn soyuz_str_trim(s: String) -> String
+extern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String
+extern fn soyuz_str_len(s: String) -> Int
+extern fn soyuz_str_index_of(s: String, sub: String) -> Int
+extern fn soyuz_str_replace(s: String, from: String, to: String) -> String
+extern fn soyuz_str_starts_with(s: String, prefix: String) -> Bool
+extern fn soyuz_str_ends_with(s: String, suffix: String) -> Bool
+
+extend String {
+    pub fn toUpper(self) -> String = soyuz_str_to_upper(self)
+    pub fn toLower(self) -> String = soyuz_str_to_lower(self)
+    pub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub)
+    pub fn trim(self) -> String = soyuz_str_trim(self)
+    pub fn substring(self, start: Int, end: Int) -> String = soyuz_str_substring(self, start, end)
+    pub fn len(self) -> Int = soyuz_str_len(self)
+    pub fn replace(self, from: String, to: String) -> String = soyuz_str_replace(self, from, to)
+    pub fn startsWith(self, prefix: String) -> Bool = soyuz_str_starts_with(self, prefix)
+    pub fn endsWith(self, suffix: String) -> Bool = soyuz_str_ends_with(self, suffix)
+    pub fn indexOf(self, sub: String) -> Option[Int] {
+        val idx = soyuz_str_index_of(self, sub)
+        if idx == -1 { return None }
+        return Some(idx)
+    }
+}
+
+fn main() {
+    val nome = "Vand"
+    val saudacao = "Olá, $(nome)!"
+    val calculo = "Resultado: $(1 + 2 * 3)"
+    print(saudacao)
+    print(calculo)
+
+    val regex = r"\d+\.\d+"
+    print("raw: $(regex)")
+
+    val s = "Soyuz Lang"
+    print("len: $(s.len())")
+    print("toUpper: $(s.toUpper())")
+    print("toLower: $(s.toLower())")
+    print("contains: $(s.contains("Lang"))")
+    print("startsWith: $(s.startsWith("Soyuz"))")
+    print("endsWith: $(s.endsWith("Lang"))")
+    print("replace: $(s.replace("Lang", "PL"))")
+    print("trim: $("  hello  ".trim())")
+    print("substring(0,5): $(s.substring(0, 5))")
+
+    val idx = s.indexOf("Lang")
+    match idx {
+        Some(i) => print("indexOf: $(i)")
+        None    => print("indexOf: None")
+    }
+}

@@ -1,0 +1,383 @@
+import (
+    { Node, FuncDeclData, IdentifierData, MemberExprData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { isMutexType, mutexInnerType, isMutexStaticNew, isMutexNewCall, isMutexLockCall, isRwLockType, rwlockInnerType, isRwLockStaticNew, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicType, atomicInnerType, isAtomicStaticNew, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, isAtomicAddCall, isAtomicCasCall, syncGuardKind, syncGuardValueAccess, syncGuardUnlockFn, mutexRuntimeNew, mutexRuntimeLock, mutexRuntimeUnlock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, rwlockRuntimeUnlock, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, atomicRuntimeAdd, atomicRuntimeCas, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateAtomicAddStub, generateAtomicCasStub, generateSyncGuardReadStub, generateSyncGuardWriteStub, pushSyncGuardScope, ownSyncGuard, popSyncGuardScope, emitSyncGuardDrops, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { assertMsg } from @soyuz/testing
+)
+
+fn syncEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn syncEmptyClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+test fn testIsMutexType() {
+    val mutexClass = syncEmptyClass("Mutex")
+    val atomicClass = syncEmptyClass("Atomic")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    assertMsg(isMutexType(mutexInt), "Mutex[Int] is mutex")
+    assertMsg(!isMutexType(atomicInt), "Atomic[Int] not mutex")
+    assertMsg(!isMutexType(IntType), "Int not mutex")
+}
+
+test fn testMutexInnerType() {
+    val mutexClass = syncEmptyClass("Mutex")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    match mutexInnerType(mutexInt) {
+        None => assertMsg(false, "Mutex[Int] inner type")
+        Some(t) => assertMsg(match t { Basic(name) => name == "Int", _ => false }, "inner is Int")
+    }
+    match mutexInnerType(IntType) {
+        None => assertMsg(true, "Int has no mutex inner")
+        Some(_) => assertMsg(false, "Int should not have inner")
+    }
+}
+
+test fn testIsMutexStaticNew() {
+    assertMsg(isMutexStaticNew("Mutex", "new"), "Mutex.new")
+    assertMsg(!isMutexStaticNew("Mutex", "lock"), "not Mutex.lock static")
+    assertMsg(!isMutexStaticNew("RwLock", "new"), "not RwLock.new")
+}
+
+test fn testIsMutexNewCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexId = Node.Identifier(1, span, IdentifierData { name: "Mutex" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: mutexId, property: "new" })
+    assertMsg(isMutexNewCall(member), "Mutex.new member is mutex new call")
+    val channelId = Node.Identifier(3, span, IdentifierData { name: "Channel" })
+    val channelMember = Node.MemberExpr(4, span, MemberExprData { object: channelId, property: "new" })
+    assertMsg(!isMutexNewCall(channelMember), "Channel.new not mutex new")
+}
+
+test fn testIsMutexLockCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexClass = syncEmptyClass("Mutex")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
+    val lockMember = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(mutexInt))
+    cr.nodeTypes.append(Some(mutexInt))
+    val g = newGenerator(cr)
+    assertMsg(isMutexLockCall(lockMember, g), "m.lock on Mutex[Int]")
+    val newMember = Node.MemberExpr(3, span, MemberExprData { object: mId, property: "new" })
+    assertMsg(!isMutexLockCall(newMember, g), "m.new not lock")
+}
+
+test fn testGenerateMutexLockStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateMutexLockStub(g) {
+        None => assertMsg(false, "mutex lock stub")
+        Some(_) => assertMsg(g.mutexLockStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeLock()), "srt_mutex_lock registered")
+}
+
+test fn testSyncGuardKind() {
+    val guardClass = syncEmptyClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    match syncGuardKind(guardInt) {
+        None => assertMsg(false, "MutexGuard[Int] kind")
+        Some(k) => assertMsg(k == "mutex", "mutex guard kind")
+    }
+    val readClass = syncEmptyClass("ReadGuard")
+    val readInt = Type.Specialized(Type.Class(readClass), [IntType])
+    match syncGuardKind(readInt) {
+        None => assertMsg(false, "ReadGuard[Int] kind")
+        Some(k) => assertMsg(k == "rwlock", "rwlock guard kind")
+    }
+}
+
+test fn testSyncGuardValueAccess() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardClass = syncEmptyClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
+    val valueMember = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(guardInt))
+    cr.nodeTypes.append(Some(guardInt))
+    val g = newGenerator(cr)
+    match syncGuardValueAccess(g, MemberExprData { object: guardId, property: "value" }) {
+        None => assertMsg(false, "guard.value access")
+        Some(k) => assertMsg(k == "mutex", "mutex guard value")
+    }
+    val otherMember = Node.MemberExpr(3, span, MemberExprData { object: guardId, property: "other" })
+    assertMsg(syncGuardValueAccess(g, MemberExprData { object: guardId, property: "other" }) == None, "not value property")
+}
+
+test fn testGenerateSyncGuardReadStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateSyncGuardReadStub(g, "mutex") {
+        None => assertMsg(false, "sync guard read stub")
+        Some(_) => assertMsg(g.syncGuardReadStub != None, "read stub stored")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeGet()), "srt_mutex_guard_get registered")
+}
+
+test fn testGenerateSyncGuardWriteStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateSyncGuardWriteStub(g, "mutex") {
+        None => assertMsg(false, "sync guard write stub")
+        Some(_) => assertMsg(g.syncGuardWriteStub != None, "write stub stored")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeSet()), "srt_mutex_guard_set registered")
+}
+
+test fn testIsRwLockType() {
+    val rwlockClass = syncEmptyClass("RwLock")
+    val mutexClass = syncEmptyClass("Mutex")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    assertMsg(isRwLockType(rwlockInt), "RwLock[Int] is rwlock")
+    assertMsg(!isRwLockType(mutexInt), "Mutex[Int] not rwlock")
+}
+
+test fn testIsRwLockNewCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockId = Node.Identifier(1, span, IdentifierData { name: "RwLock" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: rwlockId, property: "new" })
+    assertMsg(isRwLockNewCall(member), "RwLock.new member is rwlock new call")
+    val mutexId = Node.Identifier(3, span, IdentifierData { name: "Mutex" })
+    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: mutexId, property: "new" })
+    assertMsg(!isRwLockNewCall(mutexMember), "Mutex.new not rwlock new")
+}
+
+test fn testIsRwLockReadCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = syncEmptyClass("RwLock")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val readMember = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(rwlockInt))
+    cr.nodeTypes.append(Some(rwlockInt))
+    val g = newGenerator(cr)
+    assertMsg(isRwLockReadCall(readMember, g), "rw.read on RwLock[Int]")
+}
+
+test fn testIsRwLockWriteCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = syncEmptyClass("RwLock")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val writeMember = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(rwlockInt))
+    cr.nodeTypes.append(Some(rwlockInt))
+    val g = newGenerator(cr)
+    assertMsg(isRwLockWriteCall(writeMember, g), "rw.write on RwLock[Int]")
+    assertMsg(!isRwLockWriteCall(Node.MemberExpr(3, span, MemberExprData { object: rwId, property: "read" }), g), "rw.read not write")
+}
+
+test fn testGenerateRwLockNewStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateRwLockNewStub(g) {
+        None => assertMsg(false, "rwlock new stub")
+        Some(_) => assertMsg(g.rwLockNewStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeNew()), "srt_rwlock_new registered")
+}
+
+test fn testGenerateRwLockReadStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateRwLockReadStub(g) {
+        None => assertMsg(false, "rwlock read stub")
+        Some(_) => assertMsg(g.rwLockReadStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
+}
+
+test fn testGenerateRwLockWriteStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateRwLockWriteStub(g) {
+        None => assertMsg(false, "rwlock write stub")
+        Some(_) => assertMsg(g.rwLockWriteStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeWrite()), "srt_rwlock_write registered")
+}
+
+test fn testSyncGuardUnlockFn() {
+    val guardClass = syncEmptyClass("MutexGuard")
+    val readClass = syncEmptyClass("ReadGuard")
+    val writeClass = syncEmptyClass("WriteGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val readInt = Type.Specialized(Type.Class(readClass), [IntType])
+    val writeInt = Type.Specialized(Type.Class(writeClass), [IntType])
+    match syncGuardUnlockFn(guardInt) {
+        None => assertMsg(false, "MutexGuard unlock fn")
+        Some(unlockName) => assertMsg(unlockName == mutexRuntimeUnlock(), "mutex unlock")
+    }
+    match syncGuardUnlockFn(readInt) {
+        None => assertMsg(false, "ReadGuard unlock fn")
+        Some(unlockName) => assertMsg(unlockName == rwlockRuntimeUnlock(), "rwlock unlock for read")
+    }
+    match syncGuardUnlockFn(writeInt) {
+        None => assertMsg(false, "WriteGuard unlock fn")
+        Some(unlockName) => assertMsg(unlockName == rwlockRuntimeUnlock(), "rwlock unlock for write")
+    }
+    assertMsg(match syncGuardUnlockFn(IntType) { None => true, Some(_) => false }, "Int has no unlock fn")
+}
+
+test fn testEmitSyncGuardDrops() {
+    val g = newGenerator(syncEmptyCheckResult())
+    pushSyncGuardScope(g)
+    ownSyncGuard(g, "guard", mutexRuntimeUnlock())
+    val owned = popSyncGuardScope(g)
+    assertMsg(emitSyncGuardDrops(g, owned), "emit sync guard drops")
+    assertMsg(g.syncGuardUnlockStub != None, "unlock stub stored")
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeUnlock()), "srt_mutex_unlock registered")
+    assertMsg(emitSyncGuardDrops(g, []), "empty guard list ok")
+}
+
+test fn testGenerateMutexNewStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateMutexNewStub(g) {
+        None => assertMsg(false, "mutex new stub")
+        Some(_) => assertMsg(g.mutexNewStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeNew()), "srt_mutex_new registered")
+}
+
+test fn testIsAtomicType() {
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    assertMsg(isAtomicType(atomicInt), "Atomic[Int] is atomic")
+    assertMsg(!isAtomicType(IntType), "Int not atomic")
+}
+
+test fn testIsAtomicNewCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicId = Node.Identifier(1, span, IdentifierData { name: "Atomic" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: atomicId, property: "new" })
+    assertMsg(isAtomicNewCall(member), "Atomic.new member is atomic new call")
+    val mutexId = Node.Identifier(3, span, IdentifierData { name: "Mutex" })
+    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: mutexId, property: "new" })
+    assertMsg(!isAtomicNewCall(mutexMember), "Mutex.new not atomic new")
+}
+
+test fn testIsAtomicStoreCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val storeMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "store" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicStoreCall(storeMember, g), "a.store on Atomic[Int]")
+    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "load" })
+    assertMsg(!isAtomicStoreCall(loadMember, g), "a.load not store")
+}
+
+test fn testGenerateAtomicNewStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicNewStub(g) {
+        None => assertMsg(false, "atomic new stub")
+        Some(_) => assertMsg(g.atomicNewStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeNew()), "srt_atomic_new registered")
+}
+
+test fn testGenerateAtomicStoreStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicStoreStub(g) {
+        None => assertMsg(false, "atomic store stub")
+        Some(_) => assertMsg(g.atomicStoreStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeStore()), "srt_atomic_store registered")
+}
+
+test fn testIsAtomicLoadCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val loadMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "load" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicLoadCall(loadMember, g), "a.load on Atomic[Int]")
+    val storeMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "store" })
+    assertMsg(!isAtomicLoadCall(storeMember, g), "a.store not load")
+}
+
+test fn testGenerateAtomicLoadStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicLoadStub(g) {
+        None => assertMsg(false, "atomic load stub")
+        Some(_) => assertMsg(g.atomicLoadStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeLoad()), "srt_atomic_load registered")
+}
+
+test fn testIsAtomicAddCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val addMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "add" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicAddCall(addMember, g), "a.add on Atomic[Int]")
+    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "load" })
+    assertMsg(!isAtomicAddCall(loadMember, g), "a.load not add")
+}
+
+test fn testGenerateAtomicAddStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicAddStub(g) {
+        None => assertMsg(false, "atomic add stub")
+        Some(_) => assertMsg(g.atomicAddStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeAdd()), "srt_atomic_add registered")
+}
+
+test fn testIsAtomicCasCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = syncEmptyClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val casMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "compareAndSwap" })
+    var cr = syncEmptyCheckResult()
+    cr.nodeTypes.append(Some(atomicInt))
+    cr.nodeTypes.append(Some(atomicInt))
+    val g = newGenerator(cr)
+    assertMsg(isAtomicCasCall(casMember, g), "a.compareAndSwap on Atomic[Int]")
+    val addMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "add" })
+    assertMsg(!isAtomicCasCall(addMember, g), "a.add not cas")
+}
+
+test fn testGenerateAtomicCasStub() {
+    val g = newGenerator(syncEmptyCheckResult())
+    match generateAtomicCasStub(g) {
+        None => assertMsg(false, "atomic cas stub")
+        Some(_) => assertMsg(g.atomicCasStub != None, "stub stored on generator")
+    }
+    assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeCas()), "srt_atomic_cas registered")
+}

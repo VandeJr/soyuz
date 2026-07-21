@@ -1,0 +1,62 @@
+import (
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram, CollectedProgram } from @module/graph
+    { Resolver } from @module/resolver
+    { PathIndex } from @module/paths
+    { CheckResult, TypeError, TypeWarning, FuncType, FuncDeclData, Type } from @checker/types
+    { Node } from @ast/ast
+)
+
+pub record FrontendBuildPlan {
+    entryFile: String,
+    collected: CollectedProgram,
+    checkResult: CheckResult,
+    ready: Bool,
+    error: String
+}
+
+fn frontendEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: List[TypeError]{},
+    warnings: List[TypeWarning]{},
+    nodeTypes: List[Option[Type]]{},
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: List[FuncDeclData]{},
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+pub fn frontendBuildReady(plan: FrontendBuildPlan) -> Bool = plan.ready
+
+pub fn checkResultSucceeded(result: CheckResult) -> Bool = result.errors.size() == 0
+
+pub fn planFrontendBuild(entryFile: String, r: Resolver, index: PathIndex) -> FrontendBuildPlan {
+    val collected = collectProgram(entryFile, r, index)
+    if !collectProgramSucceeded(collected) {
+        return FrontendBuildPlan {
+            entryFile: entryFile,
+            collected: collected,
+            checkResult: frontendEmptyCheckResult(),
+            ready: false,
+            error: collected.error
+        }
+    }
+    val checkResult = checkCollectedProgram(collected)
+    if !checkResultSucceeded(checkResult) {
+        return FrontendBuildPlan {
+            entryFile: entryFile,
+            collected: collected,
+            checkResult: checkResult,
+            ready: false,
+            error: "compilação abortada por erros de tipo"
+        }
+    }
+    return FrontendBuildPlan {
+        entryFile: entryFile,
+        collected: collected,
+        checkResult: checkResult,
+        ready: true,
+        error: ""
+    }
+}

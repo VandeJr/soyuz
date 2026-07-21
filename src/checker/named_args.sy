@@ -1,55 +1,56 @@
 import (
     { Node, CallExprData, MemberExprData, IdentifierData, NamedArgData } from @ast/ast
     { nodePos, nodeId } from @ast/ast_helpers
-    { Checker, Type, FuncType, EnumType, SpecializedType } from @checker/types
+    { Checker, Type, FuncType, EnumType } from @checker/types
     { getNodeType, checkerErrorf } from @checker/checker
+    { mapGetOrStringList, mapHasStrNode } from @checker/map_util
 )
 
 pub fn variantFieldNamesForCall(c: Checker, callee: Node) -> List[String] = match callee {
-    Node.MemberExpr(_, _, data) => match getNodeType(c, nodeId(data.object)) {
-        Some(EnumType(_, _, vfn, _)) => vfn.get(data.property) ?: []
-        _ => []
-    }
-    Node.Identifier(_, _, data) => match c.scope.resolve(data.name) {
-        Some(sym) => fieldNamesFromFuncReturn(sym.typ, data.name)
+    MemberExpr(_, _, data) => mapGetOrStringList(getNodeTypeEnumVfn(c, nodeId(data.object)), data.property)
+    Identifier(_, _, data) => match c.scope.resolve(data.name) {
+        Some(sym) => fieldNamesFromReturn(sym.typ, data.name)
         None => []
     }
     _ => []
 }
 
-fn fieldNamesFromFuncReturn(ft: Type, variantName: String) -> List[String] = match ft {
-    FuncType(_, ret, _, _, _) => fieldNamesFromReturn(ret, variantName)
-    _ => []
+fn getNodeTypeEnumVfn(c: Checker, id: Int) -> Map[String, List[String]] = match getNodeType(c, id) {
+    Some(Enum(data)) => data.variantFieldNames
+    _ => Map[String, List[String]]{}
 }
 
 fn fieldNamesFromReturn(ret: Type, variantName: String) -> List[String] = match ret {
-    EnumType(_, _, vfn, _) => vfn.get(variantName) ?: []
-    SpecializedType(base, _, _) => match base {
-        EnumType(_, _, vfn, _) => vfn.get(variantName) ?: []
+    Func(ft) => fieldNamesFromReturn(ft.returnType, variantName)
+    Enum(data) => mapGetOrStringList(data.variantFieldNames, variantName)
+    Specialized(base, _) => match base {
+        Enum(data) => mapGetOrStringList(data.variantFieldNames, variantName)
         _ => []
     }
     _ => []
 }
 
-pub fn resolveNamedCallArgs(c: Checker, n: CallExprData, node: Node, ft: FuncType, fieldNames: List[String]) {
-    if !hasNamedArg(n.args) { return }
+pub fn resolveNamedCallArgs(c: Checker, n: CallExprData, node: Node, ft: FuncType, fieldNames: List[String]) -> List[Node] {
+    if !hasNamedArg(n.args) {
+        return n.args
+    }
     if fieldNames.size() == 0 {
         checkerErrorf(c, nodePos(node), "argumentos nomeados não suportados nesta chamada", [])
-        return
+        return n.args
     }
     if fieldNames.size() != ft.params.size() {
         checkerErrorf(c, nodePos(node), "número de campos do construtor não corresponde aos parâmetros", [])
-        return
+        return n.args
     }
     var named: Map[String, Node] = Map[String, Node]{}
     var positional: List[Node] = []
     for arg in n.args {
         match arg {
-            Node.NamedArg(_, span, data) => {
-                if named.contains(data.name) {
+            NamedArg(_, span, data) => {
+                if mapHasStrNode(named, data.name) {
                     checkerErrorf(c, span, "argumento duplicado: $(data.name)", [])
                 } else {
-                    named[data.name] = data.value
+                    named.set(data.name, data.value)
                 }
             }
             _ => positional.append(arg)
@@ -57,43 +58,50 @@ pub fn resolveNamedCallArgs(c: Checker, n: CallExprData, node: Node, ft: FuncTyp
     }
     if positional.size() > 0 && named.size() > 0 {
         checkerErrorf(c, nodePos(node), "não misture argumentos posicionais e nomeados", [])
-        return
+        return n.args
     }
-    var ordered: List[Node] = []
     if positional.size() > 0 {
         if positional.size() != ft.params.size() {
             checkerErrorf(c, nodePos(node), "esperado $(ft.params.size()) argumentos posicionais, encontrado $(positional.size())", [])
-            return
+            return n.args
         }
-        ordered = positional
-    } else {
-        for i in range(0, fieldNames.size()) {
-            val fname = fieldNames[i]
-            if fname == "" {
-                checkerErrorf(c, nodePos(node), "argumento posicional obrigatório na posição $(i + 1)", [])
-                return
-            }
-            val valNode = named.get(fname)
-            if valNode == None {
-                checkerErrorf(c, nodePos(node), "argumento ausente: $(fname)", [])
-            } else {
-                ordered.append(valNode.get())
-            }
+        return positional
+    }
+    var ordered: List[Node] = []
+    for i in range(0, fieldNames.size()) {
+        val fname = fieldNames.get(i)
+        if fname == "" {
+            checkerErrorf(c, nodePos(node), "argumento posicional obrigatório na posição $(i + 1)", [])
+            return n.args
         }
-        for k in named.keys() {
-            var found = false
-            for fn in fieldNames { if fn == k { found = true } }
-            if !found {
-                checkerErrorf(c, nodePos(node), "argumento desconhecido: $(k)", [])
-            }
+        if !mapHasStrNode(named, fname) {
+            checkerErrorf(c, nodePos(node), "argumento ausente: $(fname)", [])
+        } else {
+            ordered.append(named.get(fname))
         }
     }
-    n.args = ordered
+    for k in named.keys() {
+        var found = false
+        for field in fieldNames {
+            if field == k {
+                found = true
+            }
+        }
+        if !found {
+            checkerErrorf(c, nodePos(node), "argumento desconhecido: $(k)", [])
+        }
+    }
+    return ordered
 }
 
 fn hasNamedArg(args: List[Node]) -> Bool {
     for a in args {
-        match a { Node.NamedArg(_, _, _) => return true, _ => UnitType }
+        if match a {
+            NamedArg(_, _, _) => true
+            _ => false
+        } {
+            return true
+        }
     }
     return false
 }

@@ -1,0 +1,598 @@
+import (
+    { Node, AsyncPipeQuestStep } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
+    { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
+)
+
+pub fn taskRuntimeDetach() -> String {
+    return "srt_detach"
+}
+
+pub fn taskRuntimeCancel() -> String {
+    return "srt_cancel"
+}
+
+pub fn taskRuntimeSetResult() -> String {
+    return "srt_set_task_result"
+}
+
+pub fn taskMallocBuiltin() -> String {
+    return "malloc"
+}
+
+pub fn taskFreeBuiltin() -> String {
+    return "free"
+}
+
+pub fn taskDropHandleRuntime() -> String {
+    return "srt_drop_task_handle"
+}
+
+pub fn taskHandleCurrentRuntime() -> String {
+    return "srt_task_handle_current"
+}
+
+pub fn taskHandleCancelledRuntime() -> String {
+    return "srt_task_cancelled"
+}
+
+pub fn taskHandleProgressRuntime() -> String {
+    return "srt_task_set_progress"
+}
+
+pub fn taskHandleSomeBlockName() -> String {
+    return "task_handle_some"
+}
+
+pub fn taskHandleNoneBlockName() -> String {
+    return "task_handle_none"
+}
+
+pub fn taskHandleMergeBlockName() -> String {
+    return "task_handle_merge"
+}
+
+pub fn taskTupleAllocBuiltin() -> String {
+    return "soyuz_alloc"
+}
+
+pub fn isTaskStaticAll(typeName: String, methodName: String) -> Bool {
+    if typeName != "Task" { return false }
+    return methodName == "all" || methodName == "allSettled"
+}
+
+pub fn isTaskAllCombinatorCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isTaskStaticAll(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isTaskStaticFan(typeName: String, methodName: String) -> Bool {
+    return typeName == "Task" && methodName == "fan"
+}
+
+pub fn isTaskFanCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isTaskStaticFan(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isTaskStaticPipeline(typeName: String, methodName: String) -> Bool {
+    return typeName == "Task" && methodName == "pipe"
+}
+
+pub fn isTaskHandleCurrentCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => idData.name == "TaskHandle" && memberData.property == "current"
+        _ => false
+    }
+    _ => false
+}
+
+pub fn isTaskPipelineCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isTaskStaticPipeline(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+pub fn taskPipelineLoopBlockName() -> String {
+    return "pipe_loop"
+}
+
+pub fn taskPipelineBodyBlockName() -> String {
+    return "pipe_body"
+}
+
+pub fn taskPipelineDoneBlockName() -> String {
+    return "pipe_done"
+}
+
+pub fn asyncChainErrorBlockName() -> String {
+    return "chain_err"
+}
+
+pub fn asyncChainOkBlockName() -> String {
+    return "chain_ok"
+}
+
+pub fn isTaskFanFnArg(arg: Node) -> Bool = match arg {
+    Identifier(_, _, _) => true
+    _ => false
+}
+
+pub fn taskFanFnArgsValid(args: List[Node]) -> Bool {
+    if args.size() < 2 { return false }
+    var i = 1
+    loop {
+        if i >= args.size() { break }
+        if !isTaskFanFnArg(args.get(i)) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn taskCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
+}
+
+pub fn isTaskInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match taskCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isTaskInstanceType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isTaskAwaitMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "await")
+}
+
+pub fn isTaskDetachMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "detach")
+}
+
+pub fn isTaskCancelMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "cancel")
+}
+
+pub fn isTaskTapMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "tap")
+}
+
+pub fn isTaskAlwaysMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskInstanceMethodCall(callee, g, "always")
+}
+
+pub fn isTaskHandleInstanceType(t: Type) -> Bool = match t {
+    Class(ct) => ct.name == "TaskHandle"
+    _ => false
+}
+
+pub fn isTaskHandleInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match taskCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isTaskHandleInstanceType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isTaskHandleCancelledMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskHandleInstanceMethodCall(callee, g, "cancelled")
+}
+
+pub fn isTaskHandleProgressMethodCall(callee: Node, g: Generator) -> Bool {
+    return isTaskHandleInstanceMethodCall(callee, g, "progress")
+}
+
+pub fn nextTapWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__tap_wrapper_$(g.taskWrapperCounter)"
+}
+
+pub fn nextAlwaysWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__always_wrapper_$(g.taskWrapperCounter)"
+}
+
+pub fn isSelectTaskAwaitCall(node: Node) -> Bool = match node {
+    CallExpr(_, _, callData) => match callData.callee {
+        MemberExpr(_, _, memberData) => memberData.property == "await"
+        _ => false
+    }
+    _ => false
+}
+
+pub fn nextSelectListenerWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__sel_listener_$(g.taskWrapperCounter)"
+}
+
+pub fn nextAsyncChainWrapperName(g: Generator) -> String {
+    g.taskWrapperCounter = g.taskWrapperCounter + 1
+    return "__async_chain_$(g.taskWrapperCounter)"
+}
+
+pub fn asyncPipeFnStepCount(steps: List[Node]) -> Int {
+    if steps.size() < 2 { return 0 }
+    return steps.size() - 1
+}
+
+fn isAsyncPipeQuestStep(step: Node) -> Bool = match step {
+    AsyncPipeQuestStep(_, _, _) => true
+    _ => false
+}
+
+pub fn asyncPipeQuestStepCount(steps: List[Node]) -> Int {
+    if steps.size() < 2 { return 0 }
+    var count = 0
+    var i = 1
+    loop {
+        if i >= steps.size() { break }
+        if isAsyncPipeQuestStep(steps.get(i)) {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+pub fn isTaskCallInner(inner: Node) -> Bool = match inner {
+    CallExpr(_, _, _) => true
+    _ => false
+}
+
+pub fn isTaskPipeInner(inner: Node) -> Bool = match inner {
+    CallExpr(_, _, _) => false
+    PipeExpr(_, _, _) => true
+    PipeQuestExpr(_, _, _) => true
+    AsyncPipeExpr(_, _, _) => true
+    Identifier(_, _, _) => true
+    IntLiteral(_, _, _) => true
+    _ => false
+}
+
+fn registerTaskRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.taskRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.taskRuntimeSymbols
+        syms.append(symbol)
+        g.taskRuntimeSymbols = syms
+    }
+}
+
+pub fn taskRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.taskRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn generateTaskEnqueueStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    registerTaskRuntimeSymbol(g, taskFreeBuiltin())
+    g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskEnqueueStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskPipeEnqueueStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.taskPipeMode = true
+    g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+    g.taskPipeCaptureStub = Some(stubLlvmValue(g))
+    val stub = stubLlvmValue(g)
+    g.taskEnqueueStub = Some(stub)
+    g.taskPipeInnerStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskDetachStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeDetach())
+    val stub = stubLlvmValue(g)
+    g.taskDetachStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskCancelStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeCancel())
+    val stub = stubLlvmValue(g)
+    g.taskCancelStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskAwaitStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    val stub = stubLlvmValue(g)
+    g.taskAwaitStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskTapStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.taskTapWrapperName = Some(nextTapWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskTapStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskAlwaysStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.taskAlwaysWrapperName = Some(nextAlwaysWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskAlwaysStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateSelectListenerStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeDetach())
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    registerTaskRuntimeSymbol(g, channelRuntimeSend())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    g.selectListenerWrapperName = Some(nextSelectListenerWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.selectListenerStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateSelectTaskBridgeStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, channelRuntimeNew())
+    return match generateSelectListenerStub(g) {
+        None => None
+        Some(_) => {
+            g.selectTaskArmCount = g.selectTaskArmCount + 1
+            Some(stubLlvmValue(g))
+        }
+    }
+}
+
+pub fn generateTaskDropStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskDropHandleRuntime())
+    val stub = stubLlvmValue(g)
+    g.taskDropStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskAllStub(g: Generator, argCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
+    g.taskAllArgCount = argCount
+    val stub = stubLlvmValue(g)
+    g.taskAllStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskFanStub(g: Generator, fnCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
+    g.taskFanFnCount = fnCount
+    g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+    val stub = stubLlvmValue(g)
+    g.taskFanStub = Some(stub)
+    return Some(stub)
+}
+
+fn emitPipelineStageLoopStubs(g: Generator) -> Bool {
+    val loopBlock = newBlock(g, taskPipelineLoopBlockName())
+    val bodyBlock = newBlock(g, taskPipelineBodyBlockName())
+    val doneBlock = newBlock(g, taskPipelineDoneBlockName())
+    setCurrentBlock(g, loopBlock)
+    setCurrentBlock(g, bodyBlock)
+    setCurrentBlock(g, doneBlock)
+    return true
+}
+
+fn emitAsyncChainQuestBlocks(g: Generator) -> Bool {
+    val errBlock = newBlock(g, asyncChainErrorBlockName())
+    val okBlock = newBlock(g, asyncChainOkBlockName())
+    setCurrentBlock(g, errBlock)
+    setCurrentBlock(g, okBlock)
+    return true
+}
+
+fn emitAsyncChainQuestCondBrStubs(g: Generator, questStepCount: Int) -> Bool {
+    var i = 0
+    loop {
+        if i >= questStepCount { break }
+        if !emitCondBrStub(g, asyncChainErrorBlockName(), asyncChainOkBlockName()) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+pub fn generateAsyncPipeStub(g: Generator, stepCount: Int, questStepCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    if stepCount > 1 {
+        registerTaskRuntimeSymbol(g, taskRuntimeAwait())
+    }
+    if questStepCount > 0 {
+        if !emitAsyncChainQuestBlocks(g) { return None }
+        if !emitAsyncChainQuestCondBrStubs(g, questStepCount) { return None }
+    }
+    g.asyncChainWrapperName = Some(nextAsyncChainWrapperName(g))
+    var i = 0
+    loop {
+        if i >= stepCount { break }
+        g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+        i = i + 1
+    }
+    g.asyncPipeStepCount = stepCount
+    g.asyncPipeQuestStepCount = questStepCount
+    val stub = stubLlvmValue(g)
+    g.asyncPipeStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn asyncChainBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, asyncChainErrorBlockName()) { return false }
+    return blockNameRegistered(g, asyncChainOkBlockName())
+}
+
+pub fn generateTaskHandleCurrentStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskHandleCurrentRuntime())
+    registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
+    val someBlock = newBlock(g, taskHandleSomeBlockName())
+    val noneBlock = newBlock(g, taskHandleNoneBlockName())
+    val mergeBlock = newBlock(g, taskHandleMergeBlockName())
+    if !emitCondBrToBlockStub(g, someBlock, noneBlock) { return None }
+    setCurrentBlock(g, someBlock)
+    g.taskHandleCurrentSomeResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, noneBlock)
+    g.taskHandleCurrentNoneResult = Some(stubLlvmValue(g))
+    if !emitBrToBlockStub(g, mergeBlock) { return None }
+    setCurrentBlock(g, mergeBlock)
+    val phi = stubLlvmValue(g)
+    g.taskHandleCurrentPhiResult = Some(phi)
+    g.taskHandleCurrentStub = Some(phi)
+    return Some(phi)
+}
+
+pub fn taskHandleCurrentBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, taskHandleSomeBlockName()) { return false }
+    if !blockNameRegistered(g, taskHandleNoneBlockName()) { return false }
+    return blockNameRegistered(g, taskHandleMergeBlockName())
+}
+
+pub fn generateTaskHandleCancelledStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskHandleCancelledRuntime())
+    val stub = stubLlvmValue(g)
+    g.taskHandleCancelledStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskHandleProgressStub(g: Generator) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskHandleProgressRuntime())
+    val stub = stubLlvmValue(g)
+    g.taskHandleProgressStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateTaskPipelineStub(g: Generator, stageCount: Int) -> Option[LlvmValue] {
+    registerTaskRuntimeSymbol(g, taskRuntimeEnqueue())
+    registerTaskRuntimeSymbol(g, taskRuntimeDetach())
+    registerTaskRuntimeSymbol(g, channelRuntimeNew())
+    registerTaskRuntimeSymbol(g, channelRuntimeSend())
+    registerTaskRuntimeSymbol(g, channelRuntimeRecv())
+    registerTaskRuntimeSymbol(g, channelRuntimeClose())
+    registerTaskRuntimeSymbol(g, taskMallocBuiltin())
+    if !emitPipelineStageLoopStubs(g) { return None }
+    var i = 0
+    loop {
+        if i >= stageCount { break }
+        g.taskLastWrapperName = Some(nextTaskWrapperName(g))
+        i = i + 1
+    }
+    g.taskPipelineStageCount = stageCount
+    val stub = stubLlvmValue(g)
+    g.taskPipelineStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn taskPipelineBlockNamesRegistered(g: Generator) -> Bool {
+    if !blockNameRegistered(g, taskPipelineLoopBlockName()) { return false }
+    if !blockNameRegistered(g, taskPipelineBodyBlockName()) { return false }
+    return blockNameRegistered(g, taskPipelineDoneBlockName())
+}
+
+pub fn emitTaskDrops(g: Generator, names: List[String]) -> Bool {
+    if names.size() == 0 { return true }
+    return match generateTaskDropStub(g) {
+        None => false
+        Some(_) => true
+    }
+}
+
+fn taskVarsMapHasKey(m: Map[String, LlvmValue], key: String) -> Bool {
+    for k in m.keys() {
+        if k == key { return true }
+    }
+    return false
+}
+
+pub fn nullifyTaskVarAfterConsume(g: Generator, object: Node) -> Bool = match object {
+    Identifier(_, _, idData) => {
+        if !taskVarsMapHasKey(g.vars, idData.name) { return true }
+        val alloca = g.vars.get(idData.name)
+        if !emitStoreStub(g, stubLlvmValue(g), alloca) { return false }
+        var names = g.taskNullStoreVars
+        names.append(idData.name)
+        g.taskNullStoreVars = names
+        return true
+    }
+    _ => true
+}
+
+pub fn taskNullStoreRecorded(g: Generator, name: String) -> Bool {
+    for n in g.taskNullStoreVars {
+        if n == name { return true }
+    }
+    return false
+}
+
+pub fn nullifyTaskVarsAfterAll(g: Generator, args: List[Node]) -> Bool {
+    for arg in args {
+        if !nullifyTaskVarAfterConsume(g, arg) { return false }
+    }
+    return true
+}
+
+pub fn pushTaskScope(g: Generator) {
+    var stack = g.taskVarStack
+    stack.append([])
+    g.taskVarStack = stack
+}
+
+pub fn ownTaskVar(g: Generator, name: String) {
+    if g.taskVarStack.size() == 0 { return }
+    var top = g.taskVarStack.get(g.taskVarStack.size() - 1)
+    top.append(name)
+    var stack = g.taskVarStack
+    stack.set(g.taskVarStack.size() - 1, top)
+    g.taskVarStack = stack
+}
+
+pub fn popTaskScope(g: Generator) -> List[String] {
+    if g.taskVarStack.size() == 0 { return [] }
+    val owned = g.taskVarStack.get(g.taskVarStack.size() - 1)
+    var stack = g.taskVarStack
+    stack.removeAt(g.taskVarStack.size() - 1)
+    g.taskVarStack = stack
+    return owned
+}

@@ -1,0 +1,214 @@
+import (
+    { Node, FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData } from @ast/ast
+    { CheckResult, Type, FuncType } from @checker/types
+    { LlvmModule, LlvmBasicBlock, LlvmValue, LlvmType, LlvmFunc } from @codegen/llvm_types
+    { LoopCtx, StructInfo, EnumInfo, ClassInfo, PendingExtendMethodBody, PendingClassMethodBody, SyncGuardEntry, PhiIncoming } from @codegen/types
+)
+
+pub class Generator {
+    pub var module: Option[LlvmModule] = None
+    pub var current: Option[LlvmBasicBlock] = None
+    pub var vars: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    pub var isTestBuild: Bool = false
+    pub var testFilter: String = ""
+    pub var loops: List[LoopCtx] = []
+    pub var structs: Map[String, StructInfo] = Map[String, StructInfo]{}
+    pub var enums: Map[String, EnumInfo] = Map[String, EnumInfo]{}
+    pub var classes: Map[String, ClassInfo] = Map[String, ClassInfo]{}
+    pub var extensionMethods: Map[String, Map[String, List[LlvmFunc]]] = Map[String, Map[String, List[LlvmFunc]]]{}
+    pub var interfaceDecls: Map[String, InterfaceDeclData] = Map[String, InterfaceDeclData]{}
+    pub var check: CheckResult = CheckResult {
+        errors: [],
+        warnings: [],
+        nodeTypes: [],
+        specializations: Map[Int, FuncType]{},
+        funcVariants: Map[String, List[FuncDeclData]]{},
+        testFuncs: [],
+        captures: Map[Int, List[String]]{},
+        synthCallArgs: Map[Int, List[Node]]{},
+        curriedCalls: Map[Int, Node]{},
+        typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+    }
+    pub var specialized: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
+    pub var genericDecls: Map[String, FuncDeclData] = Map[String, FuncDeclData]{}
+    pub var genericRecordDecls: Map[String, RecordDeclData] = Map[String, RecordDeclData]{}
+    pub var genericEnumDecls: Map[String, EnumDeclData] = Map[String, EnumDeclData]{}
+    pub var pendingClassBodies: List[PendingClassMethodBody] = []
+    pub var pendingExtendBodies: List[PendingExtendMethodBody] = []
+    pub var destructors: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
+    pub var traces: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
+    pub var heapVars: Map[String, Bool] = Map[String, Bool]{}
+    pub var scopeStack: List[List[String]] = []
+    pub var taskVarStack: List[List[String]] = []
+    pub var syncGuardStack: List[List[SyncGuardEntry]] = []
+    pub var arcVarStack: List[List[String]] = []
+    pub var blockNames: Map[String, Int] = Map[String, Int]{}
+    pub var blockHandleCounter: Int = 0
+    pub var valueHandleCounter: Int = 0
+    pub var taskWrapperCounter: Int = 0
+    pub var closureType: Option[LlvmType] = None
+    pub var closureDtor: Option[LlvmFunc] = None
+    pub var envDtorCounter: Int = 0
+    pub var soyuzStringType: Option[LlvmType] = None
+    pub var soyuzStringPtrType: Option[LlvmType] = None
+    pub var currentReturnType: Type = Type.Basic("Unit")
+    pub var topLevelClosureCache: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    pub var matchPhiIncomings: List[PhiIncoming] = []
+    pub var matchPhiResult: Option[LlvmValue] = None
+    pub var loopResultLoad: Option[LlvmValue] = None
+    pub var loopResultDefaultStore: Option[LlvmValue] = None
+    pub var rangePatternFromValue: Option[LlvmValue] = None
+    pub var rangePatternToValue: Option[LlvmValue] = None
+    pub var constructorTagLoad: Option[LlvmValue] = None
+    pub var constructorPayloadPtr: Option[LlvmValue] = None
+    pub var constructorArgLoads: List[LlvmValue] = []
+    pub var constructorArgStores: List[LlvmValue] = []
+    pub var recordPatternSubject: Option[LlvmValue] = None
+    pub var recordPatternFieldLoads: List[LlvmValue] = []
+    pub var recordPatternFieldStores: List[LlvmValue] = []
+    pub var tuplePatternSubject: Option[LlvmValue] = None
+    pub var tuplePatternElemLoads: List[LlvmValue] = []
+    pub var tuplePatternElemStores: List[LlvmValue] = []
+    pub var bindingPatternSubjectStore: Option[LlvmValue] = None
+    pub var literalPatternSubjectValue: Option[LlvmValue] = None
+    pub var forRangeCounterAlloca: Option[LlvmValue] = None
+    pub var forRangeFromValue: Option[LlvmValue] = None
+    pub var forRangeToValue: Option[LlvmValue] = None
+    pub var forRangeIncrLoad: Option[LlvmValue] = None
+    pub var forRangeIncrStore: Option[LlvmValue] = None
+    pub var forRangeCondLoad: Option[LlvmValue] = None
+    pub var forRangeCondInclusive: Bool = false
+    pub var whileCondValue: Option[LlvmValue] = None
+    pub var matchGuardCondValue: Option[LlvmValue] = None
+    pub var funcVariantGuardCondValue: Option[LlvmValue] = None
+    pub var recordLiteralAlloc: Option[LlvmValue] = None
+    pub var recordLiteralFieldStores: List[LlvmValue] = []
+    pub var listIterAllocStub: Option[LlvmValue] = None
+    pub var listIterListStoreStub: Option[LlvmValue] = None
+    pub var listIterIndexInitStub: Option[LlvmValue] = None
+    pub var forListIndexAlloca: Option[LlvmValue] = None
+    pub var forListBindingAlloca: Option[LlvmValue] = None
+    pub var forListSizeLoad: Option[LlvmValue] = None
+    pub var forListGetStub: Option[LlvmValue] = None
+    pub var forListIncrLoad: Option[LlvmValue] = None
+    pub var forListIncrStore: Option[LlvmValue] = None
+    pub var forListCondLoad: Option[LlvmValue] = None
+    pub var iterNextListLoad: Option[LlvmValue] = None
+    pub var iterNextIndexLoad: Option[LlvmValue] = None
+    pub var iterNextSizeLoad: Option[LlvmValue] = None
+    pub var iterNextGetStub: Option[LlvmValue] = None
+    pub var iterNextIndexStore: Option[LlvmValue] = None
+    pub var iterNextSomeResult: Option[LlvmValue] = None
+    pub var iterNextNoneResult: Option[LlvmValue] = None
+    pub var iterNextPhiResult: Option[LlvmValue] = None
+    pub var iterIsEmptyResult: Option[LlvmValue] = None
+    pub var forMapKeysStub: Option[LlvmValue] = None
+    pub var forMapValuesStub: Option[LlvmValue] = None
+    pub var forIteratorListLoad: Option[LlvmValue] = None
+    pub var forIteratorIndexLoad: Option[LlvmValue] = None
+    pub var forIteratorSizeLoad: Option[LlvmValue] = None
+    pub var forIteratorGetStub: Option[LlvmValue] = None
+    pub var forIteratorIndexStore: Option[LlvmValue] = None
+    pub var forIteratorCondLoad: Option[LlvmValue] = None
+    pub var forIteratorBindingAlloca: Option[LlvmValue] = None
+    pub var funcHandleCounter: Int = 0
+    pub var globalHandleCounter: Int = 0
+    pub var classMethodSymbols: Map[String, List[String]] = Map[String, List[String]]{}
+    pub var classMethodVariantArities: Map[String, Map[String, List[Int]]] = Map[String, Map[String, List[Int]]]{}
+    pub var classVtableSymbols: Map[String, List[String]] = Map[String, List[String]]{}
+    pub var classVtableSlotCounts: Map[String, Int] = Map[String, Int]{}
+    pub var classMethodBodiesGenerated: Int = 0
+    pub var extendMethodSymbols: Map[String, List[String]] = Map[String, List[String]]{}
+    pub var extendMethodBodiesGenerated: Int = 0
+    pub var channelNewStub: Option[LlvmValue] = None
+    pub var channelSendStub: Option[LlvmValue] = None
+    pub var channelRecvOutAlloca: Option[LlvmValue] = None
+    pub var channelRecvRawLoad: Option[LlvmValue] = None
+    pub var channelRecvSomeResult: Option[LlvmValue] = None
+    pub var channelRecvNoneResult: Option[LlvmValue] = None
+    pub var channelRecvPhiResult: Option[LlvmValue] = None
+    pub var channelRecvTryMode: Bool = false
+    pub var channelCloseStub: Option[LlvmValue] = None
+    pub var channelIsClosedStub: Option[LlvmValue] = None
+    pub var channelRuntimeSymbols: List[String] = []
+    pub var selectStub: Option[LlvmValue] = None
+    pub var selectRecvArmCount: Int = 0
+    pub var selectHasDefault: Bool = false
+    pub var mutexNewStub: Option[LlvmValue] = None
+    pub var mutexLockStub: Option[LlvmValue] = None
+    pub var syncGuardReadStub: Option[LlvmValue] = None
+    pub var syncGuardWriteStub: Option[LlvmValue] = None
+    pub var syncGuardLastKind: Option[String] = None
+    pub var rwLockNewStub: Option[LlvmValue] = None
+    pub var rwLockReadStub: Option[LlvmValue] = None
+    pub var rwLockWriteStub: Option[LlvmValue] = None
+    pub var atomicNewStub: Option[LlvmValue] = None
+    pub var atomicStoreStub: Option[LlvmValue] = None
+    pub var atomicLoadStub: Option[LlvmValue] = None
+    pub var atomicAddStub: Option[LlvmValue] = None
+    pub var atomicCasStub: Option[LlvmValue] = None
+    pub var syncGuardUnlockStub: Option[LlvmValue] = None
+    pub var syncRuntimeSymbols: List[String] = []
+    pub var arcNewStub: Option[LlvmValue] = None
+    pub var arcCloneStub: Option[LlvmValue] = None
+    pub var arcGetStub: Option[LlvmValue] = None
+    pub var arcRefcountStub: Option[LlvmValue] = None
+    pub var arcReleaseStub: Option[LlvmValue] = None
+    pub var arcRuntimeSymbols: List[String] = []
+    pub var gatherResultStub: Option[LlvmValue] = None
+    pub var gatherEnqueueStub: Option[LlvmValue] = None
+    pub var gatherAwaitStub: Option[LlvmValue] = None
+    pub var gatherHandlesListStub: Option[LlvmValue] = None
+    pub var gatherResultsListStub: Option[LlvmValue] = None
+    pub var gatherListAppendStub: Option[LlvmValue] = None
+    pub var gatherListGetStub: Option[LlvmValue] = None
+    pub var gatherTaskWrapperName: Option[String] = None
+    pub var gatherRuntimeSymbols: List[String] = []
+    pub var taskEnqueueStub: Option[LlvmValue] = None
+    pub var taskDetachStub: Option[LlvmValue] = None
+    pub var taskCancelStub: Option[LlvmValue] = None
+    pub var taskAwaitStub: Option[LlvmValue] = None
+    pub var taskDropStub: Option[LlvmValue] = None
+    pub var taskAllStub: Option[LlvmValue] = None
+    pub var taskAllArgCount: Int = 0
+    pub var taskFanStub: Option[LlvmValue] = None
+    pub var taskFanFnCount: Int = 0
+    pub var taskPipelineStub: Option[LlvmValue] = None
+    pub var taskPipelineStageCount: Int = 0
+    pub var taskTapStub: Option[LlvmValue] = None
+    pub var taskTapWrapperName: Option[String] = None
+    pub var taskAlwaysStub: Option[LlvmValue] = None
+    pub var taskAlwaysWrapperName: Option[String] = None
+    pub var taskNullStoreVars: List[String] = []
+    pub var taskLastWrapperName: Option[String] = None
+    pub var taskPipeMode: Bool = false
+    pub var taskPipeInnerStub: Option[LlvmValue] = None
+    pub var taskPipeCaptureStub: Option[LlvmValue] = None
+    pub var taskRuntimeSymbols: List[String] = []
+    pub var selectListenerStub: Option[LlvmValue] = None
+    pub var selectListenerWrapperName: Option[String] = None
+    pub var selectTaskArmCount: Int = 0
+    pub var asyncPipeStub: Option[LlvmValue] = None
+    pub var asyncPipeStepCount: Int = 0
+    pub var asyncPipeQuestStepCount: Int = 0
+    pub var asyncChainWrapperName: Option[String] = None
+    pub var taskHandleCurrentStub: Option[LlvmValue] = None
+    pub var taskHandleCurrentSomeResult: Option[LlvmValue] = None
+    pub var taskHandleCurrentNoneResult: Option[LlvmValue] = None
+    pub var taskHandleCurrentPhiResult: Option[LlvmValue] = None
+    pub var taskHandleCancelledStub: Option[LlvmValue] = None
+    pub var taskHandleProgressStub: Option[LlvmValue] = None
+    pub var irTrace: List[String] = []
+    pub var irBodyLines: List[String] = []
+    pub var irGlobalLines: List[String] = []
+    pub var valueTypes: Map[Int, LlvmType] = Map[Int, LlvmType]{}
+}
+
+pub fn newGenerator(checkResult: CheckResult) -> Generator {
+    return Generator { check: checkResult }
+}
+
+pub fn setTestMode(g: Generator, filter: String) {
+    g.isTestBuild = true
+    g.testFilter = filter
+}

@@ -1,0 +1,193 @@
+import (
+    { Generator } from @codegen/generator
+    { PhiIncoming } from @codegen/types
+    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, LlvmGlobal, llvmI64, llvmTypeHasDefaultZero, llvmTypeIrSyntax } from @codegen/llvm_types
+    { traceIr, emitIrLine, llvmValueReg } from @codegen/gen_emit
+)
+
+fn recordValueType(g: Generator, value: LlvmValue, ty: LlvmType) {
+    g.valueTypes.set(value.handle, ty)
+}
+
+fn lookupValueType(g: Generator, handle: Int) -> Option[LlvmType] {
+    for k in g.valueTypes.keys() {
+        if k == handle { return Some(g.valueTypes.get(k)) }
+    }
+    return None
+}
+
+fn blockNameUseCount(g: Generator, name: String) -> Int {
+    for k in g.blockNames.keys() {
+        if k == name { return g.blockNames.get(name) }
+    }
+    return 0
+}
+
+fn recordBlockNameUse(g: Generator, name: String) {
+    val count = blockNameUseCount(g, name)
+    g.blockNames.set(name, count + 1)
+}
+
+pub fn blockNameWithSuffix(name: String, count: Int) -> String {
+    if count == 0 { return name }
+    return "$(name)_$(count)"
+}
+
+pub fn uniqueBlockName(g: Generator, name: String) -> String {
+    return blockNameWithSuffix(name, blockNameUseCount(g, name))
+}
+
+pub fn newBlock(g: Generator, name: String) -> LlvmBasicBlock {
+    val unique = uniqueBlockName(g, name)
+    val block = LlvmBasicBlock { handle: g.blockHandleCounter + 1 }
+    g.blockHandleCounter = g.blockHandleCounter + 1
+    recordBlockNameUse(g, name)
+    traceIr(g, "block $(name)")
+    emitIrLine(g, "$(unique):")
+    return block
+}
+
+pub fn setCurrentBlock(g: Generator, block: LlvmBasicBlock) {
+    g.current = Some(block)
+}
+
+pub fn currentBlockHandle(g: Generator) -> Option[Int] = match g.current {
+    None => None
+    Some(block) => Some(block.handle)
+}
+
+pub fn blockNameRegistered(g: Generator, name: String) -> Bool {
+    for k in g.blockNames.keys() {
+        if k == name { return true }
+    }
+    return false
+}
+
+pub fn newAlloca(g: Generator, ty: LlvmType) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    recordValueType(g, value, ty)
+    emitIrLine(g, "  $(llvmValueReg(value)) = alloca $(llvmTypeIrSyntax(ty)), align 8")
+    return value
+}
+
+pub fn emitCondBrStub(g: Generator, thenBlockName: String, nextBlockName: String) -> Bool {
+    newBlock(g, nextBlockName)
+    setCurrentBlock(g, newBlock(g, thenBlockName))
+    return true
+}
+
+pub fn emitCondBrToBlockStub(g: Generator, thenBlock: LlvmBasicBlock, elseBlock: LlvmBasicBlock) -> Bool {
+    setCurrentBlock(g, thenBlock)
+    return true
+}
+
+pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
+    emitIrLine(g, "  br label %$(targetBlockName)")
+    newBlock(g, targetBlockName)
+    return true
+}
+
+pub fn emitBrToBlockStub(g: Generator, target: LlvmBasicBlock) -> Bool {
+    setCurrentBlock(g, target)
+    return true
+}
+
+pub fn clearMatchPhiIncomings(g: Generator) {
+    g.matchPhiIncomings = []
+    g.matchPhiResult = None
+}
+
+pub fn matchPhiIncomingCount(g: Generator) -> Int {
+    return g.matchPhiIncomings.size()
+}
+
+pub fn recordMatchPhiIncoming(g: Generator, value: LlvmValue, block: LlvmBasicBlock) {
+    var incomings = g.matchPhiIncomings
+    incomings.append(PhiIncoming { value: value, block: block })
+    g.matchPhiIncomings = incomings
+}
+
+fn stubPhiValue(g: Generator) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn emitPhiStub(g: Generator) -> Option[LlvmValue] {
+    if matchPhiIncomingCount(g) == 0 { return None }
+    val phi = stubPhiValue(g)
+    g.matchPhiResult = Some(phi)
+    return Some(phi)
+}
+
+fn stubValueHandle(g: Generator) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn stubLlvmValue(g: Generator) -> LlvmValue {
+    return stubValueHandle(g)
+}
+
+pub fn stubLlvmFunc(g: Generator) -> LlvmFunc {
+    val llvmFn = LlvmFunc { handle: g.funcHandleCounter + 1 }
+    g.funcHandleCounter = g.funcHandleCounter + 1
+    return llvmFn
+}
+
+pub fn stubLlvmGlobal(g: Generator) -> LlvmGlobal {
+    val global = LlvmGlobal { handle: g.globalHandleCounter + 1 }
+    g.globalHandleCounter = g.globalHandleCounter + 1
+    return global
+}
+
+pub fn emitGepStub(g: Generator) -> LlvmValue {
+    return stubLlvmValue(g)
+}
+
+pub fn emitLoadStub(g: Generator) -> LlvmValue {
+    return stubLlvmValue(g)
+}
+
+pub fn emitLoadFromAlloca(g: Generator, alloca: LlvmValue) -> LlvmValue {
+    val elemTy = match lookupValueType(g, alloca.handle) {
+        None => llvmI64()
+        Some(ty) => ty
+    }
+    val loaded = stubValueHandle(g)
+    recordValueType(g, loaded, elemTy)
+    emitIrLine(g, "  $(llvmValueReg(loaded)) = load $(llvmTypeIrSyntax(elemTy)), ptr $(llvmValueReg(alloca)), align 8")
+    return loaded
+}
+
+pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
+    if !llvmTypeHasDefaultZero(ty) { return None }
+    return Some(stubValueHandle(g))
+}
+
+pub fn emitStoreStub(g: Generator, value: LlvmValue, alloca: LlvmValue) -> Bool {
+    val storedTy = match lookupValueType(g, value.handle) {
+        None => llvmI64()
+        Some(ty) => ty
+    }
+    emitIrLine(g, "  store $(llvmTypeIrSyntax(storedTy)) $(llvmValueReg(value)), ptr $(llvmValueReg(alloca)), align 8")
+    return true
+}
+
+pub fn emitBreakValueStoreStub(g: Generator, alloca: LlvmValue) {
+    emitStoreStub(g, stubValueHandle(g), alloca)
+}
+
+pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {
+    var copy: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    for k in g.vars.keys() {
+        copy.set(k, g.vars.get(k))
+    }
+    return copy
+}
+
+pub fn restoreVars(g: Generator, saved: Map[String, LlvmValue]) {
+    g.vars = saved
+}

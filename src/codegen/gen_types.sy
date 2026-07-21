@@ -1,0 +1,280 @@
+import (
+    { TypeExpr, GenericParam, RecordDeclData, EnumDeclData } from @ast/ast
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { StructInfo, EnumInfo, VariantInfo } from @codegen/types
+    { LlvmType, llvmVoid, llvmI1, llvmI8, llvmI32, llvmI64, llvmF64, llvmI8Ptr, llvmPointerType, llvmStructType, llvmArrayType, llvmTypeName, llvmTypesEqual } from @codegen/llvm_types
+)
+
+fn mapHasStructInfo(m: Map[String, StructInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasEnumInfo(m: Map[String, EnumInfo], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasRecordDecl(m: Map[String, RecordDeclData], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasEnumDecl(m: Map[String, EnumDeclData], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn mapHasLlvmTypeSub(m: Map[String, LlvmType], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+pub fn ensureSoyuzStringLlvmTypes(g: Generator) {
+    if g.soyuzStringType != None { return }
+    val strTy = llvmStructType("SoyuzString", [llvmI64()])
+    g.soyuzStringType = Some(strTy)
+    g.soyuzStringPtrType = Some(llvmPointerType(strTy))
+}
+
+fn mapStringLlvmType(g: Generator) -> LlvmType {
+    ensureSoyuzStringLlvmTypes(g)
+    return match g.soyuzStringPtrType {
+        Some(ptr) => ptr
+        None => llvmI8Ptr()
+    }
+}
+
+fn mapBasicNameToLlvm(g: Generator, name: String) -> LlvmType = match name {
+    "Int" => llvmI64()
+    "Float" => llvmF64()
+    "Bool" => llvmI1()
+    "String" => mapStringLlvmType(g)
+    "Char" => llvmI32()
+    "Unit" => llvmVoid()
+    _ => llvmI64()
+}
+
+fn mapNamedAggregate(g: Generator, name: String) -> LlvmType {
+    if mapHasStructInfo(g.structs, name) {
+        return llvmPointerType(g.structs.get(name).typ)
+    }
+    if mapHasEnumInfo(g.enums, name) {
+        return llvmPointerType(g.enums.get(name).typ)
+    }
+    return llvmI64()
+}
+
+fn mapTupleElements(g: Generator, elements: List[Type]) -> LlvmType {
+    if elements.size() == 0 {
+        return llvmI64()
+    }
+    var fields: List[LlvmType] = []
+    for e in elements {
+        fields.append(mapTypeToLLVM(g, e))
+    }
+    return llvmPointerType(llvmStructType("", fields))
+}
+
+fn isSyncHandleClass(name: String) -> Bool {
+    if name == "TaskHandle" { return true }
+    if name == "Mutex" { return true }
+    if name == "MutexGuard" { return true }
+    if name == "RwLock" { return true }
+    if name == "ReadGuard" { return true }
+    if name == "WriteGuard" { return true }
+    if name == "Atomic" { return true }
+    if name == "Channel" { return true }
+    if name == "SyncChannel" { return true }
+    return false
+}
+
+fn mapClassByName(g: Generator, name: String) -> LlvmType {
+    if name == "List" { return mapNamedAggregate(g, "SoyuzList") }
+    if name == "Map" { return mapNamedAggregate(g, "SoyuzMap") }
+    if isSyncHandleClass(name) { return llvmI8Ptr() }
+    return mapNamedAggregate(g, name)
+}
+
+fn mapSpecializedType(g: Generator, base: Type, params: List[Type]) -> LlvmType = match base {
+    Enum(data) => mapSpecializedEnum(g, data.name, params)
+    Class(data) => mapClassByName(g, data.name)
+    Record(name, _, _) => mapSpecializedRecord(g, name, params)
+    _ => llvmI64()
+}
+
+fn mapSpecializedEnum(g: Generator, name: String, params: List[Type]) -> LlvmType = match name {
+    "Option" => mapNamedAggregate(g, "Option")
+    "Result" => mapNamedAggregate(g, "Result")
+    _ => {
+        if mapHasEnumDecl(g.genericEnumDecls, name) {
+            val decl = g.genericEnumDecls.get(name)
+            val sub = buildSubFromCheckerTypes(g, decl.generics, params)
+            return llvmPointerType(getOrCreateSpecializedEnum(g, decl, sub).typ)
+        }
+        return mapNamedAggregate(g, name)
+    }
+}
+
+fn mapSpecializedRecord(g: Generator, name: String, params: List[Type]) -> LlvmType {
+    if mapHasRecordDecl(g.genericRecordDecls, name) {
+        val decl = g.genericRecordDecls.get(name)
+        val sub = buildSubFromCheckerTypes(g, decl.generics, params)
+        return llvmPointerType(getOrCreateSpecializedRecord(g, decl, sub).typ)
+    }
+    return mapNamedAggregate(g, name)
+}
+
+pub fn mapTypeToLLVM(g: Generator, t: Type) -> LlvmType = match t {
+    Basic(name) => mapBasicNameToLlvm(g, name)
+    Func(_) => llvmI8Ptr()
+    Interface(_) => llvmI8Ptr()
+    Record(name, _, _) => mapNamedAggregate(g, name)
+    Enum(data) => mapNamedAggregate(g, data.name)
+    Tuple(elements) => mapTupleElements(g, elements)
+    Specialized(base, params) => mapSpecializedType(g, base, params)
+    Class(data) => mapClassByName(g, data.name)
+    TypeParam(_) => llvmI64()
+}
+
+pub fn mapSoyuzTypeToLLVM(g: Generator, te: Option[TypeExpr]) -> LlvmType = match te {
+    None => llvmI64()
+    Some(expr) => mapSoyuzTypeExpr(g, expr)
+}
+
+fn mapSoyuzTypeExpr(g: Generator, te: TypeExpr) -> LlvmType = match te {
+    Named(_, _, name) => mapBasicNameToLlvm(g, name)
+    Func(_, _, _, _) => llvmI8Ptr()
+    Optional(_, _, _) => mapNamedAggregate(g, "Option")
+    Generic(_, _, name, params) => mapSoyuzGenericType(g, name, params)
+    Tuple(_, _, elements) => mapSoyuzTupleType(g, elements)
+}
+
+fn mapSoyuzGenericType(g: Generator, name: String, params: List[TypeExpr]) -> LlvmType = match name {
+    "List" => mapNamedAggregate(g, "SoyuzList")
+    "Map" => mapNamedAggregate(g, "SoyuzMap")
+    "Option" => mapNamedAggregate(g, "Option")
+    "Result" => mapNamedAggregate(g, "Result")
+    _ => {
+        if mapHasRecordDecl(g.genericRecordDecls, name) {
+            val decl = g.genericRecordDecls.get(name)
+            val sub = buildSubFromTypeExprs(g, decl.generics, params)
+            return llvmPointerType(getOrCreateSpecializedRecord(g, decl, sub).typ)
+        }
+        if mapHasEnumDecl(g.genericEnumDecls, name) {
+            val decl = g.genericEnumDecls.get(name)
+            val sub = buildSubFromTypeExprs(g, decl.generics, params)
+            return llvmPointerType(getOrCreateSpecializedEnum(g, decl, sub).typ)
+        }
+        return llvmI64()
+    }
+}
+
+fn mapSoyuzTupleType(g: Generator, elements: List[TypeExpr]) -> LlvmType {
+    if elements.size() == 0 {
+        return llvmI64()
+    }
+    var fields: List[LlvmType] = []
+    for e in elements {
+        fields.append(mapSoyuzTypeExpr(g, e))
+    }
+    return llvmPointerType(llvmStructType("", fields))
+}
+
+pub fn mapTypeToLLVMByName(g: Generator, name: String) -> LlvmType {
+    return mapBasicNameToLlvm(g, name)
+}
+
+pub fn buildMangledGenericName(baseName: String, generics: List[GenericParam], sub: Map[String, LlvmType]) -> String {
+    var mangled = baseName
+    for gp in generics {
+        if mapHasLlvmTypeSub(sub, gp.name) {
+            mangled = "$(mangled)__$(llvmTypeName(sub.get(gp.name)))"
+        }
+    }
+    return mangled
+}
+
+pub fn mapSoyuzTypeExprWithSub(g: Generator, te: TypeExpr, sub: Map[String, LlvmType]) -> LlvmType = match te {
+    Named(_, _, name) => {
+        if mapHasLlvmTypeSub(sub, name) {
+            return sub.get(name)
+        }
+        return mapSoyuzTypeExpr(g, te)
+    }
+    _ => mapSoyuzTypeExpr(g, te)
+}
+
+fn buildSubFromTypeExprs(g: Generator, generics: List[GenericParam], params: List[TypeExpr]) -> Map[String, LlvmType] {
+    var sub: Map[String, LlvmType] = Map[String, LlvmType]{}
+    var i = 0
+    loop {
+        if i >= generics.size() || i >= params.size() { break }
+        sub.set(generics.get(i).name, mapSoyuzTypeExpr(g, params.get(i)))
+        i = i + 1
+    }
+    return sub
+}
+
+fn buildSubFromCheckerTypes(g: Generator, generics: List[GenericParam], params: List[Type]) -> Map[String, LlvmType] {
+    var sub: Map[String, LlvmType] = Map[String, LlvmType]{}
+    var i = 0
+    loop {
+        if i >= generics.size() || i >= params.size() { break }
+        sub.set(generics.get(i).name, mapTypeToLLVM(g, params.get(i)))
+        i = i + 1
+    }
+    return sub
+}
+
+pub fn getOrCreateSpecializedRecord(g: Generator, decl: RecordDeclData, sub: Map[String, LlvmType]) -> StructInfo {
+    val mangled = buildMangledGenericName(decl.name, decl.generics, sub)
+    if mapHasStructInfo(g.structs, mangled) {
+        return g.structs.get(mangled)
+    }
+    var indices: Map[String, Int] = Map[String, Int]{}
+    var fieldTypes: List[LlvmType] = []
+    var i = 0
+    for f in decl.fields {
+        indices.set(f.name, i)
+        fieldTypes.append(mapSoyuzTypeExprWithSub(g, f.typeExpr, sub))
+        i = i + 1
+    }
+    val st = llvmStructType(mangled, fieldTypes)
+    val si = StructInfo { typ: st, fieldIndices: indices }
+    g.structs.set(mangled, si)
+    return si
+}
+
+fn normalizeEnumFieldType(fieldTy: LlvmType, enumTy: LlvmType) -> LlvmType = match fieldTy.kind {
+    Pointer(elem) => {
+        if llvmTypesEqual(elem, enumTy) {
+            return llvmI8Ptr()
+        }
+        return fieldTy
+    }
+    _ => fieldTy
+}
+
+pub fn getOrCreateSpecializedEnum(g: Generator, decl: EnumDeclData, sub: Map[String, LlvmType]) -> EnumInfo {
+    val mangled = buildMangledGenericName(decl.name, decl.generics, sub)
+    if mapHasEnumInfo(g.enums, mangled) {
+        return g.enums.get(mangled)
+    }
+    val enumTy = llvmStructType(mangled, [llvmI64(), llvmArrayType(llvmI8(), 64)])
+    var ei = EnumInfo { typ: enumTy, variants: Map[String, VariantInfo]{} }
+    g.enums.set(mangled, ei)
+    var tag = 0
+    for v in decl.variants {
+        var fields: List[LlvmType] = []
+        for f in v.fields {
+            val ft = mapSoyuzTypeExprWithSub(g, f.typeExpr, sub)
+            fields.append(normalizeEnumFieldType(ft, enumTy))
+        }
+        ei.variants.set(v.name, VariantInfo { tag: tag, fields: fields, fieldNames: Map[String, Int]{}, payloadType: None })
+        tag = tag + 1
+    }
+    g.enums.set(mangled, ei)
+    return ei
+}

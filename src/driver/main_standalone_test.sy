@@ -1,0 +1,97 @@
+import (
+    { runStandaloneCli, standaloneCliBootstrapShellCommand, standaloneCliBootstrapBuildCommand, standaloneCliBootstrapTestCommand, standaloneCliBootstrapRunCommand, standaloneCliBootstrapNewCommand, standaloneCliShouldDelegateBuild, standaloneCliUsageReady, standaloneCliNewReady, standaloneCliBuildReady, standaloneCliTestReady, standaloneCliRunReady, standaloneCliLibraryBuildReady } from @driver/main_standalone
+    { cliTryExecOutput, cliOutputIsError } from @driver/cli_exec
+    { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
+    { cliUsageHeader } from @driver/cli_usage
+    { testCliDefaultTmpBinPath } from @driver/test_cli
+    { defaultSoyuzLibraryBuildArgv, defaultHelloMinimalBuildArgv } from @driver/build_cli
+    { bootstrapVerifySelfRebuildEntry } from @driver/bootstrap_verify
+    { assertMsg } from @soyuz/testing
+)
+
+fn testStandaloneCliUsage() {
+    assertMsg(standaloneCliUsageReady(), "standalone usage ready")
+    assertMsg(runStandaloneCli(defaultCliProgramArgv()).contains(cliUsageHeader()), "default argv prints usage")
+}
+
+fn testStandaloneCliNew() {
+    assertMsg(standaloneCliNewReady(), "standalone new plan message")
+}
+
+fn testStandaloneCliBuild() {
+    assertMsg(standaloneCliBuildReady(), "standalone build legacy message")
+}
+
+fn testStandaloneCliTest() {
+    assertMsg(standaloneCliTestReady(), "standalone test exec path")
+}
+
+fn testStandaloneCliRun() {
+    assertMsg(standaloneCliRunReady(), "standalone run exec path")
+}
+
+fn testStandaloneCliLibraryBuild() {
+    assertMsg(standaloneCliLibraryBuildReady(), "standalone library build message")
+}
+
+fn testStandaloneCliExecStub() {
+    val out = cliTryExecOutput(testCliDefaultTmpBinPath())
+    assertMsg(cliOutputIsError(out), "library exec stub returns error")
+    assertMsg(out.contains(testCliDefaultTmpBinPath()), "stub mentions path")
+}
+
+fn testStandaloneCliBootstrapShellCommand() {
+    var testArgv = List[String]{}
+    testArgv.append("soyuz")
+    testArgv.append("test")
+    testArgv.append("test_runner.sy")
+    val testCmd = standaloneCliBootstrapTestCommand(testArgv)
+    assertMsg(testCmd == "", "test skips bootstrap")
+    assertMsg(standaloneCliBootstrapShellCommand(testArgv) == "", "test shell empty")
+
+    var runArgv = List[String]{}
+    runArgv.append("soyuz")
+    runArgv.append("run")
+    runArgv.append("tools/fixtures/hello_minimal.sy")
+    val runCmd = standaloneCliBootstrapRunCommand(runArgv)
+    assertMsg(runCmd == "", "run skips bootstrap")
+    assertMsg(standaloneCliBootstrapShellCommand(runArgv) == "", "run shell empty")
+
+    var newArgv = List[String]{}
+    newArgv.append("soyuz")
+    newArgv.append("new")
+    newArgv.append("demo")
+    val newCmd = standaloneCliBootstrapNewCommand(newArgv)
+    assertMsg(newCmd == "", "new skips bootstrap")
+    assertMsg(standaloneCliBootstrapShellCommand(newArgv) == "", "new shell empty")
+}
+
+fn testStandaloneCliBootstrapBuildDelegate() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("build")
+    argv.append("tools/fixtures/hello_minimal.sy")
+    assertMsg(!standaloneCliShouldDelegateBuild(argv), "hello legacy build native")
+    assertMsg(standaloneCliBootstrapBuildCommand(argv) == "", "hello skips bootstrap")
+    assertMsg(!standaloneCliShouldDelegateBuild(defaultSoyuzLibraryBuildArgv()), "library build native")
+    assertMsg(standaloneCliBootstrapBuildCommand(defaultSoyuzLibraryBuildArgv()) == "", "library skips bootstrap")
+
+    var mainArgv = List[String]{}
+    mainArgv.append("soyuz")
+    mainArgv.append("build")
+    mainArgv.append(bootstrapVerifySelfRebuildEntry())
+    assertMsg(standaloneCliShouldDelegateBuild(mainArgv), "main.sy rebuild delegates")
+    val mainCmd = standaloneCliBootstrapBuildCommand(mainArgv)
+    assertMsg(mainCmd.contains("soyuz build"), "main bootstrap command")
+    assertMsg(mainCmd.contains(bootstrapVerifySelfRebuildEntry()), "main bootstrap entry")
+    assertMsg(defaultHelloMinimalBuildArgv() == argv, "hello argv fixture")
+}
+
+fn testStandaloneCliBootstrapOnlyBuild() {
+    var mainArgv = List[String]{}
+    mainArgv.append("soyuz")
+    mainArgv.append("build")
+    mainArgv.append(bootstrapVerifySelfRebuildEntry())
+    assertMsg(standaloneCliBootstrapBuildCommand(mainArgv).contains(bootstrapVerifySelfRebuildEntry()), "main bootstrap build command")
+    assertMsg(standaloneCliBootstrapShellCommand(mainArgv).len() > 0, "main shell delegates")
+}

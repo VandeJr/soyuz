@@ -1,0 +1,617 @@
+import (
+    { Node, FuncDeclData, Pattern, ClassDeclData, VarDeclData, FuncParam, BlockStmtData, RecordDeclData, RecordField, ReturnStmtData, TypeExpr } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Span } from @lexer/tokens
+    { FuncType, Type, UnitType, typeToString } from @checker/types
+    { Generator } from @codegen/generator
+    { generateStmtNode, emitImplicitFuncReturn } from @codegen/gen_control
+    { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
+    { generateTopLevelDecl, generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol, extendSelfLLVM } from @codegen/gen_structs
+    { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, stubLlvmValue, blockNameRegistered } from @codegen/gen_ir
+    { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
+    { PendingClassMethodBody, PendingExtendMethodBody, StructInfo } from @codegen/types
+    { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmPointerType } from @codegen/llvm_types
+)
+
+pub record FuncResult {
+    name: String,
+    returnLlvm: LlvmType,
+    paramCount: Int,
+    hasBody: Bool
+}
+
+fn funcDeclFuncType(g: Generator, node: Node) -> Option[FuncType] {
+    return match checkerTypeForNode(g, nodeId(node)) {
+        None => None
+        Some(Func(ft)) => Some(ft)
+        _ => None
+    }
+}
+
+pub fn generateFuncDeclNode(g: Generator, node: Node, data: FuncDeclData) -> Option[FuncResult] {
+    return match funcDeclFuncType(g, node) {
+        None => None
+        Some(ft) => {
+            val hasBody = match data.body {
+                None => false
+                Some(_) => true
+            }
+            val result = FuncResult {
+                name: data.name,
+                returnLlvm: mapTypeToLLVM(g, ft.returnType),
+                paramCount: data.params.size(),
+                hasBody: hasBody
+            }
+            match data.body {
+                None => Some(result)
+                Some(body) => {
+                    g.currentReturnType = ft.returnType
+                    setCurrentBlock(g, newBlock(g, "entry"))
+                    match generateStmtNode(g, body) {
+                        None => None
+                        Some(_) => {
+                            if !emitImplicitFuncReturn(g) { return None }
+                            Some(result)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn mangleSpecializedFuncName(name: String, params: List[Type]) -> String {
+    var mangled = name
+    for p in params {
+        mangled = "$(mangled)__$(typeToString(p))"
+    }
+    return mangled
+}
+
+pub fn isCatchallPatternForDispatch(p: Pattern) -> Bool = match p {
+    Binding(_, _, _) => true
+    Wildcard(_, _) => true
+    _ => false
+}
+
+pub fn funcVariantDispatchPriority(v: FuncDeclData) -> Int {
+    if v.whenGuard != None { return 0 }
+    for param in v.params {
+        if !isCatchallPatternForDispatch(param.pattern) { return 1 }
+    }
+    return 2
+}
+
+pub fn isWhenGuardVariant(v: FuncDeclData) -> Bool {
+    return v.whenGuard != None
+}
+
+fn appendAllFuncVariants(dest: List[FuncDeclData], src: List[FuncDeclData]) -> List[FuncDeclData] {
+    var result = dest
+    for item in src {
+        result.append(item)
+    }
+    return result
+}
+
+fn listPrefixFuncVariants(items: List[FuncDeclData], end: Int) -> List[FuncDeclData] {
+    var result: List[FuncDeclData] = []
+    var i = 0
+    loop {
+        if i >= end { break }
+        result.append(items.get(i))
+        i = i + 1
+    }
+    return result
+}
+
+fn listSuffixFuncVariants(items: List[FuncDeclData], start: Int) -> List[FuncDeclData] {
+    var result: List[FuncDeclData] = []
+    var i = start
+    loop {
+        if i >= items.size() { break }
+        result.append(items.get(i))
+        i = i + 1
+    }
+    return result
+}
+
+fn insertSortedFuncVariantAt(sorted: List[FuncDeclData], v: FuncDeclData, pos: Int) -> List[FuncDeclData] {
+    if pos >= sorted.size() {
+        var result = sorted
+        result.append(v)
+        return result
+    }
+    if funcVariantDispatchPriority(v) < funcVariantDispatchPriority(sorted.get(pos)) {
+        val prefix = listPrefixFuncVariants(sorted, pos)
+        val suffix = listSuffixFuncVariants(sorted, pos)
+        return appendAllFuncVariants(appendAllFuncVariants(prefix, [v]), suffix)
+    }
+    return insertSortedFuncVariantAt(sorted, v, pos + 1)
+}
+
+fn insertSortedFuncVariant(sorted: List[FuncDeclData], v: FuncDeclData) -> List[FuncDeclData] {
+    return insertSortedFuncVariantAt(sorted, v, 0)
+}
+
+fn sortFuncVariantsLoop(input: List[FuncDeclData], index: Int, sorted: List[FuncDeclData]) -> List[FuncDeclData] {
+    if index >= input.size() { return sorted }
+    return sortFuncVariantsLoop(input, index + 1, insertSortedFuncVariant(sorted, input.get(index)))
+}
+
+pub fn sortFuncVariantsForDispatch(variants: List[FuncDeclData]) -> List[FuncDeclData] {
+    var empty: List[FuncDeclData] = []
+    return sortFuncVariantsLoop(variants, 0, empty)
+}
+
+fn funcsMapHasVariants(m: Map[String, List[FuncDeclData]], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+pub fn funcVariantsForName(g: Generator, name: String) -> List[FuncDeclData] {
+    if !funcsMapHasVariants(g.check.funcVariants, name) {
+        var empty: List[FuncDeclData] = []
+        return empty
+    }
+    return g.check.funcVariants.get(name)
+}
+
+pub fn variantGuardBlockName(index: Int) -> String {
+    return "v$(index)_guard_ok"
+}
+
+pub fn variantBodyBlockName(index: Int) -> String {
+    return "variant_$(index)_body"
+}
+
+pub fn variantNextBlockName(index: Int) -> String {
+    return "variant_$(index)_next"
+}
+
+pub fn variantParamPatternOkBlockName(variantIdx: Int, paramIdx: Int) -> String {
+    return "v$(variantIdx)_p$(paramIdx)_ok"
+}
+
+pub record FuncVariantPlan {
+    variant: FuncDeclData,
+    index: Int,
+    nextBlockName: String,
+    bodyBlockName: String,
+    guardBlockName: Option[String],
+    paramPatternOkBlockNames: List[String]
+}
+
+fn buildParamPatternOkNames(variantIdx: Int, paramCount: Int) -> List[String] {
+    var names: List[String] = []
+    var i = 0
+    loop {
+        if i >= paramCount { break }
+        names.append(variantParamPatternOkBlockName(variantIdx, i))
+        i = i + 1
+    }
+    return names
+}
+
+pub fn buildFuncVariantPlan(variant: FuncDeclData, index: Int) -> FuncVariantPlan {
+    val guardName = match variant.whenGuard {
+        None => None
+        Some(_) => Some(variantGuardBlockName(index))
+    }
+    return FuncVariantPlan {
+        variant: variant,
+        index: index,
+        nextBlockName: variantNextBlockName(index),
+        bodyBlockName: variantBodyBlockName(index),
+        guardBlockName: guardName,
+        paramPatternOkBlockNames: buildParamPatternOkNames(index, variant.params.size())
+    }
+}
+
+fn buildFuncVariantPlansLoop(variants: List[FuncDeclData], index: Int, plans: List[FuncVariantPlan]) -> List[FuncVariantPlan] {
+    if index >= variants.size() { return plans }
+    var result = plans
+    result.append(buildFuncVariantPlan(variants.get(index), index))
+    return buildFuncVariantPlansLoop(variants, index + 1, result)
+}
+
+pub fn buildFuncVariantPlans(g: Generator, name: String) -> List[FuncVariantPlan] {
+    val sorted = sortFuncVariantsForDispatch(funcVariantsForName(g, name))
+    return buildFuncVariantPlansLoop(sorted, 0, [])
+}
+
+pub fn funcVariantArgName(index: Int) -> String {
+    return "arg$(index)"
+}
+
+fn seedFuncVariantParamsLoop(g: Generator, index: Int, count: Int) -> Bool {
+    if index >= count { return true }
+    g.vars.set(funcVariantArgName(index), newAlloca(g, llvmI64()))
+    return seedFuncVariantParamsLoop(g, index + 1, count)
+}
+
+pub fn seedFuncVariantParams(g: Generator, paramCount: Int) -> Bool {
+    return seedFuncVariantParamsLoop(g, 0, paramCount)
+}
+
+fn varsMapHasKey(m: Map[String, LlvmValue], key: String) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn aliasBindingParamFromArg(g: Generator, pattern: Pattern, paramIndex: Int) -> Bool = match pattern {
+    Binding(_, _, name) => {
+        val argName = funcVariantArgName(paramIndex)
+        if !varsMapHasKey(g.vars, argName) { return false }
+        g.vars.set(name, g.vars.get(argName))
+        true
+    }
+    _ => true
+}
+
+fn generateFuncParamPatternStep(g: Generator, step: FuncParamPatternStep, variantNextName: String) -> Bool {
+    if !aliasBindingParamFromArg(g, step.pattern, step.paramIndex) { return false }
+    return matchPatternDispatchNoSubject(g, step.pattern, step.okBlockName, variantNextName)
+}
+
+fn generateFuncParamPatternStepsLoop(g: Generator, steps: List[FuncParamPatternStep], index: Int, variantNextName: String) -> Bool {
+    if index >= steps.size() { return true }
+    if !generateFuncParamPatternStep(g, steps.get(index), variantNextName) { return false }
+    return generateFuncParamPatternStepsLoop(g, steps, index + 1, variantNextName)
+}
+
+fn generateFuncVariantParamPatterns(g: Generator, plan: FuncVariantPlan) -> Bool {
+    if !funcParamPatternsSupported(g, plan.variant.params) { return false }
+    val steps = buildFuncParamPatternSteps(plan.index, plan.variant.params)
+    return generateFuncParamPatternStepsLoop(g, steps, 0, plan.nextBlockName)
+}
+
+pub fn shouldSkipFuncVariants(g: Generator, name: String, variants: List[FuncDeclData]) -> Bool {
+    if variants.size() == 0 { return false }
+    if variants.get(0).isTest && !g.isTestBuild { return true }
+    if name == "main" && g.isTestBuild { return true }
+    return false
+}
+
+fn funcVariantsListHasName(names: List[String], name: String) -> Bool {
+    for n in names { if n == name { return true } }
+    return false
+}
+
+fn appendFuncVariantName(names: List[String], name: String) -> List[String] {
+    var result = names
+    result.append(name)
+    return result
+}
+
+fn generateFuncVariantBlocks(g: Generator, plan: FuncVariantPlan) -> Bool {
+    newBlock(g, plan.nextBlockName)
+    return true
+}
+
+fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = match plan.variant.whenGuard {
+    None => true
+    Some(expr) => match (generateExprNode(g, expr), plan.guardBlockName) {
+        (None, _) => false
+        (Some(_), None) => true
+        (Some(_), Some(guardName)) => {
+            g.funcVariantGuardCondValue = Some(stubLlvmValue(g))
+            emitCondBrStub(g, guardName, plan.nextBlockName)
+        }
+    }
+}
+
+fn generateFuncVariantsBodyLoop(g: Generator, plans: List[FuncVariantPlan], index: Int) -> Bool {
+    if index >= plans.size() { return true }
+    val plan = plans.get(index)
+    val savedVars = snapshotVars(g)
+    if !generateFuncVariantBlocks(g, plan) {
+        restoreVars(g, savedVars)
+        return false
+    }
+    if !generateFuncVariantParamPatterns(g, plan) {
+        restoreVars(g, savedVars)
+        return false
+    }
+    if !generateFuncVariantWhenGuard(g, plan) {
+        restoreVars(g, savedVars)
+        return false
+    }
+    setCurrentBlock(g, newBlock(g, plan.bodyBlockName))
+    val continued = match plan.variant.body {
+        None => generateFuncVariantsBodyLoop(g, plans, index + 1)
+        Some(body) => match generateStmtNode(g, body) {
+            None => false
+            Some(_) => generateFuncVariantsBodyLoop(g, plans, index + 1)
+        }
+    }
+    restoreVars(g, savedVars)
+    return continued
+}
+
+pub fn generateFuncVariantsBody(g: Generator, name: String) -> Bool {
+    val plans = buildFuncVariantPlans(g, name)
+    if plans.size() == 0 { return true }
+    if !seedFuncVariantParams(g, plans.get(0).variant.params.size()) { return false }
+    return generateFuncVariantsBodyLoop(g, plans, 0)
+}
+
+pub record ProgramResult {
+    funcCount: Int
+}
+
+pub record ProgramFuncStep {
+    processed: List[String],
+    addedCount: Int
+}
+
+fn programFuncStep(processed: List[String], addedCount: Int) -> ProgramFuncStep {
+    return ProgramFuncStep { processed: processed, addedCount: addedCount }
+}
+
+fn generateProgramFuncDecl(g: Generator, node: Node, data: FuncDeclData, processed: List[String]) -> Option[ProgramFuncStep] {
+    if funcVariantsListHasName(processed, data.name) {
+        return Some(programFuncStep(processed, 0))
+    }
+    val variants = funcVariantsForName(g, data.name)
+    if variants.size() > 0 {
+        if shouldSkipFuncVariants(g, data.name, variants) {
+            return Some(programFuncStep(appendFuncVariantName(processed, data.name), 0))
+        }
+        if !generateFuncVariantsBody(g, data.name) { return None }
+        return Some(programFuncStep(appendFuncVariantName(processed, data.name), 1))
+    }
+    return match generateFuncDeclNode(g, node, data) {
+        None => None
+        Some(_) => Some(programFuncStep(processed, 1))
+    }
+}
+
+fn generateProgramTopLevelDecl(g: Generator, decl: Node, processed: List[String]) -> Option[ProgramFuncStep] {
+    if !generateTopLevelDecl(g, decl) { return None }
+    return Some(programFuncStep(processed, 0))
+}
+
+fn generateProgramBodyLoop(g: Generator, body: List[Node], index: Int, processed: List[String], count: Int) -> Option[ProgramResult] {
+    if index >= body.size() {
+        return Some(ProgramResult { funcCount: count })
+    }
+    val decl = body.get(index)
+    val step = match decl {
+        FuncDecl(_, _, data) => generateProgramFuncDecl(g, decl, data, processed)
+        _ => generateProgramTopLevelDecl(g, decl, processed)
+    }
+    return match step {
+        None => None
+        Some(result) => generateProgramBodyLoop(g, body, index + 1, result.processed, count + result.addedCount)
+    }
+}
+
+pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResult] {
+    return match generateProgramBodyLoop(g, body, 0, [], 0) {
+        None => None
+        Some(result) => {
+            if !generatePendingClassBodies(g) { return None }
+            if !generatePendingExtendBodies(g) { return None }
+            Some(result)
+        }
+    }
+}
+
+record ClassMethodCodegenSnapshot {
+    current: Option[LlvmBasicBlock],
+    vars: Map[String, LlvmValue],
+    blockNames: Map[String, Int],
+    currentReturnType: Type,
+    heapVars: Map[String, Bool]
+}
+
+fn snapshotBlockNames(g: Generator) -> Map[String, Int] {
+    var copy: Map[String, Int] = Map[String, Int]{}
+    for k in g.blockNames.keys() {
+        copy.set(k, g.blockNames.get(k))
+    }
+    return copy
+}
+
+fn snapshotHeapVars(g: Generator) -> Map[String, Bool] {
+    var copy: Map[String, Bool] = Map[String, Bool]{}
+    for k in g.heapVars.keys() {
+        copy.set(k, g.heapVars.get(k))
+    }
+    return copy
+}
+
+fn snapshotClassMethodCodegen(g: Generator) -> ClassMethodCodegenSnapshot {
+    return ClassMethodCodegenSnapshot {
+        current: g.current,
+        vars: snapshotVars(g),
+        blockNames: snapshotBlockNames(g),
+        currentReturnType: g.currentReturnType,
+        heapVars: snapshotHeapVars(g)
+    }
+}
+
+fn restoreClassMethodCodegen(g: Generator, snap: ClassMethodCodegenSnapshot) {
+    g.current = snap.current
+    g.vars = snap.vars
+    g.blockNames = snap.blockNames
+    g.currentReturnType = snap.currentReturnType
+    g.heapVars = snap.heapVars
+}
+
+fn resetClassMethodCodegen(g: Generator) {
+    g.vars = Map[String, LlvmValue]{}
+    g.heapVars = Map[String, Bool]{}
+    g.blockNames = Map[String, Int]{}
+}
+
+fn classMethodBodyReturnType(g: Generator, member: Node, fd: FuncDeclData) -> Type = match funcDeclFuncType(g, member) {
+    None => match fd.returnType {
+        None => UnitType
+        Some(_) => UnitType
+    }
+    Some(ft) => ft.returnType
+}
+
+fn bindClassMethodSelf(g: Generator, si: StructInfo) -> Bool {
+    if si.fieldIndices.size() == 0 {
+        ensureSoyuzStringLlvmTypes(g)
+        return match g.soyuzStringPtrType {
+            None => false
+            Some(ptrTy) => {
+                g.vars.set("self", newAlloca(g, ptrTy))
+                true
+            }
+        }
+    }
+    g.vars.set("self", newAlloca(g, llvmPointerType(si.typ)))
+    return true
+}
+
+fn bindClassMethodParams(g: Generator, fd: FuncDeclData) -> Bool {
+    for p in fd.params {
+        match p.pattern {
+            Binding(_, _, name) => {
+                if name != "self" {
+                    val pt = match p.typeExpr {
+                        None => llvmI64()
+                        Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
+                    }
+                    g.vars.set(name, newAlloca(g, pt))
+                }
+            }
+            _ => {}
+        }
+    }
+    return true
+}
+
+fn generateClassMethodBody(g: Generator, pm: PendingClassMethodBody) -> Bool {
+    val snap = snapshotClassMethodCodegen(g)
+    resetClassMethodCodegen(g)
+    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setCurrentBlock(g, newBlock(g, "entry"))
+    if !bindClassMethodSelf(g, pm.si) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    if !bindClassMethodParams(g, pm.fd) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    val ok = match pm.fd.body {
+        None => true
+        Some(body) => match generateStmtNode(g, body) {
+            None => false
+            Some(_) => true
+        }
+    }
+    if ok { g.classMethodBodiesGenerated = g.classMethodBodiesGenerated + 1 }
+    restoreClassMethodCodegen(g, snap)
+    return ok
+}
+
+fn generateClassMethodVariantWhenGuard(g: Generator, v: FuncDeclData, index: Int, snap: ClassMethodCodegenSnapshot) -> Bool = match v.whenGuard {
+    None => true
+    Some(guard) => match generateExprNode(g, guard) {
+        None => {
+            restoreClassMethodCodegen(g, snap)
+            false
+        }
+        Some(_) => {
+            emitCondBrStub(g, variantGuardBlockName(index), variantNextBlockName(index))
+            true
+        }
+    }
+}
+
+fn generateClassMethodVariantBody(g: Generator, v: FuncDeclData, snap: ClassMethodCodegenSnapshot) -> Bool = match v.body {
+    None => true
+    Some(body) => match generateStmtNode(g, body) {
+        None => {
+            restoreClassMethodCodegen(g, snap)
+            false
+        }
+        Some(_) => true
+    }
+}
+
+fn generateClassMethodVariantsBody(g: Generator, pm: PendingClassMethodBody) -> Bool {
+    val snap = snapshotClassMethodCodegen(g)
+    resetClassMethodCodegen(g)
+    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setCurrentBlock(g, newBlock(g, "entry"))
+    if !bindClassMethodSelf(g, pm.si) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    if !bindClassMethodParams(g, pm.fd) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    val sorted = sortFuncVariantsForDispatch(pm.variants)
+    var i = 0
+    for v in sorted {
+        if !generateClassMethodVariantWhenGuard(g, v, i, snap) { return false }
+        setCurrentBlock(g, newBlock(g, variantBodyBlockName(i)))
+        if !generateClassMethodVariantBody(g, v, snap) { return false }
+        i = i + 1
+    }
+    g.classMethodBodiesGenerated = g.classMethodBodiesGenerated + 1
+    restoreClassMethodCodegen(g, snap)
+    return true
+}
+
+pub fn generatePendingClassBodies(g: Generator) -> Bool {
+    for pm in g.pendingClassBodies {
+        var ok = false
+        if pm.variants.size() > 1 {
+            ok = generateClassMethodVariantsBody(g, pm)
+        } else {
+            ok = generateClassMethodBody(g, pm)
+        }
+        if !ok { return false }
+    }
+    g.pendingClassBodies = []
+    return true
+}
+
+fn bindExtendMethodSelf(g: Generator, selfLlvm: LlvmType) -> Bool {
+    g.vars.set("self", newAlloca(g, selfLlvm))
+    return true
+}
+
+fn generateExtendMethodBody(g: Generator, pm: PendingExtendMethodBody) -> Bool {
+    val snap = snapshotClassMethodCodegen(g)
+    resetClassMethodCodegen(g)
+    g.currentReturnType = classMethodBodyReturnType(g, pm.member, pm.fd)
+    setCurrentBlock(g, newBlock(g, "entry"))
+    if !bindExtendMethodSelf(g, pm.selfLlvm) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    if !bindClassMethodParams(g, pm.fd) {
+        restoreClassMethodCodegen(g, snap)
+        return false
+    }
+    val ok = match pm.fd.body {
+        None => true
+        Some(body) => match generateStmtNode(g, body) {
+            None => false
+            Some(_) => true
+        }
+    }
+    if ok { g.extendMethodBodiesGenerated = g.extendMethodBodiesGenerated + 1 }
+    restoreClassMethodCodegen(g, snap)
+    return ok
+}
+
+pub fn generatePendingExtendBodies(g: Generator) -> Bool {
+    for pm in g.pendingExtendBodies {
+        if !generateExtendMethodBody(g, pm) { return false }
+    }
+    g.pendingExtendBodies = []
+    return true
+}

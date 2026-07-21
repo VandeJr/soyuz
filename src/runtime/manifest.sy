@@ -1,0 +1,144 @@
+import (
+    { RuntimeWriteEntry } from @runtime/embed
+    { CompileOutput, CompilePipeline } from @runtime/link
+    { PathIndex, pathIndexWriteFile } from @module/paths
+)
+
+pub fn manifestMarkerFile() -> String = "===FILE==="
+
+pub fn manifestMarkerBody() -> String = "===BODY==="
+
+pub fn manifestMarkerEnd() -> String = "===END==="
+
+pub fn formatManifestEntry(path: String, content: String) -> String {
+    return "$(manifestMarkerFile())\n$(path)\n$(manifestMarkerBody())\n$(content)\n$(manifestMarkerEnd())\n"
+}
+
+pub fn formatWritePlanManifest(writePlan: List[RuntimeWriteEntry]) -> String {
+    var result = ""
+    for entry in writePlan {
+        result = "$(result)$(formatManifestEntry(entry.path, entry.content))"
+    }
+    return result
+}
+
+pub fn compileOutputManifest(output: CompileOutput) -> String {
+    var result = formatWritePlanManifest(output.bundle.writePlan)
+    result = "$(result)$(formatManifestEntry(output.cfg.llFile, output.irContent))"
+    return result
+}
+
+pub fn compilePipelineManifest(pipeline: CompilePipeline) -> String {
+    return compileOutputManifest(pipeline.output)
+}
+
+pub fn manifestContainsPath(manifest: String, path: String) -> Bool {
+    return manifest.contains(path)
+}
+
+pub fn manifestHasHelloCodegenIr(manifest: String) -> Bool {
+    if !manifest.contains("c\"hello") { return false }
+    if !manifest.contains("call i32 (i8*, ...) @printf") { return false }
+    return manifest.contains("ret i32 0")
+}
+
+pub fn manifestContainsMarkers(manifest: String) -> Bool {
+    if !manifest.contains(manifestMarkerFile()) { return false }
+    if !manifest.contains(manifestMarkerBody()) { return false }
+    if !manifest.contains(manifestMarkerEnd()) { return false }
+    return true
+}
+
+pub fn writePlanManifestEntryCount(writePlan: List[RuntimeWriteEntry]) -> Int {
+    return writePlan.size()
+}
+
+pub fn compileOutputManifestEntryCount(output: CompileOutput) -> Int {
+    return writePlanManifestEntryCount(output.bundle.writePlan) + 1
+}
+
+pub fn defaultExportManifestScript() -> String = "tools/runtime-export-pipeline-manifest.sh"
+
+pub fn defaultApplyManifestScript() -> String = "tools/apply-path-index-manifest.sh"
+
+pub fn expectedHelloPipelineManifestEntries() -> Int = 14
+
+fn manifestStateIdle() -> String = "idle"
+fn manifestStateFilePath() -> String = "file"
+fn manifestStateBodyWait() -> String = "body_wait"
+fn manifestStateBody() -> String = "body"
+
+fn splitManifestLines(content: String) -> List[String] {
+    if content.len() == 0 { return List[String]{} }
+    var lines: List[String] = []
+    var start = 0
+    var done = false
+    loop {
+        if done { break }
+        val tail = content.substring(start, content.len())
+        match tail.indexOf("\n") {
+            None => {
+                if tail.len() > 0 { lines.append(tail) }
+                done = true
+            }
+            Some(rel) => {
+                lines.append(content.substring(start, start + rel))
+                start = start + rel + 1
+                done = false
+            }
+        }
+    }
+    return lines
+}
+
+fn joinManifestBodyLines(lines: List[String]) -> String {
+    if lines.size() == 0 { return "" }
+    var result = lines.get(0)
+    var i = 1
+    loop {
+        if i >= lines.size() { break }
+        result = "$(result)\n$(lines.get(i))"
+        i = i + 1
+    }
+    return result
+}
+
+pub fn manifestEntryCount(manifest: String) -> Int {
+    var count = 0
+    for line in splitManifestLines(manifest) {
+        if line == manifestMarkerFile() { count = count + 1 }
+    }
+    return count
+}
+
+// Mirrors tools/apply-path-index-manifest.sh (in-memory PathIndex).
+pub fn applyManifestToPathIndex(index: PathIndex, manifest: String) -> PathIndex {
+    var result = index
+    var state = manifestStateIdle()
+    var currentPath = ""
+    var bodyLines: List[String] = []
+    for line in splitManifestLines(manifest) {
+        if state == manifestStateIdle() {
+            if line == manifestMarkerFile() {
+                state = manifestStateFilePath()
+            }
+        } else if state == manifestStateFilePath() {
+            currentPath = line
+            state = manifestStateBodyWait()
+        } else if state == manifestStateBodyWait() {
+            if line == manifestMarkerBody() {
+                state = manifestStateBody()
+            }
+        } else if state == manifestStateBody() {
+            if line == manifestMarkerEnd() {
+                result = pathIndexWriteFile(result, currentPath, joinManifestBodyLines(bodyLines))
+                currentPath = ""
+                bodyLines = List[String]{}
+                state = manifestStateIdle()
+            } else {
+                bodyLines.append(line)
+            }
+        }
+    }
+    return result
+}

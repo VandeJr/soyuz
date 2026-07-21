@@ -1,0 +1,228 @@
+import (
+    { BuildConfig, linkConfigFromBuild, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunPlanMaterializeCheckScript } from @driver/build
+    { Resolver } from @module/resolver
+    { PathIndex, emptyPathIndex } from @module/paths
+    { FullBuildPlan, planFullBuild, fullBuildReady, fullBuildManifest, applyFullBuildManifest, fullBuildLinkPlanFromAppliedIndex, fullBuildAppliedLinkPlanReady, fullBuildAppliedIndexReady } from @driver/pipeline
+    { defaultLlFilePath, defaultRunLinkScript } from @runtime/link
+    { defaultApplyManifestScript, applyManifestToPathIndex, manifestEntryCount, manifestHasHelloCodegenIr, expectedHelloPipelineManifestEntries } from @runtime/manifest
+)
+
+// Mirrors cmd/main.go cmdRun build phase (compile + link argv, without spawning clang/exec).
+pub record RunBuildPlan {
+    fullBuild: FullBuildPlan,
+    appliedIndex: PathIndex,
+    clangCommand: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn runBuildReady(plan: RunBuildPlan) -> Bool = plan.ready
+
+pub record RunBuildScripts {
+    exportRunManifestScript: String,
+    applyManifestScript: String,
+    runLinkScript: String,
+    runPlanLinkCheckScript: String,
+    runPlanMaterializeCheckScript: String
+}
+
+pub fn defaultRunBuildScripts() -> RunBuildScripts = RunBuildScripts {
+    exportRunManifestScript: defaultExportHelloRunManifestScript(),
+    applyManifestScript: defaultApplyManifestScript(),
+    runLinkScript: defaultRunLinkScript(),
+    runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
+    runPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript()
+}
+
+pub fn runBuildScripts(plan: RunBuildPlan) -> RunBuildScripts = RunBuildScripts {
+    exportRunManifestScript: defaultExportHelloRunManifestScript(),
+    applyManifestScript: plan.fullBuild.scripts.applyManifestScript,
+    runLinkScript: plan.fullBuild.scripts.runLinkScript,
+    runPlanLinkCheckScript: defaultDriverRunPlanLinkCheckScript(),
+    runPlanMaterializeCheckScript: defaultDriverRunPlanMaterializeCheckScript()
+}
+
+pub fn runBuildManifest(plan: RunBuildPlan) -> String = fullBuildManifest(plan.fullBuild)
+
+pub fn runBuildManifestEntryCount(plan: RunBuildPlan) -> Int = manifestEntryCount(runBuildManifest(plan))
+
+pub fn runBuildManifestRoundTripReady(plan: RunBuildPlan) -> Bool {
+    if !runBuildReady(plan) { return false }
+    val roundTrip = applyManifestToPathIndex(emptyPathIndex(), runBuildManifest(plan))
+    if !fullBuildAppliedIndexReady(plan.fullBuild, roundTrip) { return false }
+    return fullBuildAppliedLinkPlanReady(plan.fullBuild, roundTrip)
+}
+
+pub fn runBuildManifestEntryCountReady(plan: RunBuildPlan) -> Bool {
+    return runBuildManifestEntryCount(plan) == expectedHelloPipelineManifestEntries()
+}
+
+pub fn runBuildManifestHasHelloIr(plan: RunBuildPlan) -> Bool {
+    return manifestHasHelloCodegenIr(runBuildManifest(plan))
+}
+
+pub fn runBuildOutputFile(plan: RunBuildPlan) -> String = plan.fullBuild.cfg.outputFile
+
+pub fn runBuildTmpDir(plan: RunBuildPlan) -> String = plan.fullBuild.cfg.tmpDir
+
+pub fn runBuildLlFile(plan: RunBuildPlan) -> String = defaultLlFilePath(plan.fullBuild.cfg.tmpDir)
+
+pub fn planRunBuildFromFullBuild(full: FullBuildPlan) -> RunBuildPlan {
+    if !fullBuildReady(full) {
+        return RunBuildPlan {
+            fullBuild: full,
+            appliedIndex: emptyPathIndex(),
+            clangCommand: "",
+            ready: false,
+            error: full.error
+        }
+    }
+    val applied = applyFullBuildManifest(full)
+    val linkPlan = fullBuildLinkPlanFromAppliedIndex(full, applied)
+    val ready = fullBuildAppliedLinkPlanReady(full, applied)
+    var err = ""
+    if !ready {
+        err = "link plan incompleto após manifest apply"
+    }
+    return RunBuildPlan {
+        fullBuild: full,
+        appliedIndex: applied,
+        clangCommand: linkPlan.linkResult.command,
+        ready: ready,
+        error: err
+    }
+}
+
+pub fn planRunBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> RunBuildPlan {
+    return planRunBuildFromFullBuild(planFullBuild(entryFile, cfg, r, index, sourceIndex))
+}
+
+pub fn runBuildClangCommandIncludesLinkInputs(plan: RunBuildPlan) -> Bool {
+    if !runBuildReady(plan) { return false }
+    val cmd = plan.clangCommand
+    if !cmd.contains("clang") { return false }
+    if !cmd.contains(runBuildLlFile(plan)) { return false }
+    if !cmd.contains(runBuildOutputFile(plan)) { return false }
+    if !cmd.contains("-pthread") { return false }
+    val cfg = linkConfigFromBuild(plan.fullBuild.cfg)
+    if !cmd.contains(cfg.tmpDir) { return false }
+    return true
+}
+
+// Mirrors cmd/main.go cmdRun after buildInternal (binary path + materialize scripts, no exec).
+pub record RunPlan {
+    build: RunBuildPlan,
+    binaryPath: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn runPlanReady(plan: RunPlan) -> Bool = plan.ready
+
+pub fn planRunFromRunBuild(build: RunBuildPlan) -> RunPlan {
+    if !runBuildReady(build) {
+        return RunPlan {
+            build: build,
+            binaryPath: "",
+            ready: false,
+            error: build.error
+        }
+    }
+    return RunPlan {
+        build: build,
+        binaryPath: runBuildOutputFile(build),
+        ready: true,
+        error: ""
+    }
+}
+
+pub fn planRun(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> RunPlan {
+    return planRunFromRunBuild(planRunBuild(entryFile, cfg, r, index, sourceIndex))
+}
+
+pub fn runPlanMaterializePrefix(plan: RunPlan) -> String = runBuildTmpDir(plan.build)
+
+pub fn runPlanExportManifestCommand(plan: RunPlan, manifestPath: String) -> String {
+    val scripts = runBuildScripts(plan.build)
+    return "bash $(scripts.exportRunManifestScript) $(manifestPath) $(runPlanMaterializePrefix(plan))"
+}
+
+pub fn runPlanApplyManifestCommand(plan: RunPlan, manifestPath: String) -> String {
+    val scripts = runBuildScripts(plan.build)
+    return "bash $(scripts.applyManifestScript) $(manifestPath)"
+}
+
+pub fn runPlanLinkCommand(plan: RunPlan) -> String {
+    val scripts = runBuildScripts(plan.build)
+    return "bash $(scripts.runLinkScript) $(runBuildLlFile(plan.build)) $(runPlanMaterializePrefix(plan)) $(plan.binaryPath)"
+}
+
+pub fn runPlanExecCommand(plan: RunPlan) -> String = plan.binaryPath
+
+pub record RunPlanMaterializeSteps {
+    exportCommand: String,
+    applyCommand: String,
+    linkCommand: String,
+    execCommand: String
+}
+
+pub fn runPlanMaterializeSteps(plan: RunPlan, manifestPath: String) -> RunPlanMaterializeSteps {
+    return RunPlanMaterializeSteps {
+        exportCommand: runPlanExportManifestCommand(plan, manifestPath),
+        applyCommand: runPlanApplyManifestCommand(plan, manifestPath),
+        linkCommand: runPlanLinkCommand(plan),
+        execCommand: runPlanExecCommand(plan)
+    }
+}
+
+pub fn runPlanMaterializeStepsReady(steps: RunPlanMaterializeSteps, plan: RunPlan) -> Bool {
+    if !runPlanReady(plan) { return false }
+    if steps.execCommand != plan.binaryPath { return false }
+    if steps.exportCommand.len() == 0 { return false }
+    if steps.applyCommand.len() == 0 { return false }
+    if steps.linkCommand.len() == 0 { return false }
+    return true
+}
+
+pub fn runPlanOrderedMaterializeCommandCount() -> Int = 4
+
+pub fn runPlanOrderedMaterializeCommands(plan: RunPlan, manifestPath: String) -> List[String] {
+    val steps = runPlanMaterializeSteps(plan, manifestPath)
+    var cmds = List[String]{}
+    cmds.append(steps.exportCommand)
+    cmds.append(steps.applyCommand)
+    cmds.append(steps.linkCommand)
+    cmds.append(steps.execCommand)
+    return cmds
+}
+
+pub fn runPlanOrderedMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
+    if !runPlanMaterializeCommandsReady(plan, manifestPath) { return false }
+    return runPlanOrderedMaterializeCommands(plan, manifestPath).size() == runPlanOrderedMaterializeCommandCount()
+}
+
+pub fn runPlanExecCommandWithProgramArgs(plan: RunPlan, programArgs: List[String]) -> String {
+    if programArgs.size() == 0 {
+        return runPlanExecCommand(plan)
+    }
+    var cmd = plan.binaryPath
+    for arg in programArgs {
+        cmd = "$(cmd) $(arg)"
+    }
+    return cmd
+}
+
+pub fn runPlanMaterializeCommandsReady(plan: RunPlan, manifestPath: String) -> Bool {
+    if !runPlanReady(plan) { return false }
+    val steps = runPlanMaterializeSteps(plan, manifestPath)
+    if !runPlanMaterializeStepsReady(steps, plan) { return false }
+    val scripts = runBuildScripts(plan.build)
+    val exportCmd = runPlanExportManifestCommand(plan, manifestPath)
+    val applyCmd = runPlanApplyManifestCommand(plan, manifestPath)
+    val linkCmd = runPlanLinkCommand(plan)
+    if !exportCmd.contains(scripts.exportRunManifestScript) { return false }
+    if !applyCmd.contains(scripts.applyManifestScript) { return false }
+    if !linkCmd.contains(scripts.runLinkScript) { return false }
+    if !linkCmd.contains(plan.binaryPath) { return false }
+    return runBuildClangCommandIncludesLinkInputs(plan.build)
+}

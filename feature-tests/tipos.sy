@@ -1,0 +1,67 @@
+record Ponto {
+    x: Float
+    y: Float
+}
+
+record Par[A, B] {
+    primeiro: A
+    segundo: B
+}
+
+enum Forma {
+    Circulo(raio: Float)
+    Retangulo(w: Float, h: Float)
+    PontoF
+}
+
+fn area(f: Forma) -> Float {
+    return match f {
+        Circulo(r)      => 3.14159 * r * r
+        Retangulo(w, h) => w * h
+        PontoF          => 0.0
+    }
+}
+
+fn main() {
+    val inteiro: Int = 42
+    val decimal: Float = 3.14
+    val ativo: Bool = true
+    val texto: String = "Soyuz"
+    print("primitivos: $(inteiro) $(decimal) $(ativo) $(texto)")
+
+    val par: (Int, String) = (1, "um")
+    val (n, s) = par
+    print("tupla: $(n) $(s)")
+
+    val p = Ponto { x: 1.0, y: 2.0 }
+    print("ponto: $(p.x) $(p.y)")
+
+    val p1 = Ponto { x: 1.0, y: 2.0 }
+    val p2 = Ponto { x: 1.0, y: 2.0 }
+    val p3 = Ponto { x: 9.0, y: 2.0 }
+    print("igualdade p1==p2: $(p1 == p2)")
+    print("igualdade p1==p3: $(p1 == p3)")
+
+    val c = Forma.Circulo(raio: 5.0)
+    val r = Forma.Retangulo(w: 10.0, h: 4.0)
+    print("area circulo: $(area(c))")
+    print("area retangulo: $(area(r))")
+
+    val some: Option[Int] = Some(42)
+    val nome = match some {
+        Some(v) => "tem: $(v)"
+        None    => "vazio"
+    }
+    print("option: $(nome)")
+
+    val xOpt: Option[Ponto] = Some(Ponto { x: 3.0, y: 4.0 })
+    val xCoord = xOpt?.x
+    print("optional chain: $(xCoord)")
+
+    val noneOpt: Option[Ponto] = None
+    val display = noneOpt?.x ?: -1.0
+    print("elvis: $(display)")
+
+    val info = Par { primeiro: "nome", segundo: 42 }
+    print("par genérico: $(info.primeiro) $(info.segundo)")
+}

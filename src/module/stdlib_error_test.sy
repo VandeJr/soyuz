@@ -1,0 +1,28 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+// Mirrors std/error.sy — keep in sync when porting @soyuz/error.
+fn installStdlibErrorStub(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "error.sy"), "pub interface Error { pub fn message() -> String pub fn code() -> Int }\npub class NoneError : Error { pub val msg: String pub fn message(self) -> String = self.msg pub fn code(self) -> Int = 1 }\npub fn noneError(msg: String) -> Error = NoneError { msg: msg }\n")
+}
+
+pub fn defaultStdlibErrorPath() -> String = "std/error.sy"
+
+// Port of stdlib usage: @soyuz/error resolves and type-checks NoneError + noneError.
+test fn testStdlibErrorModuleTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibErrorStub(index, stdlibDir)
+    index.fileContents.set(entry, "import ( { Error, noneError } from \"@soyuz/error\" )\nfn main() {\n\tval err: Error = noneError(\"falhou\")\n\tprint(err.message())\n\tprint(err.code())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect error module ok")
+    assertMsg(collected.files.size() == 2, "error.sy plus main")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib error module type-checks")
+}

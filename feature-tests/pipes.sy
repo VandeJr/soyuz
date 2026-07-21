@@ -1,0 +1,57 @@
+fn dobrar(x: Int) -> Int = x * 2
+fn somarMais1(x: Int) -> Int = x + 1
+fn multiplicar(x: Int, y: Int) -> Int = x * y
+
+class VErr : Error {
+    val msg: String
+    pub fn message(self) -> String = self.msg
+    pub fn code(self) -> Int = 422
+}
+
+fn validar(n: Int) -> Result[Int] {
+    if n < 0 { return Err(VErr { msg: "negativo" }) }
+    return Ok(n)
+}
+
+fn transformar(n: Int) -> Result[Int] = Ok(n * 2)
+
+fn main() {
+    // pipe simples
+    val resultado = 5 |> dobrar |> somarMais1
+    print("pipe: $(resultado)")
+
+    // map/filter/reduce
+    val dobrados = [1, 2, 3].map(fn(x: Int) => x * 2)
+    print("map ok")
+    val ativos = [1, 2, 3, 4, 5].filter(fn(x: Int) => x > 2)
+    print("filter ok")
+    val soma = [1, 2, 3, 4, 5].reduce(fn(acc: Int, x: Int) => acc + x, 0)
+    print("reduce: $(soma)")
+
+    // fn nomeada como valor
+    val ds = [1, 2, 3].map(dobrar)
+    print("map fn nomeada ok")
+
+    // aplicação parcial
+    val triplicar = multiplicar(3, _)
+    print("parcial: $(triplicar(4))")
+
+    // encadeamento multilinha
+    val resultado2 = [1, 2, 3, 4, 5]
+        .filter(fn(x: Int) => x > 2)
+        .map(fn(x: Int) => x * 10)
+        .reduce(fn(acc: Int, x: Int) => acc + x, 0)
+    print("multiline chain: $(resultado2)")
+
+    // PipeQuest |?>
+    val r = validar(5) |?> transformar
+    match r {
+        Ok(v)  => print("pipequest ok: $(v)")
+        Err(e) => print("pipequest err: $(e.message())")
+    }
+    val r2 = validar(-1) |?> transformar
+    match r2 {
+        Ok(v)  => print("pipequest ok")
+        Err(e) => print("pipequest err: $(e.message())")
+    }
+}

@@ -1,0 +1,15 @@
+import (
+    { cliOsArgvReady, cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
+    { assertMsg } from @soyuz/testing
+)
+
+fn testCliProgramArgvFallback() {
+    assertMsg(defaultCliProgramArgv().size() == 1, "default argv has program name")
+    assertMsg(defaultCliProgramArgv().get(0) == "soyuz", "default program name")
+}
+
+fn testCliOsArgvReadyWhenNonEmpty() {
+    if cliOsArgvReady() {
+        assertMsg(cliProgramArgv().size() > 0, "program argv non-empty when os argv ready")
+    }
+}

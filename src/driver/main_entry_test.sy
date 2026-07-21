@@ -1,0 +1,16 @@
+import (
+    { runCliFromArgv, runCliMain, cliMainUsageFromDefaultArgv, cliMainHelloRunOutput, cliMainUsageReady, cliMainHelloRunReady } from @driver/main_entry
+    { defaultCliProgramArgv } from @driver/cli_argv
+    { cliUsageHeader, cliHelloMinimalBinaryPath } from @driver/cli
+    { defaultDriverMainEntryCheckScript } from @driver/build
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testRunCliFromArgv() {
+    assertMsg(cliMainUsageReady(), "default argv prints usage")
+    assertMsg(cliMainUsageFromDefaultArgv().contains(cliUsageHeader()), "usage has header")
+    assertMsg(runCliMain(defaultCliProgramArgv()).contains(cliUsageHeader()), "runCliMain default argv")
+    assertMsg(cliMainHelloRunOutput() == cliHelloMinimalBinaryPath(), "hello run output is exec path")
+    assertMsg(cliMainHelloRunReady(), "hello run main entry ready")
+    assertMsg(defaultDriverMainEntryCheckScript() == "tools/driver-main-entry-check.sh", "main entry check script")
+}

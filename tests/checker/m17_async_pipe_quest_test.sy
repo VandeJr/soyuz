@@ -1,9 +1,13 @@
-// M17 — async_pipe_quest tests (stub — port from soyuz-go/internal/checker/)
+// M17 — async pipe quest (~?>) tests (port of soyuz-go/internal/checker/m17_async_pipe_quest_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM17(src: String) -> List[TypeError] {
@@ -12,8 +16,45 @@ fn checkM17(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM17Baseline() {
-    // TODO: port milestone 17 tests from soyuz-go
-    val errs = checkM17("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M17 baseline stub")
+test fn testM17AsyncPipeQuestType() {
+    val src = "
+fn parse(s: String) -> Result[Int] = Ok(42)
+fn double(n: Int) -> Int = n * 2
+
+fn main() {
+    val s = \"42\"
+    val t = s ~> parse ~?> double
+    t.detach()
+}
+"
+    val errs = checkM17(src)
+    assertMsg(errs.size() == 0, "s ~> parse ~?> double não deve gerar erros")
+}
+
+test fn testM17AsyncPipeQuestLexer() {
+    val src = "
+fn parse(s: String) -> Result[Int] = Ok(42)
+fn main() {
+    val s = \"x\"
+    val t = s ~?> parse
+    t.detach()
+}
+"
+    // smoke: parser/checker must not crash on ~?> token
+    val _ = checkM17(src)
+}
+
+test fn testM17AsyncPipeQuestChain() {
+    val src = "
+fn validate(n: Int) -> Result[Int] = Ok(n)
+fn double(n: Int) -> Int = n * 2
+
+fn main() {
+    val n = 5
+    val t = n ~> validate ~?> double
+    t.detach()
+}
+"
+    val errs = checkM17(src)
+    assertMsg(errs.size() == 0, "n ~> validate ~?> double não deve gerar erros")
 }

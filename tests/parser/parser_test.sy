@@ -1,0 +1,49 @@
+// M0 parser baseline — port of soyuz-go/internal/parser/parser_test.go (subset)
+import @parser/load
+import (
+    { tokenize } from @lexer/lexer
+    { Parser } from @parser/parser
+    { assertMsg } from @soyuz/testing
+)
+
+fn parseSource(src: String) -> Int {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    return match prog {
+        Program(_, _, body) => body.size()
+        _ => 0
+    }
+}
+
+test fn testVarDecl() {
+    val n = parseSource("val x: Int = 42")
+    assertMsg(n == 1, "esperado 1 decl top-level")
+}
+
+test fn testFuncDecl() {
+    val n = parseSource("fn main() {}")
+    assertMsg(n == 1, "esperado 1 func decl")
+}
+
+test fn testBinaryExpr() {
+    val n = parseSource("val x = 1 + 2 * 3")
+    assertMsg(n == 1, "esperado 1 var decl com binários")
+}
+
+test fn testIfStmt() {
+    val src = "
+fn f() {
+    if true {
+        return 1
+    }
+    return 0
+}
+"
+    val n = parseSource(src)
+    assertMsg(n == 1, "esperado 1 func com if")
+}
+
+test fn testRecordDecl() {
+    val n = parseSource("record Ponto { x: Int, y: Int }")
+    assertMsg(n == 1, "esperado 1 record decl")
+}

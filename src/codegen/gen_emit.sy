@@ -1,0 +1,124 @@
+import (
+    { Generator } from @codegen/generator
+    { LlvmValue, LlvmType, llvmTypeIrSyntax, llvmI8Ptr } from @codegen/llvm_types
+)
+
+pub fn llvmValueReg(v: LlvmValue) -> String = "%v$(v.handle)"
+
+fn newIrValueHandle(g: Generator) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    return value
+}
+
+pub fn defaultTargetTriple() -> String = "x86_64-unknown-linux-gnu"
+
+pub fn traceIr(g: Generator, line: String) {
+    g.irTrace.append(line)
+}
+
+pub fn emitIrLine(g: Generator, line: String) {
+    g.irBodyLines.append(line)
+}
+
+pub fn irBodyLineCount(g: Generator) -> Int = g.irBodyLines.size()
+
+pub fn generatorBlockCount(g: Generator) -> Int = g.blockHandleCounter
+
+pub fn generatorValueCount(g: Generator) -> Int = g.valueHandleCounter
+
+pub fn irTraceLineCount(g: Generator) -> Int = g.irTrace.size()
+
+fn renderMainBody(g: Generator) -> String {
+    if irBodyLineCount(g) == 0 {
+        return "entry:\n  ret i32 0\n"
+    }
+    var body = ""
+    for line in g.irBodyLines {
+        body = "$(body)$(line)\n"
+    }
+    return body
+}
+
+// Minimal module text emission: metadata + block trace + main body lines (full LLVM IR port is incremental).
+pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
+    var result = "; soyuz module ir (funcs=$(funcCount), blocks=$(generatorBlockCount(g)), values=$(generatorValueCount(g)))\n"
+    result = "$(result); ir trace:\n"
+    for line in g.irTrace {
+        result = "$(result);   $(line)\n"
+    }
+    result = "$(result)target triple = \"$(defaultTargetTriple())\"\n"
+    result = "$(result)$(renderModuleGlobals(g))"
+    result = "$(result)define i32 @main() {\n$(renderMainBody(g))}\n"
+    return result
+}
+
+pub fn moduleIrHasInstruction(ir: String, instruction: String) -> Bool = ir.contains(instruction)
+
+pub fn emitRetI32Stub(g: Generator, value: Int) -> Bool {
+    emitIrLine(g, "  ret i32 $(value)")
+    return true
+}
+
+pub fn emitRetLlvmValueStub(g: Generator, retTy: LlvmType, value: LlvmValue) -> Bool {
+    emitIrLine(g, "  ret $(llvmTypeIrSyntax(retTy)) $(llvmValueReg(value))")
+    return true
+}
+
+fn renderModuleBuiltinDecls() -> String {
+    return "@fmt_print_str = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"\ndeclare i32 @printf(i8*, ...)\n"
+}
+
+fn renderModuleGlobals(g: Generator) -> String {
+    var result = renderModuleBuiltinDecls()
+    for line in g.irGlobalLines {
+        result = "$(result)$(line)\n"
+    }
+    return result
+}
+
+pub fn cStringGlobalName(handle: Int) -> String = "str.$(handle)"
+
+pub fn cStringByteLen(text: String) -> Int = text.len() + 1
+
+fn llvmCStringConstant(text: String) -> String = "c\"$(text)\\00\""
+
+pub fn registerCStrGlobal(g: Generator, text: String) -> String {
+    val handle = g.globalHandleCounter + 1
+    g.globalHandleCounter = g.globalHandleCounter + 1
+    val name = cStringGlobalName(handle)
+    val len = cStringByteLen(text)
+    g.irGlobalLines.append("@$(name) = private unnamed_addr constant [$(len) x i8] $(llvmCStringConstant(text))")
+    return name
+}
+
+pub fn emitCStrPtrStub(g: Generator, globalName: String, byteLen: Int) -> LlvmValue {
+    val ptr = newIrValueHandle(g)
+    g.valueTypes.set(ptr.handle, llvmI8Ptr())
+    emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds [$(byteLen) x i8], [$(byteLen) x i8]* @$(globalName), i64 0, i64 0")
+    return ptr
+}
+
+fn emitPrintfFmtPtrStub(g: Generator) -> LlvmValue {
+    val ptr = newIrValueHandle(g)
+    g.valueTypes.set(ptr.handle, llvmI8Ptr())
+    emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds [4 x i8], [4 x i8]* @fmt_print_str, i64 0, i64 0")
+    return ptr
+}
+
+pub fn emitPrintfStringStub(g: Generator, strArg: LlvmValue) -> Bool {
+    val fmt = emitPrintfFmtPtrStub(g)
+    emitIrLine(g, "  call i32 (i8*, ...) @printf(i8* $(llvmValueReg(fmt)), i8* $(llvmValueReg(strArg)))")
+    return true
+}
+
+pub fn emitCallVoidStub(g: Generator, funcName: String, argTy: LlvmType, arg: LlvmValue) -> Bool {
+    emitIrLine(g, "  call void @$(funcName)($(llvmTypeIrSyntax(argTy)) $(llvmValueReg(arg)))")
+    return true
+}
+
+pub fn moduleIrHasMain(ir: String) -> Bool = ir.contains("define i32 @main()")
+
+pub fn moduleIrHasTrace(ir: String) -> Bool = ir.contains("; ir trace:")
+
+pub fn moduleIrHeaderMarker() -> String = "; soyuz module ir"

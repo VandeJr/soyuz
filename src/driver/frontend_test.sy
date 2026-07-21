@@ -1,0 +1,31 @@
+import (
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { planFrontendBuild, frontendBuildReady, checkResultSucceeded } from @driver/frontend
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testPlanFrontendBuildHello() {
+    val entry = "/tmp/hello.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
+    index.fileContents.set(entry, "fn main() {\n    print(\"hello\")\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val plan = planFrontendBuild(entry, r, index)
+    assertMsg(frontendBuildReady(plan), "hello frontend plan ready")
+    assertMsg(plan.error.len() == 0, "no frontend error")
+    assertMsg(checkResultSucceeded(plan.checkResult), "type-check ok")
+    assertMsg(plan.collected.files.size() >= 1, "collected main file")
+}
+
+test fn testPlanFrontendBuildCollectError() {
+    val entry = "/tmp/missing.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val plan = planFrontendBuild(entry, r, index)
+    assertMsg(!frontendBuildReady(plan), "missing entry fails")
+    assertMsg(plan.error.len() > 0, "error message set")
+}

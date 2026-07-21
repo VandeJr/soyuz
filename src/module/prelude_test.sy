@@ -1,0 +1,30 @@
+import (
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { PathIndex } from @module/paths
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStdlibStubs(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "collections.sy"), "extern fn soyuz_range(from: Int, to: Int) -> List[Int]\npub fn range(from: Int, to: Int) -> List[Int] = soyuz_range(from, to)\npub fn rangeInclusive(from: Int, to: Int) -> List[Int] = soyuz_range(from, to)\npub fn rangeStep(from: Int, to: Int, step: Int) -> List[Int] = soyuz_range(from, to)\n")
+    index.fileContents.set(joinPathFile(stdlibDir, "error.sy"), "pub interface Error { fn message() -> String fn code() -> Int }\npub class NoneError : Error { pub val msg: String pub fn message(self) -> String = self.msg pub fn code(self) -> Int = 1 }\npub fn noneError(msg: String) -> Error = NoneError { msg: msg }\n")
+    index.fileContents.set(joinPathFile(stdlibDir, "fs.sy"), "import ( { Error } from \"@soyuz/error\" )\nextern fn soyuz_fs_read_file(path: String) -> String\nextern fn soyuz_fs_write_file(path: String, content: String) -> Int\nextern fn soyuz_fs_exists(path: String) -> Bool\nextern fn soyuz_fs_has_error() -> Bool\nextern fn soyuz_fs_last_error() -> String\npub class IOError : Error { pub val msg: String pub val errCode: Int pub fn message(self) -> String = self.msg pub fn code(self) -> Int = self.errCode }\npub fn readFile(path: String) -> Result[String] = Ok(soyuz_fs_read_file(path))\npub fn writeFile(path: String, content: String) -> Result[Int] = Ok(1)\npub fn exists(path: String) -> Bool = soyuz_fs_exists(path)\n")
+    index.fileContents.set(joinPathFile(stdlibDir, "os.sy"), "import ( { Error } from \"@soyuz/error\" )\nextern fn soyuz_os_getenv(name: String) -> String\nextern fn soyuz_os_has_env(name: String) -> Bool\nextern fn soyuz_os_args() -> List[String]\nextern fn soyuz_os_has_error() -> Bool\nextern fn soyuz_os_last_error() -> String\npub class OSError : Error { pub val msg: String pub val errCode: Int = 1 pub fn message(self) -> String = self.msg pub fn code(self) -> Int = self.errCode }\npub fn getenv(name: String) -> Result[String] = Ok(soyuz_os_getenv(name))\npub fn args() -> List[String] = soyuz_os_args()\npub fn hasEnv(name: String) -> Bool = soyuz_os_has_env(name)\n")
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "import ( \"@soyuz/collections\" )\nimport ( \"@soyuz/fs\" )\nimport ( \"@soyuz/os\" )\nimport ( \"@soyuz/error\" )\npub fn range(from: Int, to: Int) -> List[Int] = collections.range(from, to)\npub fn exists(path: String) -> Bool = fs.exists(path)\npub fn args() -> List[String] = os.args()\n")
+}
+
+// Port of prelude_test.go TestPreludeAutoImport — prelude symbols available in main without import.
+test fn testCheckPreludeAutoImport() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installPreludeStdlibStubs(index, stdlibDir)
+    index.fileContents.set(entry, "fn main() {\n\tval xs = range(0, 3)\n\tprint(xs.size())\n\tprint(exists(\"x\"))\n\tprint(args().size())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect program ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus main files")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "prelude auto-import should type-check")
+}

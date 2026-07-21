@@ -1,0 +1,20 @@
+// CLI output classification (driver library — no OS exec; see cli_main_exec.sy for main.sy).
+
+pub fn cliOutputIsError(output: String) -> Bool = output.startsWith("erro:")
+
+pub fn cliOutputIsExecPath(output: String) -> Bool {
+    if output.len() == 0 { return false }
+    if cliOutputIsError(output) { return false }
+    if output.contains("\n") { return false }
+    if !output.startsWith("/") { return false }
+    return true
+}
+
+pub fn cliTryExecOutput(path: String) -> String {
+    return "erro: exec $(path): use main.sy standalone binary"
+}
+
+pub fn cliRenderOutput(output: String) -> String {
+    if !cliOutputIsExecPath(output) { return output }
+    return cliTryExecOutput(output)
+}

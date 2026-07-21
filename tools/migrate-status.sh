@@ -1,0 +1,600 @@
+#!/usr/bin/env bash
+# Estado do self-host soyuz (frontend + codegen). Usado por /migrate-compiler.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+GO_REF="${SOYUZ_GO_ROOT:-$ROOT/soyuz-go}"
+
+hr() { printf '\n── %s ──\n' "$1"; }
+
+hr "Repositório"
+echo "branch: $(git branch --show-current)"
+echo "dirty:  $(git status --porcelain | wc -l) arquivo(s) alterado(s)"
+
+if [[ -f .cursor/self-host-complete ]]; then
+  echo "status: SELF-HOST COMPLETO (.cursor/self-host-complete)"
+elif [[ -f .cursor/migration-complete ]]; then
+  echo "status: FRONTEND MIGRAÇÃO COMPLETA (.cursor/migration-complete)"
+fi
+if [[ -f .cursor/self-host.lock ]]; then
+  echo "lock:   .cursor/self-host.lock ($(cat .cursor/self-host.lock))"
+fi
+
+hr "Type-check (parser + checker, sem codegen)"
+TOML_BAK="$(mktemp)"
+cp soyuz.toml "$TOML_BAK"
+trap 'cp "$TOML_BAK" soyuz.toml; rm -f "$TOML_BAK"' EXIT
+sed -i 's/^type[[:space:]]*=.*/type    = "library"/' soyuz.toml
+sed -i 's/^entry[[:space:]]*=.*/entry   = "validate.sy"/' soyuz.toml
+if soyuz build 2>&1; then
+  echo "→ type-check OK"
+else
+  echo "→ type-check FALHOU"
+fi
+
+hr "Lexer tests"
+soyuz test test_runner.sy 2>&1 || true
+
+hr "Codegen IR check (bootstrap, S1)"
+if [[ -x tools/codegen-ir-check.sh ]]; then
+  bash tools/codegen-ir-check.sh 2>&1 || echo "→ codegen IR check FALHOU"
+else
+  echo "  tools/codegen-ir-check.sh ausente"
+fi
+
+hr "Codegen expr check (bootstrap, S2)"
+if [[ -x tools/codegen-expr-check.sh ]]; then
+  bash tools/codegen-expr-check.sh 2>&1 || echo "→ codegen expr check FALHOU"
+else
+  echo "  tools/codegen-expr-check.sh ausente"
+fi
+
+hr "Codegen control check (bootstrap, S3)"
+if [[ -x tools/codegen-control-check.sh ]]; then
+  bash tools/codegen-control-check.sh 2>&1 || echo "→ codegen control check FALHOU"
+else
+  echo "  tools/codegen-control-check.sh ausente"
+fi
+
+hr "Codegen struct check (bootstrap, S4)"
+if [[ -x tools/codegen-struct-check.sh ]]; then
+  bash tools/codegen-struct-check.sh 2>&1 || echo "→ codegen struct check FALHOU"
+else
+  echo "  tools/codegen-struct-check.sh ausente"
+fi
+
+hr "Codegen when check (bootstrap, S4)"
+if [[ -x tools/codegen-when-check.sh ]]; then
+  bash tools/codegen-when-check.sh 2>&1 || echo "→ codegen when check FALHOU"
+else
+  echo "  tools/codegen-when-check.sh ausente"
+fi
+
+hr "Codegen collections check (bootstrap, S5)"
+if [[ -x tools/codegen-collections-check.sh ]]; then
+  bash tools/codegen-collections-check.sh 2>&1 || echo "→ codegen collections check FALHOU"
+else
+  echo "  tools/codegen-collections-check.sh ausente"
+fi
+
+hr "Codegen class check (bootstrap, S6)"
+if [[ -x tools/codegen-class-check.sh ]]; then
+  bash tools/codegen-class-check.sh 2>&1 || echo "→ codegen class check FALHOU"
+else
+  echo "  tools/codegen-class-check.sh ausente"
+fi
+
+hr "Codegen channel check (bootstrap, S7)"
+if [[ -x tools/codegen-channel-check.sh ]]; then
+  bash tools/codegen-channel-check.sh 2>&1 || echo "→ codegen channel check FALHOU"
+else
+  echo "  tools/codegen-channel-check.sh ausente"
+fi
+
+hr "Codegen select check (bootstrap, S7)"
+if [[ -x tools/codegen-select-check.sh ]]; then
+  bash tools/codegen-select-check.sh 2>&1 || echo "→ codegen select check FALHOU"
+else
+  echo "  tools/codegen-select-check.sh ausente"
+fi
+
+hr "Codegen sync check (bootstrap, S7)"
+if [[ -x tools/codegen-sync-check.sh ]]; then
+  bash tools/codegen-sync-check.sh 2>&1 || echo "→ codegen sync check FALHOU"
+else
+  echo "  tools/codegen-sync-check.sh ausente"
+fi
+
+hr "Codegen atomic check (bootstrap, S7)"
+if [[ -x tools/codegen-atomic-check.sh ]]; then
+  bash tools/codegen-atomic-check.sh 2>&1 || echo "→ codegen atomic check FALHOU"
+else
+  echo "  tools/codegen-atomic-check.sh ausente"
+fi
+
+hr "Codegen arc check (bootstrap, S7)"
+if [[ -x tools/codegen-arc-check.sh ]]; then
+  bash tools/codegen-arc-check.sh 2>&1 || echo "→ codegen arc check FALHOU"
+else
+  echo "  tools/codegen-arc-check.sh ausente"
+fi
+
+hr "Codegen gather check (bootstrap, S7)"
+if [[ -x tools/codegen-gather-check.sh ]]; then
+  bash tools/codegen-gather-check.sh 2>&1 || echo "→ codegen gather check FALHOU"
+else
+  echo "  tools/codegen-gather-check.sh ausente"
+fi
+
+hr "Codegen task check (bootstrap, S7)"
+if [[ -x tools/codegen-task-check.sh ]]; then
+  bash tools/codegen-task-check.sh 2>&1 || echo "→ codegen task check FALHOU"
+else
+  echo "  tools/codegen-task-check.sh ausente"
+fi
+
+hr "Codegen task-cancel check (bootstrap, S7)"
+if [[ -x tools/codegen-task-cancel-check.sh ]]; then
+  bash tools/codegen-task-cancel-check.sh 2>&1 || echo "→ codegen task-cancel check FALHOU"
+else
+  echo "  tools/codegen-task-cancel-check.sh ausente"
+fi
+
+hr "Codegen task-handle check (bootstrap, S7)"
+if [[ -x tools/codegen-task-handle-check.sh ]]; then
+  bash tools/codegen-task-handle-check.sh 2>&1 || echo "→ codegen task-handle check FALHOU"
+else
+  echo "  tools/codegen-task-handle-check.sh ausente"
+fi
+
+hr "Codegen task-pipe check (bootstrap, S7)"
+if [[ -x tools/codegen-task-pipe-check.sh ]]; then
+  bash tools/codegen-task-pipe-check.sh 2>&1 || echo "→ codegen task-pipe check FALHOU"
+else
+  echo "  tools/codegen-task-pipe-check.sh ausente"
+fi
+
+hr "Codegen task-all check (bootstrap, S7)"
+if [[ -x tools/codegen-task-all-check.sh ]]; then
+  bash tools/codegen-task-all-check.sh 2>&1 || echo "→ codegen task-all check FALHOU"
+else
+  echo "  tools/codegen-task-all-check.sh ausente"
+fi
+
+hr "Codegen task-fan check (bootstrap, S7)"
+if [[ -x tools/codegen-task-fan-check.sh ]]; then
+  bash tools/codegen-task-fan-check.sh 2>&1 || echo "→ codegen task-fan check FALHOU"
+else
+  echo "  tools/codegen-task-fan-check.sh ausente"
+fi
+
+hr "Codegen task-pipeline check (bootstrap, S7)"
+if [[ -x tools/codegen-task-pipeline-check.sh ]]; then
+  bash tools/codegen-task-pipeline-check.sh 2>&1 || echo "→ codegen task-pipeline check FALHOU"
+else
+  echo "  tools/codegen-task-pipeline-check.sh ausente"
+fi
+
+hr "Codegen task-tap check (bootstrap, S7)"
+if [[ -x tools/codegen-task-tap-check.sh ]]; then
+  bash tools/codegen-task-tap-check.sh 2>&1 || echo "→ codegen task-tap check FALHOU"
+else
+  echo "  tools/codegen-task-tap-check.sh ausente"
+fi
+
+hr "Codegen task-always check (bootstrap, S7)"
+if [[ -x tools/codegen-task-always-check.sh ]]; then
+  bash tools/codegen-task-always-check.sh 2>&1 || echo "→ codegen task-always check FALHOU"
+else
+  echo "  tools/codegen-task-always-check.sh ausente"
+fi
+
+hr "Codegen async-pipe check (bootstrap, S7)"
+if [[ -x tools/codegen-async-pipe-check.sh ]]; then
+  bash tools/codegen-async-pipe-check.sh 2>&1 || echo "→ codegen async-pipe check FALHOU"
+else
+  echo "  tools/codegen-async-pipe-check.sh ausente"
+fi
+
+hr "Codegen async-pipe-quest check (bootstrap, S7)"
+if [[ -x tools/codegen-async-pipe-quest-check.sh ]]; then
+  bash tools/codegen-async-pipe-quest-check.sh 2>&1 || echo "→ codegen async-pipe-quest check FALHOU"
+else
+  echo "  tools/codegen-async-pipe-quest-check.sh ausente"
+fi
+
+hr "Module project check (bootstrap, S8)"
+if [[ -x tools/module-project-check.sh ]]; then
+  bash tools/module-project-check.sh 2>&1 || echo "→ module project check FALHOU"
+else
+  echo "  tools/module-project-check.sh ausente"
+fi
+
+hr "Module graph check (bootstrap, S8)"
+if [[ -x tools/module-graph-check.sh ]]; then
+  bash tools/module-graph-check.sh 2>&1 || echo "→ module graph check FALHOU"
+else
+  echo "  tools/module-graph-check.sh ausente"
+fi
+
+hr "Module stdlib check (bootstrap, S8)"
+if [[ -x tools/module-stdlib-check.sh ]]; then
+  bash tools/module-stdlib-check.sh 2>&1 || echo "→ module stdlib check FALHOU"
+else
+  echo "  tools/module-stdlib-check.sh ausente"
+fi
+
+hr "Module prelude check (bootstrap, S8)"
+if [[ -x tools/module-prelude-check.sh ]]; then
+  bash tools/module-prelude-check.sh 2>&1 || echo "→ module prelude check FALHOU"
+else
+  echo "  tools/module-prelude-check.sh ausente"
+fi
+
+hr "Stdlib error check (bootstrap, S10)"
+if [[ -x tools/stdlib-error-check.sh ]]; then
+  bash tools/stdlib-error-check.sh 2>&1 || echo "→ stdlib error check FALHOU"
+else
+  echo "  tools/stdlib-error-check.sh ausente"
+fi
+
+hr "Stdlib collections check (bootstrap, S10)"
+if [[ -x tools/stdlib-collections-check.sh ]]; then
+  bash tools/stdlib-collections-check.sh 2>&1 || echo "→ stdlib collections check FALHOU"
+else
+  echo "  tools/stdlib-collections-check.sh ausente"
+fi
+
+hr "Stdlib os check (bootstrap, S10)"
+if [[ -x tools/stdlib-os-check.sh ]]; then
+  bash tools/stdlib-os-check.sh 2>&1 || echo "→ stdlib os check FALHOU"
+else
+  echo "  tools/stdlib-os-check.sh ausente"
+fi
+
+hr "Stdlib fs check (bootstrap, S10)"
+if [[ -x tools/stdlib-fs-check.sh ]]; then
+  bash tools/stdlib-fs-check.sh 2>&1 || echo "→ stdlib fs check FALHOU"
+else
+  echo "  tools/stdlib-fs-check.sh ausente"
+fi
+
+hr "Stdlib prelude check (bootstrap, S10)"
+if [[ -x tools/stdlib-prelude-check.sh ]]; then
+  bash tools/stdlib-prelude-check.sh 2>&1 || echo "→ stdlib prelude check FALHOU"
+else
+  echo "  tools/stdlib-prelude-check.sh ausente"
+fi
+
+hr "Stdlib string check (bootstrap, S10)"
+if [[ -x tools/stdlib-string-check.sh ]]; then
+  bash tools/stdlib-string-check.sh 2>&1 || echo "→ stdlib string check FALHOU"
+else
+  echo "  tools/stdlib-string-check.sh ausente"
+fi
+
+hr "Stdlib async check (bootstrap, S10)"
+if [[ -x tools/stdlib-async-check.sh ]]; then
+  bash tools/stdlib-async-check.sh 2>&1 || echo "→ stdlib async check FALHOU"
+else
+  echo "  tools/stdlib-async-check.sh ausente"
+fi
+
+hr "Stdlib path check (bootstrap, S10)"
+if [[ -x tools/stdlib-path-check.sh ]]; then
+  bash tools/stdlib-path-check.sh 2>&1 || echo "→ stdlib path check FALHOU"
+else
+  echo "  tools/stdlib-path-check.sh ausente"
+fi
+
+hr "Stdlib feature variaveis check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-variaveis-check.sh ]]; then
+  bash tools/stdlib-feature-variaveis-check.sh 2>&1 || echo "→ stdlib feature variaveis check FALHOU"
+else
+  echo "  tools/stdlib-feature-variaveis-check.sh ausente"
+fi
+
+hr "Stdlib feature flow check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-flow-check.sh ]]; then
+  bash tools/stdlib-feature-flow-check.sh 2>&1 || echo "→ stdlib feature flow check FALHOU"
+else
+  echo "  tools/stdlib-feature-flow-check.sh ausente"
+fi
+
+hr "Stdlib feature funcoes check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-funcoes-check.sh ]]; then
+  bash tools/stdlib-feature-funcoes-check.sh 2>&1 || echo "→ stdlib feature funcoes check FALHOU"
+else
+  echo "  tools/stdlib-feature-funcoes-check.sh ausente"
+fi
+
+hr "Stdlib feature tipos check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-tipos-check.sh ]]; then
+  bash tools/stdlib-feature-tipos-check.sh 2>&1 || echo "→ stdlib feature tipos check FALHOU"
+else
+  echo "  tools/stdlib-feature-tipos-check.sh ausente"
+fi
+
+hr "Stdlib feature strings check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-strings-check.sh ]]; then
+  bash tools/stdlib-feature-strings-check.sh 2>&1 || echo "→ stdlib feature strings check FALHOU"
+else
+  echo "  tools/stdlib-feature-strings-check.sh ausente"
+fi
+
+hr "Stdlib feature pipes check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-pipes-check.sh ]]; then
+  bash tools/stdlib-feature-pipes-check.sh 2>&1 || echo "→ stdlib feature pipes check FALHOU"
+else
+  echo "  tools/stdlib-feature-pipes-check.sh ausente"
+fi
+
+hr "Stdlib feature classes check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-classes-check.sh ]]; then
+  bash tools/stdlib-feature-classes-check.sh 2>&1 || echo "→ stdlib feature classes check FALHOU"
+else
+  echo "  tools/stdlib-feature-classes-check.sh ausente"
+fi
+
+hr "Stdlib feature extensions check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-extensions-check.sh ]]; then
+  bash tools/stdlib-feature-extensions-check.sh 2>&1 || echo "→ stdlib feature extensions check FALHOU"
+else
+  echo "  tools/stdlib-feature-extensions-check.sh ausente"
+fi
+
+hr "Stdlib feature errors check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-errors-check.sh ]]; then
+  bash tools/stdlib-feature-errors-check.sh 2>&1 || echo "→ stdlib feature errors check FALHOU"
+else
+  echo "  tools/stdlib-feature-errors-check.sh ausente"
+fi
+
+hr "Stdlib feature generics check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-generics-check.sh ]]; then
+  bash tools/stdlib-feature-generics-check.sh 2>&1 || echo "→ stdlib feature generics check FALHOU"
+else
+  echo "  tools/stdlib-feature-generics-check.sh ausente"
+fi
+
+hr "Stdlib feature pattern_matching check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-pattern-matching-check.sh ]]; then
+  bash tools/stdlib-feature-pattern-matching-check.sh 2>&1 || echo "→ stdlib feature pattern_matching check FALHOU"
+else
+  echo "  tools/stdlib-feature-pattern-matching-check.sh ausente"
+fi
+
+hr "Stdlib feature paralelismo check (bootstrap, S10)"
+if [[ -x tools/stdlib-feature-paralelismo-check.sh ]]; then
+  bash tools/stdlib-feature-paralelismo-check.sh 2>&1 || echo "→ stdlib feature paralelismo check FALHOU"
+else
+  echo "  tools/stdlib-feature-paralelismo-check.sh ausente"
+fi
+
+hr "Runtime embed check (bootstrap, S9)"
+if [[ -x tools/runtime-embed-check.sh ]]; then
+  bash tools/runtime-embed-check.sh 2>&1 || echo "→ runtime embed check FALHOU"
+else
+  echo "  tools/runtime-embed-check.sh ausente"
+fi
+
+hr "Runtime index seed check (bootstrap, S9)"
+if [[ -x tools/runtime-index-seed.sh ]]; then
+  bash tools/runtime-index-seed.sh 2>&1 || echo "→ runtime index seed check FALHOU"
+else
+  echo "  tools/runtime-index-seed.sh ausente"
+fi
+
+hr "Runtime link smoke check (bootstrap, S9)"
+if [[ -x tools/runtime-link-smoke.sh ]]; then
+  bash tools/runtime-link-smoke.sh 2>&1 || echo "→ runtime link smoke check FALHOU"
+else
+  echo "  tools/runtime-link-smoke.sh ausente"
+fi
+
+hr "Runtime run-link check (bootstrap, S9)"
+if [[ -x tools/runtime-run-link-check.sh ]]; then
+  bash tools/runtime-run-link-check.sh 2>&1 || echo "→ runtime run-link check FALHOU"
+else
+  echo "  tools/runtime-run-link-check.sh ausente"
+fi
+
+hr "Runtime link pipeline check (bootstrap, S9)"
+if [[ -x tools/runtime-link-pipeline-check.sh ]]; then
+  bash tools/runtime-link-pipeline-check.sh 2>&1 || echo "→ runtime link pipeline check FALHOU"
+else
+  echo "  tools/runtime-link-pipeline-check.sh ausente"
+fi
+
+hr "Runtime hello-world check (bootstrap, S9)"
+if [[ -x tools/runtime-hello-world-check.sh ]]; then
+  bash tools/runtime-hello-world-check.sh 2>&1 || echo "→ runtime hello-world check FALHOU"
+else
+  echo "  tools/runtime-hello-world-check.sh ausente"
+fi
+
+hr "Runtime manifest check (bootstrap, S9)"
+if [[ -x tools/runtime-manifest-check.sh ]]; then
+  bash tools/runtime-manifest-check.sh 2>&1 || echo "→ runtime manifest check FALHOU"
+else
+  echo "  tools/runtime-manifest-check.sh ausente"
+fi
+
+hr "Runtime export-pipeline-manifest check (bootstrap, S9)"
+if [[ -x tools/runtime-export-pipeline-manifest-check.sh ]]; then
+  bash tools/runtime-export-pipeline-manifest-check.sh 2>&1 || echo "→ runtime export-pipeline-manifest check FALHOU"
+else
+  echo "  tools/runtime-export-pipeline-manifest-check.sh ausente"
+fi
+
+hr "Runtime seed path-index check (bootstrap, S9)"
+if [[ -x tools/runtime-seed-path-index-check.sh ]]; then
+  bash tools/runtime-seed-path-index-check.sh 2>&1 || echo "→ runtime seed path-index check FALHOU"
+else
+  echo "  tools/runtime-seed-path-index-check.sh ausente"
+fi
+
+hr "Driver link stub check (bootstrap, S9)"
+if [[ -x tools/driver-link-stub-check.sh ]]; then
+  bash tools/driver-link-stub-check.sh 2>&1 || echo "→ driver link stub check FALHOU"
+else
+  echo "  tools/driver-link-stub-check.sh ausente"
+fi
+
+hr "Driver full-build check (bootstrap, S9)"
+if [[ -x tools/driver-full-build-check.sh ]]; then
+  bash tools/driver-full-build-check.sh 2>&1 || echo "→ driver full-build check FALHOU"
+else
+  echo "  tools/driver-full-build-check.sh ausente"
+fi
+
+hr "Driver hello-ir link check (bootstrap, S9)"
+if [[ -x tools/driver-hello-ir-link-check.sh ]]; then
+  bash tools/driver-hello-ir-link-check.sh 2>&1 || echo "→ driver hello-ir link check FALHOU"
+else
+  echo "  tools/driver-hello-ir-link-check.sh ausente"
+fi
+
+hr "Driver export-codegen-ir check (bootstrap, S9)"
+if [[ -x tools/driver-export-codegen-ir-check.sh ]]; then
+  bash tools/driver-export-codegen-ir-check.sh 2>&1 || echo "→ driver export-codegen-ir check FALHOU"
+else
+  echo "  tools/driver-export-codegen-ir-check.sh ausente"
+fi
+
+hr "Driver applied-manifest-link check (bootstrap, S9)"
+if [[ -x tools/driver-applied-manifest-link-check.sh ]]; then
+  bash tools/driver-applied-manifest-link-check.sh 2>&1 || echo "→ driver applied-manifest-link check FALHOU"
+else
+  echo "  tools/driver-applied-manifest-link-check.sh ausente"
+fi
+
+hr "Driver run-plan-link check (bootstrap, S9)"
+if [[ -x tools/driver-run-plan-link-check.sh ]]; then
+  bash tools/driver-run-plan-link-check.sh 2>&1 || echo "→ driver run-plan-link check FALHOU"
+else
+  echo "  tools/driver-run-plan-link-check.sh ausente"
+fi
+
+hr "Driver run-manifest-round-trip check (bootstrap, S9)"
+if [[ -x tools/driver-run-manifest-round-trip-check.sh ]]; then
+  bash tools/driver-run-manifest-round-trip-check.sh 2>&1 || echo "→ driver run-manifest-round-trip check FALHOU"
+else
+  echo "  tools/driver-run-manifest-round-trip-check.sh ausente"
+fi
+
+hr "Driver run-plan-materialize check (bootstrap, S9)"
+if [[ -x tools/driver-run-plan-materialize-check.sh ]]; then
+  bash tools/driver-run-plan-materialize-check.sh 2>&1 || echo "→ driver run-plan-materialize check FALHOU"
+else
+  echo "  tools/driver-run-plan-materialize-check.sh ausente"
+fi
+
+hr "Driver bootstrap-hello-run check (bootstrap, S9)"
+if [[ -x tools/driver-bootstrap-hello-run-check.sh ]]; then
+  bash tools/driver-bootstrap-hello-run-check.sh 2>&1 || echo "→ driver bootstrap-hello-run check FALHOU"
+else
+  echo "  tools/driver-bootstrap-hello-run-check.sh ausente"
+fi
+
+hr "Driver cli-run-dispatch check (bootstrap, S9)"
+if [[ -x tools/driver-cli-run-dispatch-check.sh ]]; then
+  bash tools/driver-cli-run-dispatch-check.sh 2>&1 || echo "→ driver cli-run-dispatch check FALHOU"
+else
+  echo "  tools/driver-cli-run-dispatch-check.sh ausente"
+fi
+
+hr "Driver cli-run-pipeline check (bootstrap, S9)"
+if [[ -x tools/driver-cli-run-pipeline-check.sh ]]; then
+  bash tools/driver-cli-run-pipeline-check.sh 2>&1 || echo "→ driver cli-run-pipeline check FALHOU"
+else
+  echo "  tools/driver-cli-run-pipeline-check.sh ausente"
+fi
+
+hr "Driver cli-entry check (bootstrap, S9)"
+if [[ -x tools/driver-cli-entry-check.sh ]]; then
+  bash tools/driver-cli-entry-check.sh 2>&1 || echo "→ driver cli-entry check FALHOU"
+else
+  echo "  tools/driver-cli-entry-check.sh ausente"
+fi
+
+hr "Driver cli-new check (bootstrap, S11)"
+if [[ -x tools/driver-cli-new-check.sh ]]; then
+  bash tools/driver-cli-new-check.sh 2>&1 || echo "→ driver cli-new check FALHOU"
+else
+  echo "  tools/driver-cli-new-check.sh ausente"
+fi
+
+hr "Driver cli-build check (bootstrap, S11)"
+if [[ -x tools/driver-cli-build-check.sh ]]; then
+  bash tools/driver-cli-build-check.sh 2>&1 || echo "→ driver cli-build check FALHOU"
+else
+  echo "  tools/driver-cli-build-check.sh ausente"
+fi
+
+hr "Driver cli-test check (bootstrap, S11)"
+if [[ -x tools/driver-cli-test-check.sh ]]; then
+  bash tools/driver-cli-test-check.sh 2>&1 || echo "→ driver cli-test check FALHOU"
+else
+  echo "  tools/driver-cli-test-check.sh ausente"
+fi
+
+hr "Driver cli-project-build check (bootstrap, S11)"
+if [[ -x tools/driver-cli-project-build-check.sh ]]; then
+  bash tools/driver-cli-project-build-check.sh 2>&1 || echo "→ driver cli-project-build check FALHOU"
+else
+  echo "  tools/driver-cli-project-build-check.sh ausente"
+fi
+
+hr "Driver main-entry check (bootstrap, S11)"
+if [[ -x tools/driver-main-entry-check.sh ]]; then
+  bash tools/driver-main-entry-check.sh 2>&1 || echo "→ driver main-entry check FALHOU"
+else
+  echo "  tools/driver-main-entry-check.sh ausente"
+fi
+
+hr "Driver main-standalone check (bootstrap, S11)"
+if [[ -x tools/driver-main-standalone-check.sh ]]; then
+  bash tools/driver-main-standalone-check.sh 2>&1 || echo "→ driver main-standalone check FALHOU"
+else
+  echo "  tools/driver-main-standalone-check.sh ausente"
+fi
+
+hr "Driver test-runner check (bootstrap, S11)"
+if [[ -x tools/driver-test-runner-check.sh ]]; then
+  bash tools/driver-test-runner-check.sh 2>&1 || echo "→ driver test-runner check FALHOU"
+else
+  echo "  tools/driver-test-runner-check.sh ausente"
+fi
+
+hr "Bootstrap verify (S12)"
+if [[ -x tools/bootstrap-verify.sh ]]; then
+  bash tools/bootstrap-verify.sh 2>&1 || echo "→ bootstrap verify FALHOU"
+else
+  echo "  tools/bootstrap-verify.sh ausente"
+fi
+
+hr "Milestones com stub (TODO)"
+grep -l 'TODO: port milestone' tests/checker/*.sy 2>/dev/null | sort || echo "(nenhum)"
+
+hr "Arquivos fonte (contagem)"
+if [[ -d "$GO_REF/internal" ]]; then
+  printf '  soyuz src/:      %s .sy\n' "$(find src -name '*.sy' | wc -l)"
+  printf '  soyuz-go int/:   %s .go (lexer+parser+checker)\n' "$(find "$GO_REF/internal/lexer" "$GO_REF/internal/parser" "$GO_REF/internal/checker" -name '*.go' 2>/dev/null | wc -l)"
+else
+  echo "  soyuz-go não encontrado em $GO_REF (defina SOYUZ_GO_ROOT)"
+fi
+
+hr "Self-host milestones (S0–S12)"
+if [[ -f docs/SELF_HOST_PLAN.md ]]; then
+  grep -E '^\| \*\*S[0-9]+\*\*' docs/SELF_HOST_PLAN.md | sed 's/^/  /' || echo "  (tabela não encontrada)"
+else
+  echo "  docs/SELF_HOST_PLAN.md ausente"
+fi
+
+hr "Referência"
+echo "  docs/SELF_HOST_PLAN.md"
+echo "  docs/INTEGRATION.md"
+echo "  .cursor/plans/migração_ast_checker_e8bf0647.plan.md"

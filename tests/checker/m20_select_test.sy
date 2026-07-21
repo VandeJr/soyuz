@@ -1,9 +1,13 @@
-// M20 — select tests (stub — port from soyuz-go/internal/checker/)
+// M20 — select tests (port of soyuz-go/internal/checker/m20_select_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM20(src: String) -> List[TypeError] {
@@ -12,8 +16,64 @@ fn checkM20(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM20Baseline() {
-    // TODO: port milestone 20 tests from soyuz-go
-    val errs = checkM20("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M20 baseline stub")
+test fn testM20SelectRecvArmTypeChecks() {
+    val src = "
+fn doSelect(ch: Channel[Int]) {
+    select {
+        msg = ch.recv() => print(msg)
+    }
+}
+"
+    val errs = checkM20(src)
+    assertMsg(errs.size() == 0, "select recv arm não deve gerar erros")
+}
+
+test fn testM20SelectDefaultArmAllowed() {
+    val src = "
+fn doSelect(ch: Channel[Int]) {
+    select {
+        msg = ch.recv() => print(msg)
+        default => print(\"nada\")
+    }
+}
+"
+    val errs = checkM20(src)
+    assertMsg(errs.size() == 0, "select com default não deve gerar erros")
+}
+
+test fn testM20SelectMultipleRecvArms() {
+    val src = "
+fn doSelect(chA: Channel[Int], chB: Channel[Int]) {
+    select {
+        a = chA.recv() => print(a)
+        b = chB.recv() => print(b)
+    }
+}
+"
+    val errs = checkM20(src)
+    assertMsg(errs.size() == 0, "select com múltiplos arms não deve gerar erros")
+}
+
+test fn testM20SelectArmWithoutBinding() {
+    val src = "
+fn doSelect(ch: Channel[Int]) {
+    select {
+        ch.recv() => print(\"recebido\")
+    }
+}
+"
+    val errs = checkM20(src)
+    assertMsg(errs.size() == 0, "select arm sem binding não deve gerar erros")
+}
+
+test fn testM20SelectOnlyDefault() {
+    val src = "
+fn doDefault() {
+    select {
+        default => print(\"sem canais\")
+    }
+}
+"
+    val errs = checkM20(src)
+    assertMsg(errs.size() == 0, "select só com default não deve gerar erros")
 }

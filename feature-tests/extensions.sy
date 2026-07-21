@@ -1,0 +1,43 @@
+class Usuario {
+    val nome: String
+}
+
+extend String {
+    pub fn exclamar(self) -> String {
+        return "$(self)!"
+    }
+    pub fn repetir(self, n: Int) -> String {
+        var resultado = ""
+        for i in 0..n {
+            resultado = "$(resultado)$(self)"
+        }
+        return resultado
+    }
+}
+
+extend Int {
+    pub fn ehPar(self) -> Bool = self % 2 == 0
+    pub fn dobro(self) -> Int = self * 2
+}
+
+extend Usuario {
+    pub fn saudar(self) {
+        print("Olá, $(self.nome)")
+    }
+    pub fn nomeCompleto(self, sobrenome: String) -> String {
+        return "$(self.nome) $(sobrenome)"
+    }
+}
+
+fn main() {
+    print("Olá".exclamar())
+    print("abc".repetir(3))
+
+    print("4 par: $(4.ehPar())")
+    print("3 par: $(3.ehPar())")
+    print("5 dobro: $(5.dobro())")
+
+    val u = Usuario { nome: "Vand" }
+    u.saudar()
+    print(u.nomeCompleto("Jr"))
+}

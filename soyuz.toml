@@ -1,8 +1,8 @@
 [project]
 name    = "soyuz"
 version = "0.1.0"
-type    = "binary"
-entry   = "main.sy"
+type    = "library"
+entry   = "validate.sy"
 test    = "test_runner.sy"
 
 [packages]
@@ -11,4 +11,9 @@ ast    = "src/ast"
 parser = "src/parser"
 diag   = "src/diag"
 checker = "src/checker"
+codegen = "src/codegen"
+module  = "src/module"
+runtime = "src/runtime"
+driver  = "src/driver"
 tests  = "tests"
+soyuz  = "std"

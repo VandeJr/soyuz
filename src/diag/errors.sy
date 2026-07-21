@@ -1,7 +1,10 @@
-import ({ Span } from @lexer/tokens)
+import (
+    { Span } from @lexer/tokens
+    { TypeError } from @checker/types
+)
 
 pub enum Severity {
-    Error
+    Err
     Warning
 }
 

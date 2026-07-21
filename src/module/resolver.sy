@@ -1,0 +1,164 @@
+import (
+    { ImportPathKind, ImportDeclData, importDeclPathSegments } from @ast/ast
+    { PathIndex, parentDir, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir } from @module/paths
+    { ProjectConfig, ProjectMeta, defaultProjectMeta, resolveAliasPath, loadProjectConfigFromEntry } from @module/project
+)
+
+pub record Resolver {
+    root: String,
+    projectRoot: String,
+    stdlibDir: String,
+    packages: Map[String, String]
+}
+
+pub fn newResolver(entryDir: String) -> Resolver = Resolver {
+    root: entryDir,
+    projectRoot: "",
+    stdlibDir: "",
+    packages: Map[String, String]{}
+}
+
+pub fn newResolverWithProject(entryDir: String, cfg: ProjectConfig, stdlibDir: String) -> Resolver = Resolver {
+    root: entryDir,
+    projectRoot: cfg.root,
+    stdlibDir: stdlibDir,
+    packages: cfg.packages
+}
+
+pub fn newResolverWithStdlib(entryFile: String, stdlibDir: String) -> Resolver = Resolver {
+    root: parentDir(entryFile),
+    projectRoot: "",
+    stdlibDir: stdlibDir,
+    packages: Map[String, String]{}
+}
+
+pub fn newResolverWithStdlibFromIndex(entryFile: String, stdlibDir: String, index: PathIndex) -> Resolver {
+    val cfg = loadProjectConfigFromEntry(entryFile, index)
+    return Resolver {
+        root: parentDir(entryFile),
+        projectRoot: cfg.root,
+        stdlibDir: stdlibDir,
+        packages: cfg.packages
+    }
+}
+
+pub fn projectBase(r: Resolver) -> String {
+    if r.projectRoot.len() > 0 { return r.projectRoot }
+    return r.root
+}
+
+pub fn joinPathSegments(base: String, segs: List[String]) -> String {
+    var result = base
+    for seg in segs {
+        if seg.len() == 0 { continue }
+        if result.len() == 0 {
+            result = seg
+        } else if result.endsWith("/") {
+            result = "$(result)$(seg)"
+        } else {
+            result = "$(result)/$(seg)"
+        }
+    }
+    return result
+}
+
+fn mapIsEmpty(m: Map[String, String]) -> Bool {
+    for k in m.keys() {
+        if k.len() >= 0 { return false }
+    }
+    return true
+}
+
+fn normalizeRelativePath(path: String) -> String {
+    if path.startsWith("./") {
+        return path.substring(2, path.len())
+    }
+    return path
+}
+
+pub fn resolveImportBasePath(r: Resolver, kind: ImportPathKind, path: String, packageAlias: String, segments: List[String], importingDir: String) -> Option[String] = match kind {
+    Stdlib => {
+        if r.stdlibDir.len() == 0 { return None }
+        return Some(joinPathSegments(r.stdlibDir, segments))
+    }
+    ProjectRoot => Some(joinPathSegments(projectBase(r), segments))
+    PackageAlias => {
+        if r.projectRoot.len() == 0 && mapIsEmpty(r.packages) { return None }
+        val cfg = ProjectConfig {
+            root: r.projectRoot,
+            meta: defaultProjectMeta(),
+            packages: r.packages
+        }
+        match resolveAliasPath(cfg, packageAlias, segments) {
+            None => None
+            Some(aliasSegs) => Some(joinPathSegments(projectBase(r), aliasSegs))
+        }
+    }
+    Relative => {
+        if importingDir.len() == 0 { return None }
+        val rel = normalizeRelativePath(path)
+        return Some(joinPathSegments(importingDir, rel.split("/")))
+    }
+    Legacy => Some(joinPathSegments(projectBase(r), segments))
+}
+
+pub fn resolveFileOrDir(basePath: String, index: PathIndex) -> Option[List[String]] {
+    val singleFile = "$(basePath).sy"
+    if pathIndexHasPath(index, singleFile) {
+        var out: List[String] = []
+        out.append(singleFile)
+        return Some(out)
+    }
+    if pathIndexIsDir(index, basePath) {
+        val files = pathIndexListSyFilesInDir(index, basePath)
+        if files.size() > 0 { return Some(files) }
+        return None
+    }
+    return None
+}
+
+pub fn resolveIn(base: String, segments: List[String], index: PathIndex) -> Option[List[String]] {
+    if segments.size() == 0 { return None }
+    val basePath = joinPathSegments(base, segments)
+    return resolveFileOrDir(basePath, index)
+}
+
+pub fn effectiveImportPathKind(kind: ImportPathKind, isStdlib: Bool) -> ImportPathKind {
+    if kind == ImportPathKind.Legacy && isStdlib {
+        return ImportPathKind.Stdlib
+    }
+    return kind
+}
+
+pub fn resolveImport(r: Resolver, data: ImportDeclData, importingFile: String, index: PathIndex) -> Option[List[String]] {
+    val kind = effectiveImportPathKind(data.pathKind, data.isStdlib)
+    val segs = importDeclPathSegments(data.path, kind, data.packageAlias)
+    match kind {
+        Stdlib => {
+            if r.stdlibDir.len() == 0 { return None }
+            return resolveIn(r.stdlibDir, segs, index)
+        }
+        ProjectRoot => resolveIn(projectBase(r), segs, index)
+        PackageAlias => {
+            if r.projectRoot.len() == 0 && mapIsEmpty(r.packages) { return None }
+            val cfg = ProjectConfig {
+                root: r.projectRoot,
+                meta: defaultProjectMeta(),
+                packages: r.packages
+            }
+            match resolveAliasPath(cfg, data.packageAlias, segs) {
+                None => None
+                Some(aliasSegs) => resolveIn(projectBase(r), aliasSegs, index)
+            }
+        }
+        Relative => {
+            if importingFile.len() == 0 { return None }
+            val importingDir = parentDir(importingFile)
+            match resolveImportBasePath(r, ImportPathKind.Relative, data.path, data.packageAlias, segs, importingDir) {
+                None => None
+                Some(target) => resolveFileOrDir(target, index)
+            }
+        }
+        Legacy => resolveIn(projectBase(r), segs, index)
+    }
+}

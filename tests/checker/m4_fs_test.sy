@@ -1,19 +1,99 @@
-// M4 — fs tests (stub — port from soyuz-go/internal/checker/)
+// M4 — FS helper tests (port of m4_fs_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
-fn checkM4(src: String) -> List[TypeError] {
-    val tokens = tokenize(src)
+fn fsPreamble(src: String) -> String {
+    return "
+interface Error {
+  fn message() -> String
+  fn code() -> Int
+}
+
+extern fn soyuz_fs_read_file(path: String) -> String
+extern fn soyuz_fs_write_file(path: String, content: String) -> Int
+extern fn soyuz_fs_exists(path: String) -> Bool
+extern fn soyuz_fs_is_dir(path: String) -> Bool
+extern fn soyuz_fs_has_error() -> Bool
+extern fn soyuz_fs_last_error() -> String
+
+pub class IOError : Error {
+  pub val msg: String
+  pub val errCode: Int
+  pub fn message(self) -> String = self.msg
+  pub fn code(self) -> Int = self.errCode
+}
+
+pub fn readFile(path: String) -> Result[String] {
+  val content = soyuz_fs_read_file(path)
+  if soyuz_fs_has_error() {
+    return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+  }
+  return Ok(content)
+}
+
+pub fn writeFile(path: String, content: String) -> Result[Int] {
+  val ok = soyuz_fs_write_file(path, content)
+  if ok == 0 {
+    return Err(IOError { msg: soyuz_fs_last_error(), errCode: 1 })
+  }
+  return Ok(1)
+}
+
+pub fn exists(path: String) -> Bool = soyuz_fs_exists(path)
+pub fn isDir(path: String) -> Bool = soyuz_fs_is_dir(path)
+" + src
+}
+
+fn checkFS(src: String) -> List[TypeError] {
+    val tokens = tokenize(fsPreamble(src))
     val prog = Parser.new(tokens).parse()
     return check(newChecker(), prog).errors
 }
 
-test fn testM4Baseline() {
-    // TODO: port milestone 4 tests from soyuz-go
-    val errs = checkM4("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M4 baseline stub")
+test fn testFsReadFileReturnsResult() {
+    val errs = checkFS("fn main() -> Result[String] { return readFile(\"/tmp/test.txt\") }")
+    assertMsg(errs.size() == 0, "erros inesperados em readFile")
+}
+
+test fn testFsWriteFileReturnsResult() {
+    val errs = checkFS("fn main() -> Result[Int] { return writeFile(\"/tmp/test.txt\", \"hello\") }")
+    assertMsg(errs.size() == 0, "erros inesperados em writeFile")
+}
+
+test fn testFsExistsReturnsBool() {
+    val errs = checkFS("fn main() -> Bool { return exists(\"/tmp\") }")
+    assertMsg(errs.size() == 0, "erros inesperados em exists")
+}
+
+test fn testFsIsDirReturnsBool() {
+    val errs = checkFS("fn main() -> Bool { return isDir(\"/tmp\") }")
+    assertMsg(errs.size() == 0, "erros inesperados em isDir")
+}
+
+test fn testIOErrorImplementsError() {
+    val src = "fn main() -> Result[String] {
+    return Err(IOError { msg: \"falhou\", errCode: 1 })
+}"
+    val errs = checkFS(src)
+    assertMsg(errs.size() == 0, "erros inesperados em IOError implements Error")
+}
+
+test fn testFsMatchReadFileResult() {
+    val src = "fn main() -> String {
+    val r = readFile(\"/tmp/test.txt\")
+    return match r {
+        Ok(content) => content
+        Err(e) => \"erro\"
+    }
+}"
+    val errs = checkFS(src)
+    assertMsg(errs.size() == 0, "erros inesperados em match readFile result")
 }

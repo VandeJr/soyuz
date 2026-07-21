@@ -1,9 +1,13 @@
-// M22 — tap tests (stub — port from soyuz-go/internal/checker/)
+// M22 — Task.tap tests (port of soyuz-go/internal/checker/m22_tap_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM22(src: String) -> List[TypeError] {
@@ -12,8 +16,72 @@ fn checkM22(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM22Baseline() {
-    // TODO: port milestone 22 tests from soyuz-go
-    val errs = checkM22("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M22 baseline stub")
+test fn testM22TaskTapReturnsTaskT() {
+    val src = "
+fn work(x: Int) -> Int { x * 2 }
+fn logIt(x: Int) { print(x) }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.tap(fn(r) => logIt(r))
+    t2.await()
+}
+"
+    val errs = checkM22(src)
+    assertMsg(errs.size() == 0, ".tap não deve gerar erros")
+}
+
+test fn testM22TaskTapPreservesTaskType() {
+    val src = "
+fn work(x: Int) -> Int { x * 2 }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.tap(fn(r) => print(r))
+    t2.await()
+}
+"
+    val errs = checkM22(src)
+    assertMsg(errs.size() == 0, ".tap deve preservar Task[T]")
+}
+
+test fn testM22TaskTapChaining() {
+    val src = "
+fn work(x: Int) -> Int { x + 1 }
+
+fn run(n: Int) -> Int {
+    val t = task work(n)
+    val t2 = t.tap(fn(r) => print(r)).tap(fn(r) => print(r))
+    t2.await()
+}
+"
+    val errs = checkM22(src)
+    assertMsg(errs.size() == 0, ".tap encadeado não deve gerar erros")
+}
+
+test fn testM22TaskTapRequiresOneArg() {
+    val src = "
+fn work(x: Int) -> Int { x }
+
+fn run(n: Int) {
+    val t = task work(n)
+    val _ = t.tap()
+}
+"
+    val errs = checkM22(src)
+    assertMsg(errs.size() > 0, ".tap sem argumento deve gerar erro")
+}
+
+test fn testM22TaskTapLambdaReceivesCorrectType() {
+    val src = "
+fn produce() -> Float { 3.14 }
+
+fn run() -> Float {
+    val t = task produce()
+    val t2 = t.tap(fn(r) => print(r))
+    t2.await()
+}
+"
+    val errs = checkM22(src)
+    assertMsg(errs.size() == 0, ".tap lambda deve receber tipo T correto")
 }

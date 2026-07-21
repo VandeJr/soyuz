@@ -1,0 +1,56 @@
+import (
+    { PathIndex, emptyPathIndex, joinPathFile, parentDir, pathBaseName, findProjectRoot, pathIndexFileContent, pathIndexHasPath, pathIndexIsDir, pathIndexListSyFilesInDir, pathIndexWriteFile } from @module/paths
+    { assertMsg } from @soyuz/testing
+)
+
+// Port of project_test.go TestFindProjectRoot — walk up to .soyuz-root marker.
+test fn testFindProjectRoot() {
+    val root = "/tmp/proj"
+    val sub = "/tmp/proj/src/app"
+    var index = emptyPathIndex()
+    index.markerFiles.append(joinPathFile(root, ".soyuz-root"))
+    assertMsg(findProjectRoot(sub, index) == root, "found project root with marker")
+}
+
+test fn testFindProjectRootTomlMarker() {
+    val root = "/tmp/app"
+    val sub = "/tmp/app/pkg"
+    var index = emptyPathIndex()
+    index.markerFiles.append(joinPathFile(root, "soyuz.toml"))
+    assertMsg(findProjectRoot(sub, index) == root, "soyuz.toml marks project root")
+}
+
+test fn testFindProjectRootFallback() {
+    val sub = "/lonely/src"
+    val index = emptyPathIndex()
+    assertMsg(findProjectRoot(sub, index) == sub, "no marker returns start dir")
+}
+
+test fn testParentDirAndBaseName() {
+    assertMsg(parentDir("/tmp/proj/src/app") == "/tmp/proj/src", "parent dir")
+    assertMsg(parentDir("/tmp") == "/", "parent of top-level")
+    assertMsg(pathBaseName("/tmp/proj/src") == "src", "base name")
+}
+
+test fn testPathIndexFileContent() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/soyuz.toml", "[project]\nname = \"x\"\n")
+    match pathIndexFileContent(index, "/tmp/proj/soyuz.toml") {
+        None => assertMsg(false, "expected content")
+        Some(content) => assertMsg(content.startsWith("[project]"), "toml content")
+    }
+    match pathIndexFileContent(index, "/missing") {
+        None => assertMsg(true, "missing path")
+        Some(_) => assertMsg(false, "missing should be none")
+    }
+}
+
+test fn testPathIndexIsDirAndListSy() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math/ops.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set("/proj/math/trig.sy", "pub fn cos(x: Float) = x")
+    assertMsg(pathIndexIsDir(index, "/proj/math"), "math is a directory")
+    assertMsg(!pathIndexIsDir(index, "/proj/missing"), "missing is not a directory")
+    val files = pathIndexListSyFilesInDir(index, "/proj/math")
+    assertMsg(files.size() == 2, "two sy files in math dir")
+}

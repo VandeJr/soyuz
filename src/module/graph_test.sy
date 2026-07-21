@@ -1,0 +1,181 @@
+import (
+    { emptyPathIndex, pathBaseName } from @module/paths
+    { newResolver, newResolverWithStdlib, Resolver } from @module/resolver
+    { collect, collectSucceeded, resolvePrelude, resolveImportsForFile, collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { importDeclIsModuleImport } from @ast/ast
+    { assertMsg } from @soyuz/testing
+)
+
+// Port of module_test.go TestSingleFile — entry only, no imports.
+test fn testCollectSingleFile() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(entry, "fn hello() = \"oi\"")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 1, "one file")
+    assertMsg(result.files.get(0) == entry, "entry file only")
+}
+
+// Port of module_test.go TestSingleFileImport — math.sy before main.sy.
+test fn testCollectSingleFileImport() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set(entry, "import math.{ dobrar }\nfn main() = dobrar(5)")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 2, "two files")
+    assertMsg(pathBaseName(result.files.get(0)) == "math.sy", "math first")
+    assertMsg(pathBaseName(result.files.get(1)) == "main.sy", "main last")
+}
+
+// Port of module_test.go TestCycleDetection — cyclic imports return error.
+test fn testCollectCycleDetection() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/a.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/a.sy", "import b.{ foo }")
+    index.fileContents.set("/tmp/proj/b.sy", "import a.{ bar }")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(!collectSucceeded(result), "cycle should fail")
+}
+
+// Port of module_test.go TestDirectoryImport — package directory with multiple .sy files.
+test fn testCollectDirectoryImport() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/math/ops.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set("/tmp/proj/math/trig.sy", "pub fn cos(x: Float) = x")
+    index.fileContents.set(entry, "import math.{ dobrar }\nfn main() = dobrar(3)")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 3, "two math files plus main")
+    assertMsg(pathBaseName(result.files.get(result.files.size() - 1)) == "main.sy", "main last")
+}
+
+// Port of module_test.go TestTransitiveDependencies — base → mid → main order.
+test fn testCollectTransitiveDependencies() {
+    val dir = "/tmp/proj"
+    val entry = "/tmp/proj/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/proj/base.sy", "pub fn id(x: Int) = x")
+    index.fileContents.set("/tmp/proj/mid.sy", "import base.{ id }\npub fn double(x: Int) = id(x) * 2")
+    index.fileContents.set(entry, "import mid.{ double }\nfn main() = double(4)")
+    val r = newResolver(dir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 3, "three files")
+    assertMsg(pathBaseName(result.files.get(0)) == "base.sy", "base first")
+    assertMsg(pathBaseName(result.files.get(2)) == "main.sy", "main last")
+}
+
+// Port of module_test.go TestStdlibImport — @soyuz/mock resolves from StdlibDir.
+test fn testCollectStdlibImport() {
+    val dir = "/tmp/app"
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/mock.sy", "pub fn assert_eq(a: Int, b: Int, name: String) {}")
+    index.fileContents.set(entry, "import ( { assert_eq } from \"@soyuz/mock\" )\nfn main() { assert_eq(1, 1, \"ok\") }")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 2, "mock.sy and main.sy")
+}
+
+// Port of module_test.go TestStdlibImportSemStdlibDir — fails without stdlib configured.
+test fn testCollectStdlibImportNoStdlibDir() {
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(entry, "import ( { assert_eq } from \"@soyuz/mock\" )")
+    val r = newResolver("/tmp/app")
+    val result = collect(entry, r, index)
+    assertMsg(!collectSucceeded(result), "stdlib import without stdlib dir fails")
+}
+
+// Port of module_test.go TestUnresolvedImport — missing module returns error.
+test fn testCollectUnresolvedImport() {
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    index.fileContents.set(entry, "import inexistente.{ foo }\nfn main() = foo()")
+    val r = newResolver("/tmp/app")
+    val result = collect(entry, r, index)
+    assertMsg(!collectSucceeded(result), "unresolved import should fail")
+}
+
+test fn testResolvePreludeFromIndex() {
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/prelude.sy", "pub fn range(from: Int, to: Int) -> List[Int] = []")
+    val r = Resolver {
+        root: "/tmp/app",
+        projectRoot: "",
+        stdlibDir: stdlibDir,
+        packages: Map[String, String]{}
+    }
+    val files = resolvePrelude(r, index)
+    assertMsg(files.size() == 1, "one prelude file")
+    assertMsg(files.get(0) == "/tmp/stdlib/prelude.sy", "prelude path")
+}
+
+// Collect auto-includes prelude when stdlib is configured (graph.go ResolvePrelude).
+test fn testCollectIncludesPrelude() {
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/prelude.sy", "pub fn print(x: String) {}")
+    index.fileContents.set(entry, "fn main() {}")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val result = collect(entry, r, index)
+    assertMsg(collectSucceeded(result), "collect ok")
+    assertMsg(result.files.size() == 2, "prelude plus main")
+    assertMsg(pathBaseName(result.files.get(0)) == "prelude.sy", "prelude before entry")
+}
+
+test fn testResolvePreludeNoStdlib() {
+    val r = newResolver("/tmp/app")
+    val files = resolvePrelude(r, emptyPathIndex())
+    assertMsg(files.size() == 0, "no prelude without stdlib dir")
+}
+
+// Port of stdlib_namespace_test.go TestStdlibBareImportNamespace — bare @soyuz/mock module import.
+test fn testResolveImportsForFileBareStdlibModule() {
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/mock.sy", "pub fn assert_true(cond: Bool, name: String) {}")
+    index.fileContents.set(entry, "import ( \"@soyuz/mock\" )\nfn main() { mock.assert_true(true, \"ok\") }")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    match resolveImportsForFile(entry, r, index) {
+        None => assertMsg(false, "expected imports resolved")
+        Some(imports) => {
+            assertMsg(imports.size() == 1, "one import decl")
+            val imp = imports.get(0)
+            assertMsg(importDeclIsModuleImport(imp), "bare module import form")
+            assertMsg(imp.namespace == "mock", "mock namespace for qualified access")
+            assertMsg(imp.resolvedFiles.get(0) == "/tmp/stdlib/mock.sy", "resolved mock.sy")
+        }
+    }
+}
+
+// End-to-end: collectProgram + checker for bare @soyuz/mock namespace (stdlib_namespace_test.go).
+test fn testCheckStdlibBareModuleImport() {
+    val entry = "/tmp/app/main.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/mock.sy", "extern fn soyuz_print_str(s: String)\npub fn assert_true(cond: Bool, name: String) { soyuz_print_str(name) }")
+    index.fileContents.set(entry, "import ( \"@soyuz/mock\" )\nfn main() { mock.assert_true(true, \"ok\") }")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect program ok")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "no checker errors for mock namespace import")
+}

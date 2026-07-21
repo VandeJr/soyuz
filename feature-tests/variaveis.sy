@@ -1,0 +1,38 @@
+fn main() {
+    val nome = "Soyuz"
+    val versao: Int = 1
+    val x = 42
+    val pi = 3.14
+    val ok = true
+    print("val: $(nome) v$(versao) x=$(x) pi=$(pi) ok=$(ok)")
+
+    var contador = 0
+    contador = contador + 1
+    contador = 42
+    print("var contador=$(contador)")
+
+    val id: Int = 42
+    val id: String = "USR-42"
+    print("shadowing: $(id)")
+
+    val a = 10
+    val b = 3.14
+    val c = true
+    val d = "texto"
+    print("inferência: $(a) $(b) $(c) $(d)")
+
+    val f: List[Int] = [1, 2, 3]
+    print("lista criada ok")
+
+    if true {
+        val y = 20
+        print("escopo bloco: $(y)")
+    }
+
+    var total = 0
+    val precos = [10, 20, 30]
+    for preco in precos {
+        total = total + preco
+    }
+    print("total: $(total)")
+}

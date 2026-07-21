@@ -1,0 +1,156 @@
+// Thin entry for root main.sy — usage, new, build (legacy + project), test, run without full driver codegen chain.
+
+import (
+    { cliUsageText, cliArgvNeedsUsage, cliUsageHeader, cliCommandNew, cliCommandBuild, cliCommandTest, cliCommandRun } from @driver/cli_usage
+    { cliProgramArgv, defaultCliProgramArgv } from @driver/cli_argv
+    { newCliBootstrapCommand } from @driver/new
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, defaultSoyuzLibraryBuildArgv, buildCliLegacyBootstrapCommand, buildCliProjectBootstrapCommand } from @driver/build_cli
+    { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliNativeSuccessStubMessage, testCliLegacyBootstrapCommand } from @driver/test_cli
+    { runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliLegacyBootstrapCommand, runCliNativeHelloStubMessage } from @driver/run_cli
+    { argvIsNativeLibraryBuild, nativeCompileLibraryBuildOutput, standaloneCliNativeLibraryBuildEnabled, nativeCompileLegacyBuildEnabledForPlan, nativeCompileLegacyBuildOutputFromArgv, standaloneCliNativeNewEnabled, nativeCompileNewOutputFromArgv, standaloneCliNativeTestEnabled, nativeCompileTestOutputFromArgv, nativeCompileTestSuccessMarker, nativeCompileTestRunnerArgv, standaloneCliNativeRunEnabled, nativeCompileRunOutputFromArgv, nativeCompileRunSuccessMarker, nativeCompileHelloMinimalRunArgv } from @driver/native_compile
+)
+
+fn standaloneSubcommandArgsFromArgv(argv: List[String]) -> List[String] {
+    var args = List[String]{}
+    var i = 2
+    loop {
+        if i >= argv.size() { break }
+        args.append(argv.get(i))
+        i = i + 1
+    }
+    return args
+}
+
+pub fn runStandaloneCli(argv: List[String]) -> String {
+    if cliArgvNeedsUsage(argv) { return cliUsageText() }
+    if argv.size() >= 2 && argv.get(1) == cliCommandNew() {
+        return nativeCompileNewOutputFromArgv(argv)
+    }
+    if argv.size() >= 2 && argv.get(1) == cliCommandBuild() {
+        val args = standaloneSubcommandArgsFromArgv(argv)
+        if cliBuildProjectModeFromArgs(args) {
+            if standaloneCliNativeLibraryBuildEnabled() {
+                return nativeCompileLibraryBuildOutput()
+            }
+            return buildCliLibraryVerifyStubMessage()
+        }
+        val plan = buildCliLegacyPlanFromArgs(args)
+        if !buildCliLegacyPlanReady(plan) {
+            return "erro: build incompleto"
+        }
+        if nativeCompileLegacyBuildEnabledForPlan(plan) {
+            return nativeCompileLegacyBuildOutputFromArgv(argv)
+        }
+        return buildCliLegacySuccessMessage(plan)
+    }
+    if argv.size() >= 2 && argv.get(1) == cliCommandTest() {
+        if standaloneCliNativeTestEnabled() {
+            return nativeCompileTestOutputFromArgv(argv)
+        }
+        val args = standaloneSubcommandArgsFromArgv(argv)
+        val plan = testCliLegacyPlanFromArgs(args)
+        if !testCliLegacyPlanReady(plan) {
+            return "erro: test legacy incompleto"
+        }
+        return testCliNativeSuccessStubMessage()
+    }
+    if argv.size() >= 2 && argv.get(1) == cliCommandRun() {
+        if standaloneCliNativeRunEnabled() {
+            return nativeCompileRunOutputFromArgv(argv)
+        }
+        val args = standaloneSubcommandArgsFromArgv(argv)
+        val plan = runCliLegacyPlanFromArgs(args)
+        if !runCliLegacyPlanReady(plan) {
+            return "erro: run incompleto"
+        }
+        return runCliNativeHelloStubMessage()
+    }
+    return "erro: binário standalone — use bootstrap soyuz para subcomandos"
+}
+
+pub fn standaloneCliBootstrapBuildCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandBuild() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    if cliBuildProjectModeFromArgs(args) {
+        if standaloneCliNativeLibraryBuildEnabled() { return "" }
+        return buildCliProjectBootstrapCommand(args)
+    }
+    val plan = buildCliLegacyPlanFromArgs(args)
+    if !buildCliLegacyPlanReady(plan) { return "" }
+    if nativeCompileLegacyBuildEnabledForPlan(plan) { return "" }
+    return buildCliLegacyBootstrapCommand(plan)
+}
+
+pub fn standaloneCliBootstrapTestCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandTest() { return "" }
+    if standaloneCliNativeTestEnabled() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    return testCliLegacyBootstrapCommand(args)
+}
+
+pub fn standaloneCliBootstrapRunCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandRun() { return "" }
+    if standaloneCliNativeRunEnabled() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    return runCliLegacyBootstrapCommand(args)
+}
+
+pub fn standaloneCliBootstrapNewCommand(argv: List[String]) -> String {
+    if argv.size() < 2 || argv.get(1) != cliCommandNew() { return "" }
+    if standaloneCliNativeNewEnabled() { return "" }
+    val args = standaloneSubcommandArgsFromArgv(argv)
+    return newCliBootstrapCommand(args)
+}
+
+pub fn standaloneCliBootstrapShellCommand(argv: List[String]) -> String {
+    val build = standaloneCliBootstrapBuildCommand(argv)
+    if build.len() > 0 { return build }
+    val testCmd = standaloneCliBootstrapTestCommand(argv)
+    if testCmd.len() > 0 { return testCmd }
+    val runCmd = standaloneCliBootstrapRunCommand(argv)
+    if runCmd.len() > 0 { return runCmd }
+    val newCmd = standaloneCliBootstrapNewCommand(argv)
+    if newCmd.len() > 0 { return newCmd }
+    return ""
+}
+
+pub fn standaloneCliShouldDelegateBuild(argv: List[String]) -> Bool {
+    return standaloneCliBootstrapBuildCommand(argv).len() > 0
+}
+
+pub fn standaloneCliUsageReady() -> Bool {
+    return runStandaloneCli(defaultCliProgramArgv()).contains(cliUsageHeader())
+}
+
+pub fn standaloneCliNewReady() -> Bool {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandNew())
+    argv.append("demo")
+    val out = runStandaloneCli(argv)
+    return out.contains("demo") && out.contains("criado")
+}
+
+pub fn standaloneCliBuildReady() -> Bool {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append(cliCommandBuild())
+    argv.append("tools/fixtures/hello_minimal.sy")
+    val out = runStandaloneCli(argv)
+    return out.contains("Build concluído") && out.contains("output")
+}
+
+pub fn standaloneCliLibraryBuildReady() -> Bool {
+    val out = runStandaloneCli(defaultSoyuzLibraryBuildArgv())
+    return out.contains("verificada com sucesso")
+}
+
+pub fn standaloneCliTestReady() -> Bool {
+    val out = runStandaloneCli(nativeCompileTestRunnerArgv())
+    return out.contains(nativeCompileTestSuccessMarker())
+}
+
+pub fn standaloneCliRunReady() -> Bool {
+    val out = runStandaloneCli(nativeCompileHelloMinimalRunArgv())
+    return out.contains(nativeCompileRunSuccessMarker())
+}

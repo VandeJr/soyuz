@@ -1,0 +1,34 @@
+// @soyuz/path — path helpers using string FFI directly (no @soyuz/string import).
+
+extern fn soyuz_str_concat(s1: String, s2: String) -> String
+
+extern fn soyuz_str_last_index_of(s: String, sub: String) -> Int
+
+extern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String
+
+extern fn soyuz_str_len(s: String) -> Int
+
+extern fn soyuz_str_starts_with(s: String, prefix: String) -> Bool
+
+extern fn soyuz_str_ends_with(s: String, suffix: String) -> Bool
+
+pub class Path {
+    pub val _path: String
+
+    pub fn join(self, part: String) -> Path {
+        if soyuz_str_ends_with(self._path, "/") {
+            return Path { _path: soyuz_str_concat(self._path, part) }
+        }
+        return Path { _path: soyuz_str_concat(soyuz_str_concat(self._path, "/"), part) }
+    }
+
+    pub fn name(self) -> String {
+        val idx = soyuz_str_last_index_of(self._path, "/")
+        if idx == -1 { return self._path }
+        return soyuz_str_substring(self._path, idx + 1, soyuz_str_len(self._path))
+    }
+
+    pub fn isAbsolute(self) -> Bool = soyuz_str_starts_with(self._path, "/")
+}
+
+pub fn path(p: String) -> Path = Path { _path: p }

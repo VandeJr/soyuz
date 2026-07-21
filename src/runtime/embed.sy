@@ -1,0 +1,155 @@
+import (
+    { PathIndex, joinPathFile, pathIndexFileContent, pathIndexWriteFile } from @module/paths
+)
+
+pub record RuntimeAsset {
+    name: String,
+    content: String
+}
+
+pub record RuntimeWriteEntry {
+    path: String,
+    content: String
+}
+
+pub fn isRuntimeCSource(name: String) -> Bool = name.endsWith(".c")
+
+pub fn isRuntimeHeader(name: String) -> Bool = name.endsWith(".h")
+
+// Mirrors soyuz-go/internal/runtime/embed.go embedded file names.
+pub fn runtimeAssetNames() -> List[String] {
+    var names: List[String] = []
+    names.append("soyuz.h")
+    names.append("rc.c")
+    names.append("std_io.c")
+    names.append("std_string.c")
+    names.append("std_fs.c")
+    names.append("std_os.c")
+    names.append("std_collections.c")
+    names.append("soyuz_rt.h")
+    names.append("soyuz_rt.c")
+    names.append("std_sync.c")
+    names.append("std_channel.c")
+    names.append("std_arc.c")
+    names.append("std_test.c")
+    return names
+}
+
+pub fn emptyRuntimeAsset(name: String) -> RuntimeAsset = RuntimeAsset {
+    name: name,
+    content: ""
+}
+
+pub fn defaultRuntimeAssets() -> List[RuntimeAsset] {
+    var assets: List[RuntimeAsset] = []
+    for name in runtimeAssetNames() {
+        assets.append(emptyRuntimeAsset(name))
+    }
+    return assets
+}
+
+pub fn runtimeCSourceCount(assets: List[RuntimeAsset]) -> Int {
+    var count = 0
+    for asset in assets {
+        if isRuntimeCSource(asset.name) { count = count + 1 }
+    }
+    return count
+}
+
+pub fn runtimeAssetContent(assets: List[RuntimeAsset], name: String) -> String {
+    for asset in assets {
+        if asset.name == name { return asset.content }
+    }
+    return ""
+}
+
+pub fn loadRuntimeAssetsFromIndex(srcDir: String, index: PathIndex) -> List[RuntimeAsset] {
+    var assets: List[RuntimeAsset] = []
+    for name in runtimeAssetNames() {
+        val path = joinPathFile(srcDir, name)
+        match pathIndexFileContent(index, path) {
+            None => assets.append(emptyRuntimeAsset(name))
+            Some(content) => assets.append(RuntimeAsset { name: name, content: content })
+        }
+    }
+    return assets
+}
+
+// Reads runtime assets already written under tmpDir (post-manifest apply).
+pub fn loadRuntimeAssetsFromMaterializedIndex(tmpDir: String, index: PathIndex) -> List[RuntimeAsset] {
+    var assets: List[RuntimeAsset] = []
+    for name in runtimeAssetNames() {
+        val path = joinPathFile(tmpDir, name)
+        match pathIndexFileContent(index, path) {
+            None => assets.append(emptyRuntimeAsset(name))
+            Some(content) => assets.append(RuntimeAsset { name: name, content: content })
+        }
+    }
+    return assets
+}
+
+// Plans tmpDir file writes for link (mirrors cmd/main.go extract before clang).
+pub fn planRuntimeWrite(tmpDir: String, assets: List[RuntimeAsset]) -> List[RuntimeWriteEntry] {
+    var entries: List[RuntimeWriteEntry] = []
+    for asset in assets {
+        entries.append(RuntimeWriteEntry {
+            path: joinPathFile(tmpDir, asset.name),
+            content: asset.content
+        })
+    }
+    return entries
+}
+
+pub fn defaultRuntimeSrcSubdir() -> String = "internal/runtime/src"
+
+pub fn runtimeAssetPath(srcDir: String, name: String) -> String {
+    return joinPathFile(srcDir, name)
+}
+
+pub fn runtimeSourcePaths(srcDir: String) -> List[String] {
+    var paths: List[String] = []
+    for name in runtimeAssetNames() {
+        paths.append(runtimeAssetPath(srcDir, name))
+    }
+    return paths
+}
+
+pub fn runtimeSourcePathCount() -> Int = 13
+
+pub fn runtimeAssetsFullyLoaded(assets: List[RuntimeAsset]) -> Bool {
+    for asset in assets {
+        if asset.content.len() == 0 { return false }
+    }
+    return true
+}
+
+pub fn runtimeLoadedAssetCount(assets: List[RuntimeAsset]) -> Int {
+    var count = 0
+    for asset in assets {
+        if asset.content.len() > 0 { count = count + 1 }
+    }
+    return count
+}
+
+// Mirrors cmd/main.go os.WriteFile loop for embedded runtime sources.
+pub fn applyRuntimeWritePlan(index: PathIndex, writePlan: List[RuntimeWriteEntry]) -> PathIndex {
+    var result = index
+    for entry in writePlan {
+        result = pathIndexWriteFile(result, entry.path, entry.content)
+    }
+    return result
+}
+
+pub fn runtimeWriteEntryApplied(index: PathIndex, entry: RuntimeWriteEntry) -> Bool {
+    match pathIndexFileContent(index, entry.path) {
+        None => return false
+        Some(content) => return content == entry.content
+    }
+}
+
+pub fn runtimeWritePlanFullyApplied(index: PathIndex, writePlan: List[RuntimeWriteEntry]) -> Bool {
+    for entry in writePlan {
+        if !runtimeWriteEntryApplied(index, entry) { return false }
+    }
+    return true
+}

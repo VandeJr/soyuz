@@ -1,0 +1,43 @@
+import (
+    { mainStandaloneBuildEntry, mainStandaloneFullBuildPlanReady, mainStandaloneThinGraphPlanReady, mainStandaloneThinGraphIrReady, mainStandaloneThinMainSource, mainStandaloneIrExecSymbolMarker, planMainStandaloneFullBuild, mainStandalonePlanIrHasExecSymbol, mainStandaloneThinCliArgvIsRealSource, mainStandaloneThinCliArgvPlanReady, mainStandaloneThinCliArgvSource, mainStandaloneCliArgvSourceMarker, mainStandaloneThinCliMainExecIsRealSource, mainStandaloneThinCliMainExecPlanReady, mainStandaloneThinCliMainExecSource, mainStandaloneCliMainExecHelperMarker, mainStandaloneThinCliUsageIsRealSource, mainStandaloneThinCliUsagePlanReady, mainStandaloneThinCliUsageSource, mainStandaloneCliUsageHeaderMarker, mainStandaloneThinBuildCliIsRealSource, mainStandaloneThinBuildCliPlanReady, mainStandaloneThinBuildCliSource, mainStandaloneBuildCliLibraryVerifyMarker, mainStandaloneThinMainStandaloneLibraryBuildReady, mainStandaloneBuildCliLegacySuccessMarker, mainStandaloneThinMainStandaloneLegacyBuildReady, mainStandaloneThinTestCliIsRealSource, mainStandaloneThinTestCliPlanReady, mainStandaloneThinTestCliSource, mainStandaloneTestCliSuccessMarker, mainStandaloneThinMainStandaloneTestReady, mainStandaloneThinMainStandaloneSource } from @driver/main_build
+    { bootstrapVerifySelfRebuildEntry, bootstrapVerifySelfRebuildUsageMarker } from @driver/bootstrap_verify
+    { standaloneCliNativeMainBuildEnabled, nativeCompileMainBuildReady } from @driver/native_compile
+    { fullBuildReady } from @driver/pipeline
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testMainStandaloneFullBuildPlan() {
+    assertMsg(mainStandaloneBuildEntry() == bootstrapVerifySelfRebuildEntry(), "main entry path")
+    assertMsg(mainStandaloneThinGraphPlanReady(), "main thin graph plan ready")
+    assertMsg(mainStandaloneFullBuildPlanReady(), "main standalone full build plan ready")
+    assertMsg(fullBuildReady(planMainStandaloneFullBuild()), "plan full build ready")
+    assertMsg(!standaloneCliNativeMainBuildEnabled(), "native main build disabled")
+    assertMsg(!nativeCompileMainBuildReady(), "native main build not ready yet")
+    val plan = planMainStandaloneFullBuild()
+    assertMsg(plan.cfg.inputFile.endsWith(bootstrapVerifySelfRebuildEntry()), "plan input entry")
+    assertMsg(plan.artifacts.irContent.len() > 0, "plan emits IR")
+    assertMsg(mainStandaloneThinMainSource().contains("cliOsExecShell"), "thin main imports exec")
+    assertMsg(mainStandalonePlanIrHasExecSymbol(plan), "plan IR has exec symbol")
+    assertMsg(mainStandaloneThinGraphIrReady(), "thin graph IR ready")
+    assertMsg(plan.artifacts.irContent.contains(mainStandaloneIrExecSymbolMarker()), "IR exec marker")
+    assertMsg(mainStandaloneThinCliArgvIsRealSource(), "real cli_argv source")
+    assertMsg(mainStandaloneThinCliArgvPlanReady(), "real cli_argv plan ready")
+    assertMsg(mainStandaloneThinCliArgvSource().contains(mainStandaloneCliArgvSourceMarker()), "cli_argv os bridge")
+    assertMsg(mainStandaloneThinCliMainExecIsRealSource(), "real cli_main_exec source")
+    assertMsg(mainStandaloneThinCliMainExecPlanReady(), "real cli_main_exec plan ready")
+    assertMsg(mainStandaloneThinCliMainExecSource().contains(mainStandaloneCliMainExecHelperMarker()), "cli_main_exec helper")
+    assertMsg(mainStandaloneThinCliUsageIsRealSource(), "real cli_usage source")
+    assertMsg(mainStandaloneThinCliUsagePlanReady(), "real cli_usage plan ready")
+    assertMsg(mainStandaloneThinCliUsageSource().contains(mainStandaloneCliUsageHeaderMarker()), "cli_usage header")
+    assertMsg(mainStandaloneThinMainStandaloneSource().contains(bootstrapVerifySelfRebuildUsageMarker()), "main_standalone uses usage")
+    assertMsg(mainStandaloneThinBuildCliIsRealSource(), "real build_cli source")
+    assertMsg(mainStandaloneThinBuildCliPlanReady(), "real build_cli plan ready")
+    assertMsg(mainStandaloneThinBuildCliSource().contains(mainStandaloneBuildCliLibraryVerifyMarker()), "build_cli library verify")
+    assertMsg(mainStandaloneThinMainStandaloneLibraryBuildReady(), "main_standalone library build path")
+    assertMsg(mainStandaloneThinMainStandaloneLegacyBuildReady(), "main_standalone legacy build path")
+    assertMsg(mainStandaloneThinMainStandaloneSource().contains(mainStandaloneBuildCliLegacySuccessMarker()), "legacy success marker")
+    assertMsg(mainStandaloneThinTestCliIsRealSource(), "real test_cli source")
+    assertMsg(mainStandaloneThinTestCliPlanReady(), "real test_cli plan ready")
+    assertMsg(mainStandaloneThinTestCliSource().contains(mainStandaloneTestCliSuccessMarker()), "test_cli success marker")
+    assertMsg(mainStandaloneThinMainStandaloneTestReady(), "main_standalone test path")
+}

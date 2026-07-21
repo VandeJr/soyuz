@@ -1,0 +1,53 @@
+import (
+    { runtimeAssetNames, runtimeSourcePaths, runtimeSourcePathCount, runtimeAssetPath } from @runtime/embed
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { buildConfigForEntry, defaultRuntimeSrcDir, linkConfigFromBuild, planPostCodegenBuild, buildArtifactsReady, defaultBuildTmpPrefix, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript, defaultDriverCliRunDispatchCheckScript, defaultDriverCliRunPipelineCheckScript, defaultDriverCliEntryCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { defaultLlFilePath } from @runtime/link
+    { defaultExportManifestScript, manifestContainsPath } from @runtime/manifest
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testLinkConfigFromBuild() {
+    val cfg = buildConfigForEntry("/proj/hello.sy", "/tmp/out/app", true, "/tmp/soyuz-abc", "/ref/runtime/src")
+    val linkCfg = linkConfigFromBuild(cfg)
+    assertMsg(linkCfg.optimize, "release maps to optimize")
+    assertMsg(linkCfg.llFile == defaultLlFilePath("/tmp/soyuz-abc"), "ll under tmp dir")
+    assertMsg(linkCfg.outputFile == "/tmp/out/app", "output file preserved")
+}
+
+test fn testPlanPostCodegenBuild() {
+    val goRoot = "/ref/soyuz-go"
+    val runtimeSrc = defaultRuntimeSrcDir(goRoot)
+    val cfg = buildConfigForEntry("/proj/hello.sy", "/tmp/soyuz-abc/app", false, "/tmp/soyuz-abc", runtimeSrc)
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(runtimeSrc, name), "// $(name)\n")
+    }
+    val ir = "define i32 @main() { ret i32 0 }\n"
+    val artifacts = planPostCodegenBuild(cfg, sourceIndex, ir)
+    assertMsg(buildArtifactsReady(artifacts), "artifacts ready after codegen plan")
+    assertMsg(artifacts.exportManifestScript == defaultExportManifestScript(), "export script on artifacts")
+    assertMsg(manifestContainsPath(artifacts.manifest, defaultLlFilePath("/tmp/soyuz-abc")), "manifest has ll path")
+    assertMsg(defaultBuildTmpPrefix() == "/tmp/soyuz-", "tmp prefix matches go MkdirTemp")
+}
+
+test fn testRuntimeSourcePathsAndDriverScripts() {
+    val srcDir = "/ref/runtime/src"
+    val paths = runtimeSourcePaths(srcDir)
+    assertMsg(paths.size() == runtimeSourcePathCount(), "thirteen runtime source paths")
+    assertMsg(runtimeAssetPath(srcDir, "rc.c") == "/ref/runtime/src/rc.c", "asset path join")
+    assertMsg(defaultRuntimeExportManifestScript() == "tools/runtime-export-runtime-manifest.sh", "runtime export script")
+    assertMsg(defaultDriverLinkStubCheckScript() == "tools/driver-link-stub-check.sh", "driver stub check script")
+    assertMsg(expectedFullBuildManifestEntries() == 14, "full build manifest entry count")
+    assertMsg(defaultDriverFullBuildCheckScript() == "tools/driver-full-build-check.sh", "driver full build check script")
+    assertMsg(defaultExportDriverHelloIrScript() == "tools/export-driver-hello-ir.sh", "export driver hello ir script")
+    assertMsg(defaultDriverAppliedManifestLinkCheckScript() == "tools/driver-applied-manifest-link-check.sh", "applied manifest link check script")
+    assertMsg(defaultDriverRunPlanLinkCheckScript() == "tools/driver-run-plan-link-check.sh", "run plan link check script")
+    assertMsg(defaultExportHelloRunManifestScript() == "tools/export-hello-run-manifest.sh", "export hello run manifest script")
+    assertMsg(defaultDriverRunManifestRoundTripCheckScript() == "tools/driver-run-manifest-round-trip-check.sh", "run manifest round trip check script")
+    assertMsg(defaultDriverRunPlanMaterializeCheckScript() == "tools/driver-run-plan-materialize-check.sh", "run plan materialize check script")
+    assertMsg(defaultDriverBootstrapHelloRunCheckScript() == "tools/driver-bootstrap-hello-run-check.sh", "bootstrap hello run check script")
+    assertMsg(defaultDriverCliRunDispatchCheckScript() == "tools/driver-cli-run-dispatch-check.sh", "cli run dispatch check script")
+    assertMsg(defaultDriverCliRunPipelineCheckScript() == "tools/driver-cli-run-pipeline-check.sh", "cli run pipeline check script")
+    assertMsg(defaultDriverCliEntryCheckScript() == "tools/driver-cli-entry-check.sh", "cli entry check script")
+}

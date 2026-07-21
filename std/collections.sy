@@ -1,0 +1,27 @@
+// Soyuz Standard Library — Collections
+//
+// Os métodos de coleção primários (map, filter, reduce, join, size, get,
+// append, isEmpty) são primitivos do compilador e funcionam automaticamente
+// em qualquer List[T] ou Map[K,V] sem necessidade de import.
+//
+// Este módulo fornece funções utilitárias adicionais.
+
+extern fn soyuz_range(from: Int, to: Int) -> List[Int]
+extern fn soyuz_range_inclusive(from: Int, to: Int) -> List[Int]
+extern fn soyuz_range_step(from: Int, to: Int, step: Int) -> List[Int]
+
+// Gera uma lista de inteiros no intervalo [from, to) (exclusivo).
+// Exemplo: range(0, 5) → [0, 1, 2, 3, 4]
+pub fn range(from: Int, to: Int) -> List[Int] = soyuz_range(from, to)
+
+// Gera uma lista de inteiros no intervalo [from, to] (inclusivo).
+// Exemplo: rangeInclusive(1, 5) → [1, 2, 3, 4, 5]
+pub fn rangeInclusive(from: Int, to: Int) -> List[Int] = soyuz_range_inclusive(from, to)
+
+// Gera uma lista de inteiros com passo explícito (pode ser negativo).
+// Exemplo: rangeStep(0, 10, 2) → [0, 2, 4, 6, 8]
+// Exemplo: rangeStep(5, 0, -1) → [5, 4, 3, 2, 1]
+pub fn rangeStep(from: Int, to: Int, step: Int) -> List[Int] = soyuz_range_step(from, to, step)
+
+// Iterator[T] e Iteravel[T] são builtins do compilador (ver internal/checker/checker.go).
+// List[T].iter() e Map[K,V].iter() retornam Iterator[T] / Iterator[K].

@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForStringsFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend String { pub fn equals(self, other: String) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureStringsPath() -> String = "feature-tests/strings.sy"
+
+// Port of feature-tests/strings.sy — string FFI extend subset without $(...) in embed string.
+test fn testFeatureStringsTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/strings.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForStringsFeature(index, stdlibDir)
+    index.fileContents.set(entry, "extern fn soyuz_str_to_upper(s: String) -> String\nextern fn soyuz_str_to_lower(s: String) -> String\nextern fn soyuz_str_contains(s: String, sub: String) -> Bool\nextern fn soyuz_str_trim(s: String) -> String\nextern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String\nextern fn soyuz_str_len(s: String) -> Int\nextern fn soyuz_str_index_of(s: String, sub: String) -> Int\nextern fn soyuz_str_replace(s: String, from: String, to: String) -> String\nextern fn soyuz_str_starts_with(s: String, prefix: String) -> Bool\nextern fn soyuz_str_ends_with(s: String, suffix: String) -> Bool\nextend String {\n\tpub fn toUpper(self) -> String = soyuz_str_to_upper(self)\n\tpub fn toLower(self) -> String = soyuz_str_to_lower(self)\n\tpub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub)\n\tpub fn trim(self) -> String = soyuz_str_trim(self)\n\tpub fn substring(self, start: Int, end: Int) -> String = soyuz_str_substring(self, start, end)\n\tpub fn len(self) -> Int = soyuz_str_len(self)\n\tpub fn replace(self, from: String, to: String) -> String = soyuz_str_replace(self, from, to)\n\tpub fn startsWith(self, prefix: String) -> Bool = soyuz_str_starts_with(self, prefix)\n\tpub fn endsWith(self, suffix: String) -> Bool = soyuz_str_ends_with(self, suffix)\n\tpub fn indexOf(self, sub: String) -> Option[Int] {\n\t\tval idx = soyuz_str_index_of(self, sub)\n\t\tif idx == -1 { return None }\n\t\treturn Some(idx)\n\t}\n}\nfn main() {\n\tval nome = \"Vand\"\n\tprint(nome)\n\tval s = \"Soyuz Lang\"\n\tprint(s.len())\n\tprint(s.toUpper())\n\tprint(s.toLower())\n\tprint(s.contains(\"Lang\"))\n\tprint(s.startsWith(\"Soyuz\"))\n\tprint(s.endsWith(\"Lang\"))\n\tprint(s.replace(\"Lang\", \"PL\"))\n\tprint(\"  hello  \".trim())\n\tprint(s.substring(0, 5))\n\tval regex = r\"\\d+\\.\\d+\"\n\tprint(regex)\n\tval idx = s.indexOf(\"Lang\")\n\tmatch idx { Some(i) => print(i) None => print(-1) }\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect strings feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus strings")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature strings type-checks")
+}

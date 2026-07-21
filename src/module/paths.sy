@@ -1,0 +1,114 @@
+pub record PathIndex {
+    markerFiles: List[String],
+    fileContents: Map[String, String]
+}
+
+pub fn emptyPathIndex() -> PathIndex = PathIndex {
+    markerFiles: List[String]{},
+    fileContents: Map[String, String]{}
+}
+
+pub fn joinPathFile(dir: String, fileName: String) -> String {
+    if dir.len() == 0 { return fileName }
+    if dir.endsWith("/") { return "$(dir)$(fileName)" }
+    return "$(dir)/$(fileName)"
+}
+
+pub fn parentDir(path: String) -> String {
+    if path.len() == 0 { return path }
+    var p = path
+    if p.endsWith("/") && p.len() > 1 {
+        p = p.substring(0, p.len() - 1)
+    }
+    match p.lastIndexOf("/") {
+        None => return p
+        Some(idx) => {
+            if idx == 0 { return "/" }
+            return p.substring(0, idx)
+        }
+    }
+}
+
+pub fn pathBaseName(path: String) -> String {
+    if path.len() == 0 { return path }
+    var p = path
+    if p.endsWith("/") && p.len() > 1 {
+        p = p.substring(0, p.len() - 1)
+    }
+    match p.lastIndexOf("/") {
+        None => return p
+        Some(idx) => return p.substring(idx + 1, p.len())
+    }
+}
+
+pub fn pathIndexHasPath(index: PathIndex, path: String) -> Bool {
+    for marker in index.markerFiles {
+        if marker == path { return true }
+    }
+    for key in index.fileContents.keys() {
+        if key == path { return true }
+    }
+    return false
+}
+
+fn pathPrefixWithSlash(dir: String) -> String {
+    if dir.endsWith("/") { return dir }
+    return "$(dir)/"
+}
+
+pub fn pathIndexIsDir(index: PathIndex, dirPath: String) -> Bool {
+    val prefix = pathPrefixWithSlash(dirPath)
+    for key in index.fileContents.keys() {
+        if key.startsWith(prefix) { return true }
+    }
+    return false
+}
+
+pub fn pathIndexListSyFilesInDir(index: PathIndex, dirPath: String) -> List[String] {
+    val prefix = pathPrefixWithSlash(dirPath)
+    var files: List[String] = []
+    for key in index.fileContents.keys() {
+        if !key.startsWith(prefix) { continue }
+        val rel = key.substring(prefix.len(), key.len())
+        match rel.indexOf("/") {
+            Some(_) => {}
+            None => {
+                if rel.endsWith(".sy") { files.append(key) }
+            }
+        }
+    }
+    return files
+}
+
+fn isProjectRootMarker(index: PathIndex, dir: String) -> Bool {
+    if pathIndexHasPath(index, joinPathFile(dir, ".soyuz-root")) { return true }
+    if pathIndexHasPath(index, joinPathFile(dir, "soyuz.toml")) { return true }
+    return false
+}
+
+pub fn findProjectRoot(startDir: String, index: PathIndex) -> String {
+    var dir = startDir
+    loop {
+        if isProjectRootMarker(index, dir) {
+            return dir
+        }
+        val parent = parentDir(dir)
+        if parent == dir {
+            return startDir
+        }
+        dir = parent
+    }
+    return startDir
+}
+
+pub fn pathIndexFileContent(index: PathIndex, path: String) -> Option[String] {
+    for key in index.fileContents.keys() {
+        if key == path { return Some(index.fileContents.get(key)) }
+    }
+    return None
+}
+
+pub fn pathIndexWriteFile(index: PathIndex, path: String, content: String) -> PathIndex {
+    index.fileContents.set(path, content)
+    return index
+}

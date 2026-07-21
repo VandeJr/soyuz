@@ -1,0 +1,6 @@
+import @runtime/embed
+import @runtime/link
+import @runtime/manifest
+import @runtime/embed_test
+import @runtime/link_test
+import @runtime/manifest_test

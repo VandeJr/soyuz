@@ -1,19 +1,125 @@
-// M8 — pub_sync tests (stub — port from soyuz-go/internal/checker/)
+// M8 — pub cross-file tests (port of soyuz-go/internal/checker/m8_pub_test.go)
+import @parser/load
+import @checker/load
 import (
+    { Span } from @lexer/tokens
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker, setNodeFiles } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { Node, Program } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { assertMsg } from @soyuz/testing
 )
 
-fn checkM8(src: String) -> List[TypeError] {
-    val tokens = tokenize(src)
-    val prog = Parser.new(tokens).parse()
-    return check(newChecker(), prog).errors
+extern fn soyuz_str_contains(s: String, sub: String) -> Bool
+
+fn progBody(prog: Node) -> List[Node] = match prog {
+    Program(_, _, body) => body
+    _ => []
 }
 
-test fn testM8Baseline() {
-    // TODO: port milestone 8 tests from soyuz-go
-    val errs = checkM8("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M8 baseline stub")
+fn parseFileNodes(src: String, filePath: String) -> (List[Node], Map[Int, String]) {
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    var nf: Map[Int, String] = Map[Int, String]{}
+    var nodes: List[Node] = []
+    for n in progBody(prog) {
+        nf.set(nodeId(n), filePath)
+        nodes.append(n)
+    }
+    return (nodes, nf)
+}
+
+fn mergeProgram(libNodes: List[Node], libNf: Map[Int, String], mainNodes: List[Node], mainNf: Map[Int, String]) -> (Node, Map[Int, String]) {
+    var body: List[Node] = []
+    var globalNf: Map[Int, String] = Map[Int, String]{}
+    for n in libNodes { body.append(n) }
+    for n in mainNodes { body.append(n) }
+    for k in libNf.keys() { globalNf.set(k, libNf.get(k)) }
+    for k in mainNf.keys() { globalNf.set(k, mainNf.get(k)) }
+    return (Program(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, body), globalNf)
+}
+
+fn checkMerged(libSrc: String, mainSrc: String) -> List[TypeError] {
+    val (libNodes, libNf) = parseFileNodes(libSrc, "/lib.sy")
+    val (mainNodes, mainNf) = parseFileNodes(mainSrc, "/main.sy")
+    val (prog, nf) = mergeProgram(libNodes, libNf, mainNodes, mainNf)
+    val c = newChecker()
+    setNodeFiles(c, nf)
+    return check(c, prog).errors
+}
+
+fn hasError(errs: List[TypeError], sub: String) -> Bool {
+    for e in errs {
+        if soyuz_str_contains(e.message, sub) { return true }
+    }
+    return false
+}
+
+test fn testM8PubFuncAccessible() {
+    val libSrc = "pub fn dobrar(x: Int) -> Int = x * 2"
+    val mainSrc = "import ( { dobrar } from \"lib\" )\nval r = dobrar(5)"
+    val errs = checkMerged(libSrc, mainSrc)
+    assertMsg(errs.size() == 0, "função pub deve ser acessível cross-file")
+}
+
+test fn testM8PrivateFuncBlocked() {
+    val libSrc = "fn dobrar(x: Int) -> Int = x * 2"
+    val mainSrc = "import ( { dobrar } from \"lib\" )\nval r = dobrar(5)"
+    val errs = checkMerged(libSrc, mainSrc)
+    assertMsg(hasError(errs, "dobrar") && hasError(errs, "não é público"), "função privada deve gerar erro cross-file")
+}
+
+test fn testM8PubRecordAccessible() {
+    val libSrc = "pub record Ponto { x: Int, y: Int }"
+    val mainSrc = "import ( { Ponto } from \"lib\" )\nval p = Ponto { x: 1, y: 2 }"
+    val errs = checkMerged(libSrc, mainSrc)
+    assertMsg(errs.size() == 0, "record pub deve ser acessível cross-file")
+}
+
+test fn testM8PrivateRecordBlocked() {
+    val libSrc = "record Ponto { x: Int, y: Int }"
+    val mainSrc = "import ( { Ponto } from \"lib\" )\nval p = Ponto { x: 1, y: 2 }"
+    val errs = checkMerged(libSrc, mainSrc)
+    assertMsg(hasError(errs, "Ponto") && hasError(errs, "não é público"), "record privado deve gerar erro cross-file")
+}
+
+test fn testM8SameFileNoEnforcement() {
+    val src = "
+fn dobrar(x: Int) -> Int = x * 2
+val r = dobrar(5)
+"
+    val (nodes, nf) = parseFileNodes(src, "/main.sy")
+    val prog = Program(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, nodes)
+    val c = newChecker()
+    setNodeFiles(c, nf)
+    val errs = check(c, prog).errors
+    assertMsg(errs.size() == 0, "símbolos do mesmo arquivo não devem ser bloqueados")
+}
+
+test fn testM8ValPubAccessible() {
+    val libSrc = "pub val PI = 3"
+    val mainSrc = "import ( { PI } from \"lib\" )\nval r = PI"
+    val errs = checkMerged(libSrc, mainSrc)
+    assertMsg(errs.size() == 0, "val pub deve ser acessível cross-file")
+}
+
+test fn testM8PrivateValBlocked() {
+    val libSrc = "val PI = 3"
+    val mainSrc = "import ( { PI } from \"lib\" )\nval r = PI"
+    val errs = checkMerged(libSrc, mainSrc)
+    assertMsg(hasError(errs, "PI") && hasError(errs, "não é público"), "val privado deve gerar erro cross-file")
+}
+
+test fn testM8SingleFileModeNoPubCheck() {
+    val src = "
+fn dobrar(x: Int) -> Int = x * 2
+val r = dobrar(5)
+"
+    val tokens = tokenize(src)
+    val prog = Parser.new(tokens).parse()
+    val errs = check(newChecker(), prog).errors
+    assertMsg(errs.size() == 0, "modo single-file não deve ter enforcement de pub")
 }

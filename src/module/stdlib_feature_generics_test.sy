@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForGenericsFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\nextend String { pub fn equals(self, other: String) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureGenericsPath() -> String = "feature-tests/generics.sy"
+
+// Port of feature-tests/generics.sy — generics subset without $(...) in embed string.
+test fn testFeatureGenericsTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/generics.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForGenericsFeature(index, stdlibDir)
+    index.fileContents.set(entry, "fn identidade[T](x: T) -> T { return x }\nfn trocar[A, B](par: (A, B)) -> (B, A) { val (a, b) = par return (b, a) }\nrecord Par[A, B] { primeiro: A segundo: B }\nclass Caixa[T] { var conteudo: T pub fn obter(self) -> T { return self.conteudo } pub fn colocar(self, novo: T) { self.conteudo = novo } }\nfn main() {\n\tprint(identidade(42))\n\tprint(identidade(\"oi\"))\n\tval (b, a) = trocar((1, \"um\"))\n\tprint(a)\n\tprint(b)\n\tval info = Par { primeiro: \"nome\", segundo: 42 }\n\tprint(info.primeiro)\n\tprint(info.segundo)\n\tval caixa = Caixa { conteudo: 100 }\n\tprint(caixa.obter())\n\tcaixa.colocar(200)\n\tprint(caixa.obter())\n\tval dobrados = [1, 2, 3].map(fn(x: Int) => x * 2)\n\tprint(dobrados.len())\n\tval pares = [1, 2, 3, 4].filter(fn(x: Int) => x % 2 == 0)\n\tprint(pares.len())\n\tval soma = [1, 2, 3, 4, 5].reduce(fn(acc: Int, x: Int) => acc + x, 0)\n\tprint(soma)\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect generics feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus generics")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature generics type-checks")
+}

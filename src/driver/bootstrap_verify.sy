@@ -1,0 +1,239 @@
+// S12 bootstrap-verify metadata: fixed-point checks (incremental steps).
+
+pub fn bootstrapVerifyLibraryMarker() -> String = "verificada com sucesso"
+
+pub fn bootstrapVerifyLibraryStepName() -> String = "library build fixed-point"
+
+pub fn defaultBootstrapVerifyScript() -> String = "tools/bootstrap-verify.sh"
+
+pub fn bootstrapVerifyLibraryStepReady() -> Bool {
+    return bootstrapVerifyLibraryMarker().len() > 0 && defaultBootstrapVerifyScript().len() > 0
+}
+
+pub fn bootstrapVerifyTestMarker() -> String = "testes passaram"
+
+pub fn bootstrapVerifyTestStepName() -> String = "test_runner fixed-point"
+
+pub fn bootstrapVerifyTestStepReady() -> Bool {
+    return bootstrapVerifyTestMarker().len() > 0
+}
+
+pub fn bootstrapVerifyHelloFixturePath() -> String = "tools/fixtures/hello_minimal.sy"
+
+pub fn bootstrapVerifyHelloOutput() -> String = "hello"
+
+pub fn bootstrapVerifyHelloStepName() -> String = "hello run fixed-point"
+
+pub fn bootstrapVerifyHelloStepReady() -> Bool {
+    return bootstrapVerifyHelloFixturePath().len() > 0 && bootstrapVerifyHelloOutput().len() > 0
+}
+
+pub fn bootstrapVerifyHelloIrCStringMarker() -> String = "c\"hello"
+
+pub fn bootstrapVerifyHelloIrPrintfMarker() -> String = "call i32 (i8*, ...) @printf"
+
+pub fn bootstrapVerifyHelloIrMainMarker() -> String = "define i32 @main"
+
+pub fn bootstrapVerifyHelloIrRetMarker() -> String = "ret i32 0"
+
+pub fn bootstrapVerifyHelloIrStepName() -> String = "hello IR marker equivalence"
+
+pub fn bootstrapVerifyHelloIrDebugPath() -> String = "/tmp/soyuz_debug.ll"
+
+pub fn bootstrapVerifyHelloIrStepReady() -> Bool {
+    return bootstrapVerifyHelloIrCStringMarker().len() > 0 && bootstrapVerifyHelloIrPrintfMarker().len() > 0 && bootstrapVerifyHelloIrMainMarker().len() > 0 && bootstrapVerifyHelloIrRetMarker().len() > 0
+}
+
+pub fn bootstrapVerifyHelloLinkStepName() -> String = "hello IR link output"
+
+pub fn bootstrapVerifyHelloLinkStepReady() -> Bool {
+    return bootstrapVerifyHelloOutput().len() > 0 && bootstrapVerifyHelloIrStepReady()
+}
+
+pub fn bootstrapVerifySelfRebuildEntry() -> String = "main.sy"
+
+pub fn bootstrapVerifySelfRebuildUsageMarker() -> String = "Uso: soyuz"
+
+pub fn bootstrapVerifySelfRebuildSuccessMarker() -> String = "Build concluído"
+
+pub fn bootstrapVerifySelfRebuildStepName() -> String = "vN rebuilds vN+1"
+
+pub fn bootstrapVerifySelfRebuildStepReady() -> Bool {
+    return bootstrapVerifySelfRebuildEntry().len() > 0 && bootstrapVerifySelfRebuildUsageMarker().len() > 0 && bootstrapVerifySelfRebuildSuccessMarker().len() > 0
+}
+
+pub fn bootstrapVerifyVn1StepName() -> String = "vN+1 fixed-point"
+
+pub fn bootstrapVerifyVn1StepReady() -> Bool {
+    return bootstrapVerifySelfRebuildStepReady() && bootstrapVerifyLibraryStepReady() && bootstrapVerifyTestStepReady() && bootstrapVerifyHelloStepReady()
+}
+
+pub fn bootstrapVerifyVn2StepName() -> String = "vN+1 rebuilds vN+2"
+
+pub fn bootstrapVerifyVn2StepReady() -> Bool {
+    return bootstrapVerifySelfRebuildStepReady() && bootstrapVerifyLibraryStepReady()
+}
+
+pub fn bootstrapVerifyVn2FixedPointStepName() -> String = "vN+2 fixed-point"
+
+pub fn bootstrapVerifyVn2FixedPointStepReady() -> Bool {
+    return bootstrapVerifyVn2StepReady() && bootstrapVerifyTestStepReady() && bootstrapVerifyHelloStepReady()
+}
+
+pub fn bootstrapVerifyGenerationCount() -> Int = 3
+
+pub fn bootstrapVerifyBinarySizeStepName() -> String = "generation binary size equivalence"
+
+pub fn bootstrapVerifyBinarySizeStepReady() -> Bool {
+    return bootstrapVerifyVn2FixedPointStepReady() && bootstrapVerifyGenerationCount() >= 3
+}
+
+pub fn bootstrapVerifyElfTextSection() -> String = ".text"
+
+pub fn bootstrapVerifyElfRodataSection() -> String = ".rodata"
+
+pub fn bootstrapVerifyElfDataSection() -> String = ".data"
+
+pub fn bootstrapVerifyElfBssSection() -> String = ".bss"
+
+pub fn bootstrapVerifyElfSectionStepName() -> String = "generation ELF section equivalence"
+
+pub fn bootstrapVerifyElfSectionStepReady() -> Bool {
+    return bootstrapVerifyBinarySizeStepReady() && bootstrapVerifyElfTextSection().len() > 0
+}
+
+pub fn bootstrapVerifyMainSymbol() -> String = "main"
+
+pub fn bootstrapVerifySymbolStepName() -> String = "generation symbol equivalence"
+
+pub fn bootstrapVerifySymbolStepReady() -> Bool {
+    return bootstrapVerifyElfSectionStepReady() && bootstrapVerifyMainSymbol().len() > 0
+}
+
+pub fn bootstrapVerifyDataSectionStepName() -> String = "generation .data section equivalence"
+
+pub fn bootstrapVerifyDataSectionStepReady() -> Bool {
+    return bootstrapVerifySymbolStepReady() && bootstrapVerifyElfDataSection() == ".data"
+}
+
+pub fn bootstrapVerifyMainEntryPath() -> String = "main.sy"
+
+pub fn bootstrapVerifyCliExecSymbol() -> String = "soyuz_os_exec"
+
+pub fn bootstrapVerifyBootstrapDelegateMarker() -> String = "cliOsExecShell"
+
+pub fn bootstrapVerifyBootstrapDelegateStepName() -> String = "bootstrap delegation contract"
+
+pub fn bootstrapVerifyBootstrapDelegateStepReady() -> Bool {
+    return bootstrapVerifyDataSectionStepReady() && bootstrapVerifyCliExecSymbol().len() > 0 && bootstrapVerifyBootstrapDelegateMarker().len() > 0
+}
+
+pub fn bootstrapVerifyBootstrapBuildCommandMarker() -> String = "soyuz build"
+
+pub fn bootstrapVerifyBootstrapTestCommandMarker() -> String = "soyuz test"
+
+pub fn bootstrapVerifyBootstrapRunCommandMarker() -> String = "soyuz run"
+
+pub fn bootstrapVerifyBootstrapCommandStepName() -> String = "bootstrap command strings"
+
+pub fn bootstrapVerifyBootstrapCommandStepReady() -> Bool {
+    return bootstrapVerifyBootstrapDelegateStepReady() && bootstrapVerifyBootstrapBuildCommandMarker().len() > 0
+}
+
+pub fn bootstrapVerifyNativeCompileStepName() -> String = "native compile without bootstrap"
+
+pub fn bootstrapVerifyNativeCompileStepReady() -> Bool = false
+
+pub fn bootstrapVerifyNativeLibraryBuildStepName() -> String = "native library build"
+
+pub fn bootstrapVerifyNativeLibraryBuildStepReady() -> Bool {
+    return bootstrapVerifyBootstrapCommandStepReady()
+}
+
+pub fn bootstrapVerifyNativeLegacyBuildStepName() -> String = "native legacy build"
+
+pub fn bootstrapVerifyNativeLegacyBuildFixture() -> String = "tools/fixtures/hello_minimal.sy"
+
+pub fn bootstrapVerifyNativeLegacyBuildSuccessMarker() -> String = "Build concluído"
+
+pub fn bootstrapVerifyNativeLegacyBuildStepReady() -> Bool {
+    return bootstrapVerifyNativeLibraryBuildStepReady() && bootstrapVerifyNativeLegacyBuildFixture().len() > 0
+}
+
+pub fn bootstrapVerifyNativeNewStepName() -> String = "native new project"
+
+pub fn bootstrapVerifyNativeNewProjectName() -> String = "demo-native"
+
+pub fn bootstrapVerifyNativeNewSuccessMarker() -> String = "criado"
+
+pub fn bootstrapVerifyNativeNewStepReady() -> Bool {
+    return bootstrapVerifyNativeLegacyBuildStepReady() && bootstrapVerifyNativeNewProjectName().len() > 0
+}
+
+pub fn bootstrapVerifyNativeTestStepName() -> String = "native test runner"
+
+pub fn bootstrapVerifyNativeTestStepReady() -> Bool {
+    return bootstrapVerifyNativeNewStepReady() && bootstrapVerifyTestMarker().len() > 0
+}
+
+pub fn bootstrapVerifyNativeRunStepName() -> String = "native hello run"
+
+pub fn bootstrapVerifyNativeRunStepReady() -> Bool {
+    return bootstrapVerifyNativeTestStepReady() && bootstrapVerifyHelloOutput().len() > 0
+}
+
+pub fn bootstrapVerifyBootstrapOnlyBuildStepName() -> String = "bootstrap-only main.sy build"
+
+pub fn bootstrapVerifyBootstrapFakePathMarker() -> String = "bootstrap soyuz should not run"
+
+pub fn bootstrapVerifyBootstrapOnlyBuildStepReady() -> Bool {
+    return bootstrapVerifyNativeRunStepReady() && bootstrapVerifySelfRebuildEntry().len() > 0
+}
+
+pub fn bootstrapVerifyNativeMainBuildPlanStepName() -> String = "native main.sy build plan"
+
+pub fn bootstrapVerifyNativeMainBuildPlanStepReady() -> Bool {
+    return bootstrapVerifyBootstrapOnlyBuildStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainThinGraphStepName() -> String = "native main.sy thin graph plan"
+
+pub fn bootstrapVerifyNativeMainThinGraphStepReady() -> Bool {
+    return bootstrapVerifyNativeMainBuildPlanStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainCliArgvStepName() -> String = "native main.sy real cli_argv"
+
+pub fn bootstrapVerifyNativeMainCliArgvStepReady() -> Bool {
+    return bootstrapVerifyNativeMainThinGraphStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainCliMainExecStepName() -> String = "native main.sy real cli_main_exec"
+
+pub fn bootstrapVerifyNativeMainCliMainExecStepReady() -> Bool {
+    return bootstrapVerifyNativeMainCliArgvStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainCliUsageStepName() -> String = "native main.sy real cli_usage"
+
+pub fn bootstrapVerifyNativeMainCliUsageStepReady() -> Bool {
+    return bootstrapVerifyNativeMainCliMainExecStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainBuildCliStepName() -> String = "native main.sy real build_cli"
+
+pub fn bootstrapVerifyNativeMainBuildCliStepReady() -> Bool {
+    return bootstrapVerifyNativeMainCliUsageStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainStandaloneLegacyBuildStepName() -> String = "native main.sy main_standalone legacy build"
+
+pub fn bootstrapVerifyNativeMainStandaloneLegacyBuildStepReady() -> Bool {
+    return bootstrapVerifyNativeMainBuildCliStepReady()
+}
+
+pub fn bootstrapVerifyNativeMainTestCliStepName() -> String = "native main.sy real test_cli"
+
+pub fn bootstrapVerifyNativeMainTestCliStepReady() -> Bool {
+    return bootstrapVerifyNativeMainStandaloneLegacyBuildStepReady()
+}

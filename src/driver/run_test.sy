@@ -1,0 +1,50 @@
+import (
+    { planHelloRunBuild, planHelloRun, helloRunBuildPlanReady, helloRunPlanReady, helloRunBuildManifestRoundTripReady, helloFixtureTmpDir } from @driver/export
+    { runBuildReady, runBuildOutputFile, runBuildClangCommandIncludesLinkInputs, runBuildScripts, defaultRunBuildScripts, runBuildManifestEntryCount, runBuildManifestEntryCountReady, runBuildManifestRoundTripReady, runBuildManifestHasHelloIr, runPlanReady, runPlanMaterializeCommandsReady, runPlanMaterializeSteps, runPlanMaterializeStepsReady, runPlanOrderedMaterializeCommands, runPlanOrderedMaterializeCommandsReady, runPlanOrderedMaterializeCommandCount, runPlanExecCommandWithProgramArgs, runPlanExportManifestCommand, runPlanApplyManifestCommand, runPlanLinkCommand, runPlanExecCommand } from @driver/run
+    { defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunPlanMaterializeCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { defaultRunLinkScript } from @runtime/link
+    { defaultApplyManifestScript } from @runtime/manifest
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testPlanHelloRunBuild() {
+    val plan = planHelloRunBuild()
+    assertMsg(runBuildReady(plan), "hello run build plan ready")
+    assertMsg(helloRunBuildPlanReady(), "hello run build export helper")
+    assertMsg(plan.error.len() == 0, "no run build error")
+    assertMsg(runBuildOutputFile(plan) == "$(helloFixtureTmpDir())/app", "run output under fixture tmp")
+    assertMsg(runBuildClangCommandIncludesLinkInputs(plan), "clang command has link inputs")
+    assertMsg(plan.clangCommand.contains("clang"), "clang driver in command")
+    val scripts = runBuildScripts(plan)
+    val defaults = defaultRunBuildScripts()
+    assertMsg(scripts.applyManifestScript == defaultApplyManifestScript(), "apply manifest script on run plan")
+    assertMsg(scripts.exportRunManifestScript == defaultExportHelloRunManifestScript(), "export run manifest script on run plan")
+    assertMsg(scripts.runLinkScript == defaultRunLinkScript(), "run link script on run plan")
+    assertMsg(scripts.runPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script")
+    assertMsg(scripts.runPlanMaterializeCheckScript == defaultDriverRunPlanMaterializeCheckScript(), "run plan materialize check script")
+    assertMsg(defaults.runPlanLinkCheckScript == "tools/driver-run-plan-link-check.sh", "default run plan check script path")
+    assertMsg(runBuildManifestEntryCountReady(plan), "run manifest entry count")
+    assertMsg(runBuildManifestRoundTripReady(plan), "run manifest round trip")
+    assertMsg(runBuildManifestHasHelloIr(plan), "run manifest has hello ir")
+    assertMsg(helloRunBuildManifestRoundTripReady(), "hello run manifest round trip export helper")
+    assertMsg(runBuildManifestEntryCount(plan) == expectedFullBuildManifestEntries(), "run manifest has hello pipeline entries")
+}
+
+test fn testPlanHelloRun() {
+    val run = planHelloRun()
+    assertMsg(runPlanReady(run), "hello run plan ready")
+    assertMsg(helloRunPlanReady(), "hello run plan export helper")
+    assertMsg(run.binaryPath == "$(helloFixtureTmpDir())/app", "run binary path")
+    val manifestPath = "/tmp/soyuz-run.manifest"
+    assertMsg(runPlanMaterializeCommandsReady(run, manifestPath), "run materialize commands ready")
+    assertMsg(runPlanExportManifestCommand(run, manifestPath).contains("export-hello-run-manifest.sh"), "export manifest command")
+    assertMsg(runPlanApplyManifestCommand(run, manifestPath).contains("apply-path-index-manifest.sh"), "apply manifest command")
+    assertMsg(runPlanLinkCommand(run).contains("runtime-run-link.sh"), "link command")
+    assertMsg(runPlanLinkCommand(run).contains(run.binaryPath), "link command has binary path")
+    assertMsg(runPlanExecCommand(run) == run.binaryPath, "exec command is binary path")
+    val steps = runPlanMaterializeSteps(run, manifestPath)
+    assertMsg(runPlanMaterializeStepsReady(steps, run), "run materialize steps ready")
+    assertMsg(runPlanOrderedMaterializeCommandsReady(run, manifestPath), "ordered materialize commands ready")
+    assertMsg(runPlanOrderedMaterializeCommands(run, manifestPath).size() == runPlanOrderedMaterializeCommandCount(), "four ordered commands")
+    assertMsg(runPlanExecCommandWithProgramArgs(run, List[String]{}) == run.binaryPath, "exec without program args")
+}

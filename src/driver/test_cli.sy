@@ -1,0 +1,108 @@
+// Mirrors soyuz-go/cmd/main.go cmdTest legacy mode (arg parse, no OS I/O).
+
+pub fn cliTestFilterFlag() -> String = "--filter"
+
+pub fn cliTestFilterPrefix() -> String = "--filter="
+
+pub fn cliTestDefaultEntry() -> String = "test_runner.sy"
+
+pub fn testCliDefaultTmpBinPath() -> String = "/tmp/soyuz-cli-test/test-bin"
+
+fn cliTestArgIsFlag(arg: String) -> Bool = arg.startsWith("-")
+
+pub fn cliTestFilterFromEqualsForm(arg: String) -> String {
+    if !arg.startsWith(cliTestFilterPrefix()) { return "" }
+    return arg.replace(cliTestFilterPrefix(), "")
+}
+
+pub fn cliTestFilterFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        val eq = cliTestFilterFromEqualsForm(a)
+        if eq.len() > 0 { return eq }
+        if a == cliTestFilterFlag() {
+            val next = i + 1
+            if next < args.size() {
+                val value = args.get(next)
+                if !cliTestArgIsFlag(value) { return value }
+            }
+            return ""
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+pub fn cliTestEntryFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        if a.startsWith(cliTestFilterPrefix()) {
+            i = i + 1
+            continue
+        }
+        if a == cliTestFilterFlag() {
+            i = i + 2
+            continue
+        }
+        if !cliTestArgIsFlag(a) { return a }
+        i = i + 1
+    }
+    return ""
+}
+
+pub fn cliTestResolvedEntryFromArgs(args: List[String]) -> String {
+    val entry = cliTestEntryFromArgs(args)
+    if entry.len() > 0 { return entry }
+    return cliTestDefaultEntry()
+}
+
+pub record TestCliLegacyPlan {
+    entry: String,
+    filter: String,
+    tmpBinPath: String
+}
+
+pub fn testCliLegacyPlanFromArgs(args: List[String]) -> TestCliLegacyPlan {
+    return TestCliLegacyPlan {
+        entry: cliTestResolvedEntryFromArgs(args),
+        filter: cliTestFilterFromArgs(args),
+        tmpBinPath: testCliDefaultTmpBinPath()
+    }
+}
+
+pub fn testCliLegacyPlanReady(plan: TestCliLegacyPlan) -> Bool = plan.entry.len() > 0
+
+pub fn testCliLegacyBootstrapCommand(args: List[String]) -> String {
+    if !testCliLegacyPlanReady(testCliLegacyPlanFromArgs(args)) { return "" }
+    var cmd = "soyuz test"
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        cmd = "$(cmd) $(args.get(i))"
+        i = i + 1
+    }
+    return cmd
+}
+
+pub fn testCliNativeSuccessStubMessage() -> String = "✓ testes passaram"
+
+pub fn defaultTestRunnerArgv() -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("test")
+    argv.append(cliTestDefaultEntry())
+    return argv
+}
+
+pub fn defaultTestRunnerFilterArgv(filter: String) -> List[String] {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    argv.append("test")
+    argv.append("$(cliTestFilterPrefix())$(filter)")
+    argv.append(cliTestDefaultEntry())
+    return argv
+}

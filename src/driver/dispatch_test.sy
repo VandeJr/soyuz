@@ -1,0 +1,73 @@
+import (
+    { cliActionUsage, cliActionRun, cliActionBuild, cliActionNew, cliActionTest, cliDispatchAction, cliDispatchNeedsUsage, cliDispatchUsageOutput, cliRunActionReady, cliHelloMinimalRunActionReady, cliRunActionPipelineReady, cliHelloMinimalRunActionPipelineReady, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliHelloMinimalRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliHelloMinimalBuildActionReady, cliSoyuzLibraryBuildActionReady, cliTestActionReady, cliTestExecCommandFromArgv, cliTestRunnerActionReady } from @driver/dispatch
+    { cliCommandRun, cliCommandBuild, cliCommandNew, cliCommandTest, cliUsageHeader, defaultHelloMinimalFixturePath, cliHelloMinimalBinaryPath } from @driver/cli
+    { defaultHelloMinimalBuildArgv, buildCliLegacyDefaultOutput, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { buildCliLibraryVerifyMessage } from @driver/project_cli
+    { defaultTestRunnerArgv, testCliDefaultTmpBinPath } from @driver/test_cli
+    { runPlanOrderedMaterializeCommandCount } from @driver/run
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliDispatchAction() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliDispatchAction(argv) == cliActionUsage(), "argv too short maps to usage")
+
+    argv.append(cliCommandBuild())
+    assertMsg(cliDispatchAction(argv) == cliActionBuild(), "build command routed")
+
+    var newArgv = List[String]{}
+    newArgv.append("soyuz")
+    newArgv.append(cliCommandNew())
+    newArgv.append("demo")
+    assertMsg(cliDispatchAction(newArgv) == cliActionNew(), "new command routed")
+    assertMsg(cliNewActionReady(newArgv), "new action ready with name")
+    assertMsg(cliNewSuccessMessageFromArgv(newArgv).contains("demo"), "new success message")
+
+    var buildArgv = defaultHelloMinimalBuildArgv()
+    assertMsg(cliDispatchAction(buildArgv) == cliActionBuild(), "build command routed")
+    assertMsg(cliBuildActionReady(buildArgv), "hello minimal build action ready")
+    assertMsg(cliBuildSuccessMessageFromArgv(buildArgv).contains(buildCliLegacyDefaultOutput()), "build success message")
+    assertMsg(cliHelloMinimalBuildActionReady(), "hello minimal build helper")
+
+    val libraryArgv = defaultSoyuzLibraryBuildArgv()
+    assertMsg(cliBuildActionReady(libraryArgv), "library build action ready")
+    assertMsg(cliBuildSuccessMessageFromArgv(libraryArgv).contains("verificada com sucesso"), "library build success")
+    assertMsg(cliSoyuzLibraryBuildActionReady(), "library build helper")
+
+    var testArgv = defaultTestRunnerArgv()
+    assertMsg(cliDispatchAction(testArgv) == cliActionTest(), "test command routed")
+    assertMsg(cliTestActionReady(testArgv), "test runner action ready")
+    assertMsg(cliTestExecCommandFromArgv(testArgv) == testCliDefaultTmpBinPath(), "test exec command")
+    assertMsg(cliTestRunnerActionReady(), "test runner helper")
+
+    var runArgv = List[String]{}
+    runArgv.append("soyuz")
+    runArgv.append(cliCommandRun())
+    runArgv.append(defaultHelloMinimalFixturePath())
+    assertMsg(cliDispatchAction(runArgv) == cliActionRun(), "run command routed")
+    assertMsg(cliRunActionReady(runArgv), "run action ready for hello fixture")
+    assertMsg(cliHelloMinimalRunActionReady(), "hello minimal run action ready")
+    assertMsg(cliRunActionPipelineReady(runArgv), "run action pipeline ready")
+    assertMsg(cliHelloMinimalRunActionPipelineReady(), "hello minimal run action pipeline ready")
+}
+
+test fn testCliDispatchUsageAndOrderedCommands() {
+    var argv = List[String]{}
+    argv.append("soyuz")
+    assertMsg(cliDispatchNeedsUsage(argv), "short argv needs usage")
+    assertMsg(cliDispatchUsageOutput(argv).contains(cliUsageHeader()), "usage output has header")
+
+    var runArgv = List[String]{}
+    runArgv.append("soyuz")
+    runArgv.append(cliCommandRun())
+    runArgv.append(defaultHelloMinimalFixturePath())
+    assertMsg(!cliDispatchNeedsUsage(runArgv), "run argv does not need usage")
+    assertMsg(cliDispatchUsageOutput(runArgv).len() == 0, "run argv has no usage output")
+    val cmds = cliRunActionOrderedCommands(runArgv)
+    assertMsg(cmds.size() == runPlanOrderedMaterializeCommandCount(), "run action ordered commands")
+    assertMsg(cliRunActionOrderedCommandsReady(runArgv), "run action ordered commands ready")
+    assertMsg(cliHelloMinimalRunActionOrderedCommandsReady(), "hello minimal ordered commands ready")
+    assertMsg(cliRunActionExecCommand(runArgv) == cliHelloMinimalBinaryPath(), "run action exec command")
+    assertMsg(cliHelloMinimalRunActionExecReady(), "hello minimal run action exec ready")
+}

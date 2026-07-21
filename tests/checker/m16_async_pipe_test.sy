@@ -1,9 +1,13 @@
-// M16 — async_pipe tests (stub — port from soyuz-go/internal/checker/)
+// M16 — async pipe (~>) tests (port of soyuz-go/internal/checker/m16_async_pipe_test.go)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM16(src: String) -> List[TypeError] {
@@ -12,8 +16,67 @@ fn checkM16(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM16Baseline() {
-    // TODO: port milestone 16 tests from soyuz-go
-    val errs = checkM16("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M16 baseline stub")
+test fn testM16AsyncPipeBasicType() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+
+fn main() {
+    val n = 21
+    val t = n ~> double
+    t.detach()
+}
+"
+    val errs = checkM16(src)
+    assertMsg(errs.size() == 0, "n ~> double não deve gerar erros")
+}
+
+test fn testM16AsyncPipeChainType() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn toString(n: Int) -> String = \"x\"
+
+fn main() {
+    val n = 5
+    val t = n ~> double ~> toString
+    t.detach()
+}
+"
+    val errs = checkM16(src)
+    assertMsg(errs.size() == 0, "n ~> double ~> toString não deve gerar erros")
+}
+
+test fn testM16AsyncPipeAwait() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+
+fn main() -> Int {
+    val n = 21
+    val t = n ~> double
+    return t.await()
+}
+"
+    val errs = checkM16(src)
+    assertMsg(errs.size() == 0, ".await() em Task[Int] de ~> não deve gerar erros")
+}
+
+test fn testM16AsyncPipeLiteralSource() {
+    val src = "
+fn inc(n: Int) -> Int = n + 1
+
+fn main() {
+    val t = 42 ~> inc
+    t.detach()
+}
+"
+    val errs = checkM16(src)
+    assertMsg(errs.size() == 0, "42 ~> inc não deve gerar erros")
+}
+
+test fn testM16AsyncPipeLexer() {
+    val src = "
+fn double(n: Int) -> Int = n * 2
+fn main() { val t = 1 ~> double  t.detach() }
+"
+    val errs = checkM16(src)
+    assertMsg(errs.size() == 0, "lexer/parser de ~> não deve falhar")
 }

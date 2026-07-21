@@ -1,0 +1,598 @@
+import (
+    { Node, Pattern, FuncDeclData, FuncParam, LiteralPatternValue, IntLiteralData, StringLiteralData, ReturnStmtData, UnaryExprData, BinaryExprData, IdentifierData, ClassDeclData, BlockStmtData, ExtendDeclData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, FuncType, Type, IntType, StringType, UnitType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { mangleSpecializedFuncName, isCatchallPatternForDispatch, funcVariantDispatchPriority, isWhenGuardVariant, sortFuncVariantsForDispatch, variantGuardBlockName, variantBodyBlockName, variantNextBlockName, variantParamPatternOkBlockName, funcVariantArgName, seedFuncVariantParams, buildFuncVariantPlan, buildFuncVariantPlans, funcVariantsForName, generateFuncVariantsBody, generateFuncDeclNode, generateProgramBody, generatePendingClassBodies, generatePendingExtendBodies, shouldSkipFuncVariants } from @codegen/gen_funcs
+    { generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol } from @codegen/gen_structs
+    { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
+    { llvmI64, llvmTypesEqual } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn funcTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn funcCheckerWithNodeType(id: Int, t: Type) -> CheckResult {
+    var cr = funcTestCheckResult()
+    var i = 0
+    loop {
+        if i > id { break }
+        if i == id {
+            cr.nodeTypes.append(Some(t))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
+
+test fn testMangleSpecializedFuncName() {
+    assertMsg(mangleSpecializedFuncName("identity", [IntType]) == "identity__Int", "identity Int")
+    assertMsg(mangleSpecializedFuncName("pair", [IntType, StringType]) == "pair__Int__String", "pair Int String")
+}
+
+test fn testIsCatchallPatternForDispatch() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    assertMsg(isCatchallPatternForDispatch(Pattern.Wildcard(0, span)), "wildcard catchall")
+    assertMsg(isCatchallPatternForDispatch(Pattern.Binding(0, span, "x")), "binding catchall")
+    assertMsg(!isCatchallPatternForDispatch(Pattern.Literal(0, span, LiteralPatternValue.Int("42"))), "literal not catchall")
+}
+
+test fn testFuncVariantDispatchPriority() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val catchall = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "f",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    assertMsg(funcVariantDispatchPriority(catchall) == 2, "catchall priority 2")
+    assertMsg(!isWhenGuardVariant(catchall), "no when guard")
+}
+
+test fn testFuncVariantLiteralPatternPriority() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val specific = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "f",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Literal(0, span, LiteralPatternValue.Int("42")), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    assertMsg(funcVariantDispatchPriority(specific) == 1, "literal pattern priority 1")
+}
+
+test fn testFuncVariantWhenGuardPriority() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val guarded = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "f",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: Some(guardCond),
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    assertMsg(funcVariantDispatchPriority(guarded) == 0, "when guard priority 0")
+    assertMsg(isWhenGuardVariant(guarded), "has when guard")
+}
+
+fn makePickVariant(span: Span, whenGuard: Option[Node]) -> FuncDeclData {
+    return FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "pick",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: whenGuard,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+}
+
+fn makeAbsVariant(span: Span, whenGuard: Option[Node]) -> FuncDeclData {
+    return FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "abs",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: whenGuard,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+}
+
+fn makeAbsGuardCond(span: Span) -> Node {
+    val xId = Node.Identifier(10, span, IdentifierData { name: "x" })
+    val zero = Node.IntLiteral(11, span, IntLiteralData { value: "0" })
+    return Node.BinaryExpr(12, span, BinaryExprData { operator: "<", left: xId, right: zero })
+}
+
+fn makeAbsReturnNegX(span: Span) -> Node {
+    val xId = Node.Identifier(30, span, IdentifierData { name: "x" })
+    val negX = Node.UnaryExpr(31, span, UnaryExprData { operator: "-", operand: xId })
+    return Node.ReturnStmt(32, span, ReturnStmtData { value: Some(negX) })
+}
+
+fn makeAbsReturnX(span: Span) -> Node {
+    val xId = Node.Identifier(40, span, IdentifierData { name: "x" })
+    return Node.ReturnStmt(41, span, ReturnStmtData { value: Some(xId) })
+}
+
+test fn testSortFuncVariantsWhenGuardBeforeCatchall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    val sorted = sortFuncVariantsForDispatch([catchall, guarded])
+    assertMsg(sorted.size() == 2, "two variants")
+    assertMsg(isWhenGuardVariant(sorted.get(0)), "when-guarded variant runs first (P-13)")
+    assertMsg(!isWhenGuardVariant(sorted.get(1)), "catch-all variant runs last")
+}
+
+fn makePickReturnBody(span: Span, value: String) -> Node {
+    val lit = Node.StringLiteral(20, span, StringLiteralData { value: value })
+    return Node.ReturnStmt(21, span, ReturnStmtData { value: Some(lit) })
+}
+
+// Port of soyuz-go/internal/codegen/when_dispatch_test.go TestWhenVariantBeforeCatchall (P-13).
+test fn testWhenVariantBeforeCatchall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    var catchall = makePickVariant(span, None)
+    catchall.body = Some(makePickReturnBody(span, "default"))
+    var guarded = makePickVariant(span, Some(guardCond))
+    guarded.body = Some(makePickReturnBody(span, "positive"))
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchall, guarded])
+    cr.nodeTypes.append(Some(StringType))
+    cr.nodeTypes.append(Some(StringType))
+    val g = newGenerator(cr)
+    val plans = buildFuncVariantPlans(g, "pick")
+    assertMsg(plans.size() == 2, "two variant plans")
+    assertMsg(isWhenGuardVariant(plans.get(0).variant), "when-guarded variant at index 0 after sort")
+    match plans.get(0).variant.body {
+        None => assertMsg(false, "guarded variant body")
+        Some(bodyNode) => match bodyNode {
+            ReturnStmt(_, _, data) => match data.value {
+                None => assertMsg(false, "guarded return value")
+                Some(valNode) => match valNode {
+                    StringLiteral(_, _, lit) => assertMsg(lit.value == "positive", "guarded body is positive")
+                    _ => assertMsg(false, "guarded string return")
+                }
+            }
+            _ => assertMsg(false, "guarded return stmt")
+        }
+    }
+    match plans.get(0).guardBlockName {
+        None => assertMsg(false, "guarded plan has guard block")
+        Some(name) => assertMsg(name == "v0_guard_ok", "guard block at sorted index 0")
+    }
+    assertMsg(generateFuncVariantsBody(g, "pick"), "when-guarded pick codegen")
+    assertMsg(blockNameRegistered(g, "v0_guard_ok"), "v0_guard_ok block registered")
+    assertMsg(blockNameRegistered(g, "variant_0_body"), "guarded variant body block at index 0")
+    assertMsg(blockNameRegistered(g, "variant_1_body"), "catchall variant body block at index 1")
+    match g.funcVariantGuardCondValue {
+        None => assertMsg(false, "func variant guard condition stub")
+        Some(v) => assertMsg(v.handle > 0, "guard cond br uses generated condition stub")
+    }
+}
+
+test fn testSortFuncVariantsStableAmongSamePriority() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val first = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "first",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Literal(0, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val second = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "second",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Literal(1, span, LiteralPatternValue.Int("2")), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: None,
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val sorted = sortFuncVariantsForDispatch([first, second])
+    assertMsg(sorted.get(0).name == "first", "stable sort preserves order among equal priority")
+    assertMsg(sorted.get(1).name == "second", "stable sort preserves order among equal priority")
+}
+
+test fn testVariantBlockNames() {
+    assertMsg(variantGuardBlockName(0) == "v0_guard_ok", "guard block name")
+    assertMsg(variantBodyBlockName(1) == "variant_1_body", "body block name")
+    assertMsg(variantNextBlockName(2) == "variant_2_next", "next block name")
+    assertMsg(variantParamPatternOkBlockName(0, 1) == "v0_p1_ok", "param pattern ok block")
+    assertMsg(funcVariantArgName(0) == "arg0", "first arg slot name")
+}
+
+test fn testSeedFuncVariantParams() {
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(seedFuncVariantParams(g, 2), "seed two arg slots")
+    var hasArg0 = false
+    var hasArg1 = false
+    for k in g.vars.keys() {
+        if k == "arg0" { hasArg0 = true }
+        if k == "arg1" { hasArg1 = true }
+    }
+    assertMsg(hasArg0, "arg0 seeded")
+    assertMsg(hasArg1, "arg1 seeded")
+}
+
+test fn testGenerateFuncVariantsBodyBindingParamAliasesArg() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "42" })) })
+    val bindingVariant = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "pick",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [bindingVariant])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "pick"), "binding param variant body codegen")
+    var argHandle = 0
+    var xHandle = 0
+    var hasArg = false
+    var hasX = false
+    for k in g.vars.keys() {
+        if k == "arg0" {
+            hasArg = true
+            argHandle = g.vars.get("arg0").handle
+        }
+        if k == "x" {
+            hasX = true
+            xHandle = g.vars.get("x").handle
+        }
+    }
+    assertMsg(hasArg, "arg0 present after variant dispatch")
+    assertMsg(hasX, "binding x present after variant dispatch")
+    assertMsg(argHandle == xHandle, "x aliases arg0 alloca")
+}
+
+test fn testBuildFuncVariantPlanWhenGuard() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val guarded = makePickVariant(span, Some(guardCond))
+    val plan = buildFuncVariantPlan(guarded, 0)
+    assertMsg(plan.bodyBlockName == "variant_0_body", "plan body block")
+    assertMsg(plan.nextBlockName == "variant_0_next", "plan next block")
+    match plan.guardBlockName {
+        None => assertMsg(false, "plan guard block")
+        Some(name) => assertMsg(name == "v0_guard_ok", "plan guard block name")
+    }
+    assertMsg(plan.paramPatternOkBlockNames.size() == 1, "one param pattern block")
+    assertMsg(plan.paramPatternOkBlockNames.get(0) == "v0_p0_ok", "param pattern block name")
+}
+
+test fn testBuildFuncVariantPlansFromCheckResult() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchall, guarded])
+    val g = newGenerator(cr)
+    val plans = buildFuncVariantPlans(g, "pick")
+    assertMsg(plans.size() == 2, "two variant plans")
+    assertMsg(isWhenGuardVariant(plans.get(0).variant), "guarded plan first")
+    match plans.get(0).guardBlockName {
+        None => assertMsg(false, "first plan has guard block")
+        Some(name) => assertMsg(name == "v0_guard_ok", "first plan guard block")
+    }
+    match plans.get(1).guardBlockName {
+        None => assertMsg(true, "catchall has no guard block")
+        Some(_) => assertMsg(false, "catchall has no guard block")
+    }
+}
+
+test fn testFuncVariantsForNameMissing() {
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(funcVariantsForName(g, "missing").size() == 0, "missing name returns empty")
+}
+
+test fn testGenerateFuncVariantsBodyWhenGuard() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "42" })) })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    var catchallBody = catchall
+    catchallBody.body = Some(ret)
+    var guardedBody = guarded
+    guardedBody.body = Some(ret)
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "pick"), "when-guard variant bodies codegen")
+}
+
+test fn testGenerateFuncVariantsBodyWhenGuardCreatesBlocks() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardCond = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "42" })) })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(guardCond))
+    var catchallBody = catchall
+    catchallBody.body = Some(ret)
+    var guardedBody = guarded
+    guardedBody.body = Some(ret)
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "pick"), "when-guard blocks codegen")
+    assertMsg(blockNameRegistered(g, "v0_guard_ok"), "guard ok block registered")
+    assertMsg(blockNameRegistered(g, "variant_0_next"), "guard fail block registered")
+    assertMsg(blockNameRegistered(g, "variant_0_body"), "guarded variant body block")
+    assertMsg(blockNameRegistered(g, "variant_1_body"), "catchall variant body block")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "current block after variant loop")
+        Some(handle) => assertMsg(handle > 0, "current block set after variants")
+    }
+}
+
+// Port of soyuz-go/internal/codegen/when_guard_test.go TestWhenGuardCodegen (abs when x < 0).
+test fn testWhenGuardCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    var guarded = makeAbsVariant(span, Some(makeAbsGuardCond(span)))
+    guarded.body = Some(makeAbsReturnNegX(span))
+    var catchall = makeAbsVariant(span, None)
+    catchall.body = Some(makeAbsReturnX(span))
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("abs", [guarded, catchall])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "abs"), "abs when-guard variant codegen")
+    assertMsg(blockNameRegistered(g, "v0_guard_ok"), "v0_guard_ok block")
+    assertMsg(blockNameRegistered(g, "variant_0_body"), "variant_0_body block")
+    assertMsg(blockNameRegistered(g, "variant_1_body"), "variant_1_body block")
+    match g.funcVariantGuardCondValue {
+        None => assertMsg(false, "func variant guard condition stub")
+        Some(v) => assertMsg(v.handle > 0, "conditional branch guard value stub")
+    }
+}
+
+test fn testGenerateFuncVariantsBodyLiteralParam() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "1" })) })
+    val literalVariant = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "pick",
+        generics: [],
+        params: [FuncParam { span: span, pattern: Pattern.Literal(0, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [literalVariant])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    assertMsg(generateFuncVariantsBody(g, "pick"), "literal param pattern variant body codegen")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block after param pattern dispatch")
+        Some(handle) => assertMsg(handle > 0, "param pattern sets current block")
+    }
+}
+
+test fn testShouldSkipFuncVariantsTestInNormalBuild() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    var testVariant = makePickVariant(span, None)
+    testVariant.isTest = true
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(shouldSkipFuncVariants(g, "test_pick", [testVariant]), "skip test func in normal build")
+}
+
+test fn testGenerateProgramBodyMultiVariant() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(11, span, ReturnStmtData { value: Some(Node.IntLiteral(12, span, IntLiteralData { value: "42" })) })
+    val catchall = makePickVariant(span, None)
+    val guarded = makePickVariant(span, Some(Node.IntLiteral(10, span, IntLiteralData { value: "1" })))
+    var catchallBody = catchall
+    catchallBody.body = Some(ret)
+    var guardedBody = guarded
+    guardedBody.body = Some(ret)
+    val catchallNode = Node.FuncDecl(1, span, catchallBody)
+    val guardedNode = Node.FuncDecl(2, span, guardedBody)
+    var cr = funcTestCheckResult()
+    cr.funcVariants.set("pick", [catchallBody, guardedBody])
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(IntType))
+    val g = newGenerator(cr)
+    match generateProgramBody(g, [catchallNode, guardedNode]) {
+        None => assertMsg(false, "expected program result for multi-variant pick")
+        Some(r) => assertMsg(r.funcCount == 1, "multi-variant name counted once")
+    }
+}
+
+test fn testGenerateFuncDeclNode() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(2, span, ReturnStmtData { value: Some(Node.IntLiteral(3, span, IntLiteralData { value: "42" })) })
+    val ft = FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "main",
+        generics: [],
+        params: [],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val node = Node.FuncDecl(1, span, fd)
+    var cr = funcCheckerWithNodeType(1, Type.Func(ft))
+    cr.nodeTypes.append(Some(IntType))
+    cr.nodeTypes.append(Some(UnitType))
+    val g = newGenerator(cr)
+    match generateFuncDeclNode(g, node, fd) {
+        None => assertMsg(false, "expected func result")
+        Some(r) => {
+            assertMsg(r.name == "main", "func name")
+            assertMsg(r.paramCount == 0, "no params")
+            assertMsg(r.hasBody, "has body")
+            assertMsg(llvmTypesEqual(r.returnLlvm, llvmI64()), "returns i64")
+        }
+    }
+}
+
+test fn testGenerateProgramBody() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val ret = Node.ReturnStmt(4, span, ReturnStmtData { value: None })
+    val ft = FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: false,
+        name: "main",
+        generics: [],
+        params: [],
+        whenGuard: None,
+        returnType: None,
+        body: Some(ret),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val funcNode = Node.FuncDecl(1, span, fd)
+    var cr = funcCheckerWithNodeType(1, Type.Func(ft))
+    cr.nodeTypes.append(Some(UnitType))
+    val g = newGenerator(cr)
+    match generateProgramBody(g, [funcNode]) {
+        None => assertMsg(false, "expected program result")
+        Some(r) => assertMsg(r.funcCount == 1, "one func generated")
+    }
+}
+
+test fn testGeneratePendingClassMethodBody() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(100, span, "self"), typeExpr: None, defaultExpr: None })
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: "incrementar",
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: Some(emptyBody),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    val methodNode = Node.FuncDecl(10, span, fd)
+    var classBody: List[Node] = []
+    classBody.append(methodNode)
+    val classDecl = ClassDeclData { isPub: true, name: "Contador", generics: [], interfaces: [], body: classBody }
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(generateClassDecl(g, classDecl), "class decl ok")
+    assertMsg(g.pendingClassBodies.size() == 1, "pending class body")
+    assertMsg(generatePendingClassBodies(g), "generate class method bodies")
+    assertMsg(g.pendingClassBodies.size() == 0, "pending cleared")
+    assertMsg(g.classMethodBodiesGenerated == 1, "one body generated")
+    assertMsg(blockNameRegistered(g, "entry"), "entry block from method body")
+}
+
+test fn testGeneratePendingExtendMethodBody() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val emptyBody = Node.BlockStmt(20, span, BlockStmtData { statements: [] })
+    var params: List[FuncParam] = []
+    params.append(FuncParam { span: span, pattern: Pattern.Binding(100, span, "self"), typeExpr: None, defaultExpr: None })
+    val fd = FuncDeclData {
+        namePos: span,
+        isPub: true,
+        name: "double",
+        generics: [],
+        params: params,
+        whenGuard: None,
+        returnType: None,
+        body: Some(emptyBody),
+        isExprBody: false,
+        isTest: false,
+        isIgnore: false
+    }
+    var methods: List[Node] = []
+    methods.append(Node.FuncDecl(10, span, fd))
+    val extendDecl = ExtendDeclData { typeName: "Int", methods: methods }
+    val g = newGenerator(funcTestCheckResult())
+    assertMsg(generateExtendDecl(g, extendDecl), "extend decl ok")
+    assertMsg(g.pendingExtendBodies.size() == 1, "pending extend body")
+    assertMsg(generatePendingExtendBodies(g), "generate extend method bodies")
+    assertMsg(g.pendingExtendBodies.size() == 0, "pending extend cleared")
+    assertMsg(g.extendMethodBodiesGenerated == 1, "one extend body generated")
+    assertMsg(extendHasMethodSymbol(g, "Int", extendMethodSymbolName("Int", "double")), "Int_double symbol")
+}

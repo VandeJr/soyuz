@@ -1,0 +1,190 @@
+import (
+    { PathIndex, findProjectRoot, joinPathFile, parentDir, pathBaseName, pathIndexFileContent } from @module/paths
+)
+
+pub record ProjectMeta {
+    name: String,
+    version: String,
+    type: String,
+    entry: String
+}
+
+pub record ProjectConfig {
+    root: String,
+    meta: ProjectMeta,
+    packages: Map[String, String]
+}
+
+pub fn defaultProjectMeta() -> ProjectMeta = ProjectMeta {
+    name: "default",
+    version: "0.1.0",
+    type: "binary",
+    entry: "main.sy"
+}
+
+pub fn emptyProjectConfig() -> ProjectConfig = ProjectConfig {
+    root: "",
+    meta: defaultProjectMeta(),
+    packages: Map[String, String]{}
+}
+
+fn splitLines(content: String) -> List[String] {
+    if content.len() == 0 { return List[String]{} }
+    var lines: List[String] = []
+    var start = 0
+    var done = false
+    loop {
+        if done { break }
+        val tail = content.substring(start, content.len())
+        match tail.indexOf("\n") {
+            None => {
+                if tail.len() > 0 { lines.append(tail) }
+                done = true
+            }
+            Some(rel) => {
+                lines.append(content.substring(start, start + rel))
+                start = start + rel + 1
+                done = false
+            }
+        }
+    }
+    return lines
+}
+
+fn unquoteTomlValue(raw: String) -> String {
+    val t = raw.trim()
+    if t.len() >= 2 && t.startsWith("\"") && t.endsWith("\"") {
+        return t.substring(1, t.len() - 1)
+    }
+    if t.len() >= 2 && t.startsWith("'") && t.endsWith("'") {
+        return t.substring(1, t.len() - 1)
+    }
+    return t
+}
+
+fn parseTomlSectionName(line: String) -> Option[String] {
+    val t = line.trim()
+    if t.len() < 2 { return None }
+    if !t.startsWith("[") { return None }
+    if !t.endsWith("]") { return None }
+    return Some(t.substring(1, t.len() - 1).trim())
+}
+
+pub record TomlKeyVal {
+    key: String,
+    value: String
+}
+
+fn parseTomlKeyVal(line: String) -> Option[TomlKeyVal] = match line.indexOf("=") {
+    None => None
+    Some(idx) => {
+        val key = line.substring(0, idx).trim()
+        val value = unquoteTomlValue(line.substring(idx + 1, line.len()))
+        if key.len() == 0 || value.len() == 0 { return None }
+        return Some(TomlKeyVal { key: key, value: value })
+    }
+}
+
+fn applyProjectMetaKey(meta: ProjectMeta, key: String, value: String) -> ProjectMeta = match key {
+    "name" => ProjectMeta { name: value, version: meta.version, type: meta.type, entry: meta.entry }
+    "version" => ProjectMeta { name: meta.name, version: value, type: meta.type, entry: meta.entry }
+    "type" => ProjectMeta { name: meta.name, version: meta.version, type: value, entry: meta.entry }
+    "entry" => ProjectMeta { name: meta.name, version: meta.version, type: meta.type, entry: value }
+    _ => meta
+}
+
+fn isTomlSectionLine(line: String) -> Bool = match parseTomlSectionName(line) {
+    Some(_) => true
+    None => false
+}
+
+fn tomlSectionName(line: String) -> String = match parseTomlSectionName(line) {
+    Some(name) => name
+    None => ""
+}
+
+pub fn parseTomlIntoConfig(content: String, cfg: ProjectConfig) -> ProjectConfig {
+    var section = ""
+    var meta = cfg.meta
+    var packages = cfg.packages
+    for line in splitLines(content) {
+        val trimmed = line.trim()
+        if trimmed.len() == 0 { continue }
+        if trimmed.startsWith("#") { continue }
+        if isTomlSectionLine(trimmed) {
+            section = tomlSectionName(trimmed)
+        } else {
+            match parseTomlKeyVal(trimmed) {
+                None => {}
+                Some(kv) => {
+                    if section == "project" {
+                        meta = applyProjectMetaKey(meta, kv.key, kv.value)
+                    }
+                    if section == "packages" {
+                        packages.set(kv.key, kv.value)
+                    }
+                }
+            }
+        }
+    }
+    return ProjectConfig { root: cfg.root, meta: meta, packages: packages }
+}
+
+fn mapHasPackage(m: Map[String, String], key: String) -> Bool {
+    for k in m.keys() {
+        if k == key { return true }
+    }
+    return false
+}
+
+pub fn resolveAliasPath(cfg: ProjectConfig, alias: String, rest: List[String]) -> Option[List[String]] {
+    if !mapHasPackage(cfg.packages, alias) { return None }
+    val base = cfg.packages.get(alias)
+    var segs = base.split("/")
+    for seg in rest {
+        segs.append(seg)
+    }
+    return Some(segs)
+}
+
+pub fn applyLibraryEntryDefault(meta: ProjectMeta) -> ProjectMeta {
+    if meta.type == "library" && meta.entry == "main.sy" {
+        return ProjectMeta {
+            name: meta.name,
+            version: meta.version,
+            type: meta.type,
+            entry: "lib.sy"
+        }
+    }
+    return meta
+}
+
+pub fn defaultProjectMetaForRoot(root: String) -> ProjectMeta = ProjectMeta {
+    name: pathBaseName(root),
+    version: "0.1.0",
+    type: "binary",
+    entry: "main.sy"
+}
+
+pub fn loadProjectConfigFromContent(root: String, tomlContent: String) -> ProjectConfig {
+    var cfg = emptyProjectConfig()
+    cfg.root = root
+    cfg = parseTomlIntoConfig(tomlContent, cfg)
+    cfg.meta = applyLibraryEntryDefault(cfg.meta)
+    return cfg
+}
+
+pub fn loadProjectConfigFromEntry(entryFile: String, index: PathIndex) -> ProjectConfig {
+    val entryDir = parentDir(entryFile)
+    val root = findProjectRoot(entryDir, index)
+    val tomlPath = joinPathFile(root, "soyuz.toml")
+    match pathIndexFileContent(index, tomlPath) {
+        Some(content) => loadProjectConfigFromContent(root, content)
+        None => {
+            var cfg = emptyProjectConfig()
+            cfg.root = root
+            cfg.meta = applyLibraryEntryDefault(defaultProjectMetaForRoot(root))
+            return cfg
+        }
+    }
+}

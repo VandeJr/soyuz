@@ -1,0 +1,245 @@
+import (
+    { ImportPathKind, ImportDeclData, ImportName } from @ast/ast
+    { ProjectConfig, ProjectMeta, defaultProjectMeta, parseTomlIntoConfig, applyLibraryEntryDefault, loadProjectConfigFromContent } from @module/project
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { Resolver, newResolver, newResolverWithProject, newResolverWithStdlibFromIndex, projectBase, joinPathSegments, resolveImportBasePath, resolveFileOrDir, resolveIn, resolveImport, effectiveImportPathKind } from @module/resolver
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testApplyLibraryEntryDefault() {
+    val libMeta = ProjectMeta {
+        name: "lib",
+        version: "0.1.0",
+        type: "library",
+        entry: "main.sy"
+    }
+    val adjusted = applyLibraryEntryDefault(libMeta)
+    assertMsg(adjusted.entry == "lib.sy", "library default entry becomes lib.sy")
+    val binMeta = ProjectMeta {
+        name: "app",
+        version: "0.1.0",
+        type: "binary",
+        entry: "main.sy"
+    }
+    assertMsg(applyLibraryEntryDefault(binMeta).entry == "main.sy", "binary entry unchanged")
+}
+
+test fn testLoadProjectConfigFromContentLibraryEntry() {
+    val content = "[project]\ntype = \"library\"\n"
+    val cfg = loadProjectConfigFromContent("/proj", content)
+    assertMsg(cfg.root == "/proj", "root set")
+    assertMsg(cfg.meta.entry == "lib.sy", "library entry default applied")
+}
+
+test fn testProjectBase() {
+    val r = newResolver("/entry/dir")
+    assertMsg(projectBase(r) == "/entry/dir", "falls back to root")
+    var packages: Map[String, String] = Map[String, String]{}
+    val cfg = ProjectConfig {
+        root: "/proj",
+        meta: defaultProjectMeta(),
+        packages: packages
+    }
+    val r2 = newResolverWithProject("/entry/dir", cfg, "")
+    assertMsg(projectBase(r2) == "/proj", "uses project root when set")
+}
+
+test fn testJoinPathSegments() {
+    var segs: List[String] = []
+    segs.append("lib")
+    segs.append("lexer")
+    segs.append("tokens")
+    assertMsg(joinPathSegments("/proj", segs) == "/proj/lib/lexer/tokens", "join segments")
+    assertMsg(joinPathSegments("", segs) == "lib/lexer/tokens", "join from empty base")
+}
+
+test fn testResolveImportBasePathPackageAlias() {
+    var packages: Map[String, String] = Map[String, String]{}
+    packages.set("lexer", "src/lexer")
+    val cfg = ProjectConfig {
+        root: "/proj",
+        meta: defaultProjectMeta(),
+        packages: packages
+    }
+    val r = newResolverWithProject("/proj/src", cfg, "")
+    var segs: List[String] = []
+    segs.append("tokens")
+    match resolveImportBasePath(r, ImportPathKind.PackageAlias, "@lexer/tokens", "lexer", segs, "") {
+        None => assertMsg(false, "expected package alias resolve")
+        Some(basePath) => assertMsg(basePath == "/proj/src/lexer/tokens", "alias path under project base")
+    }
+}
+
+test fn testResolveImportBasePathStdlib() {
+    val r = Resolver {
+        root: "/proj",
+        projectRoot: "/proj",
+        stdlibDir: "/stdlib",
+        packages: Map[String, String]{}
+    }
+    var segs: List[String] = []
+    segs.append("prelude")
+    match resolveImportBasePath(r, ImportPathKind.Stdlib, "@soyuz/prelude", "", segs, "") {
+        None => assertMsg(false, "expected stdlib resolve")
+        Some(basePath) => assertMsg(basePath == "/stdlib/prelude", "stdlib path")
+    }
+    val noStd = newResolver("/proj")
+    match resolveImportBasePath(noStd, ImportPathKind.Stdlib, "@soyuz/prelude", "", segs, "") {
+        None => assertMsg(true, "missing stdlib dir fails")
+        Some(_) => assertMsg(false, "should fail without stdlib")
+    }
+}
+
+test fn testResolveImportBasePathRelative() {
+    val r = newResolver("/proj")
+    var segs: List[String] = []
+    match resolveImportBasePath(r, ImportPathKind.Relative, "./math", "", segs, "/proj/src") {
+        None => assertMsg(false, "expected relative resolve")
+        Some(basePath) => assertMsg(basePath == "/proj/src/math", "relative import path")
+    }
+    match resolveImportBasePath(r, ImportPathKind.Relative, "./math", "", segs, "") {
+        None => assertMsg(true, "relative without importing dir fails")
+        Some(_) => assertMsg(false, "should fail without importing dir")
+    }
+}
+
+// Port of resolver.go resolveFileOrDir — single .sy file or directory of .sy files.
+test fn testResolveFileOrDirSingleFile() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    match resolveFileOrDir("/proj/math", index) {
+        None => assertMsg(false, "expected single file resolve")
+        Some(files) => {
+            assertMsg(files.size() == 1, "one file")
+            assertMsg(files.get(0) == "/proj/math.sy", "math.sy path")
+        }
+    }
+}
+
+test fn testResolveFileOrDirDirectory() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math/ops.sy", "pub fn dobrar(x: Int) = x * 2")
+    index.fileContents.set("/proj/math/trig.sy", "pub fn cos(x: Float) = x")
+    match resolveFileOrDir("/proj/math", index) {
+        None => assertMsg(false, "expected directory resolve")
+        Some(files) => assertMsg(files.size() == 2, "two files in math package dir")
+    }
+}
+
+test fn testResolveFileOrDirMissing() {
+    val index = emptyPathIndex()
+    match resolveFileOrDir("/proj/missing", index) {
+        None => assertMsg(true, "unresolved import")
+        Some(_) => assertMsg(false, "should not resolve missing path")
+    }
+}
+
+test fn testResolveIn() {
+    var index = emptyPathIndex()
+    index.fileContents.set("/stdlib/prelude.sy", "pub fn print(x: String) {}")
+    var segs: List[String] = []
+    segs.append("prelude")
+    match resolveIn("/stdlib", segs, index) {
+        None => assertMsg(false, "expected resolveIn")
+        Some(files) => {
+            assertMsg(files.size() == 1, "one prelude file")
+            assertMsg(files.get(0) == "/stdlib/prelude.sy", "prelude path")
+        }
+    }
+}
+
+fn emptyImportDecl(path: String, kind: ImportPathKind) -> ImportDeclData = ImportDeclData {
+    path: path,
+    names: List[ImportName]{},
+    namespace: "",
+    pathKind: kind,
+    packageAlias: "",
+    isStdlib: false,
+    resolvedFiles: List[String]{}
+}
+
+// Port of resolver.go Resolve — full import decl to .sy file list.
+test fn testResolveImportLegacyFile() {
+    val r = newResolver("/proj")
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    val data = emptyImportDecl("math", ImportPathKind.Legacy)
+    match resolveImport(r, data, "", index) {
+        None => assertMsg(false, "expected legacy import resolve")
+        Some(files) => {
+            assertMsg(files.size() == 1, "one file")
+            assertMsg(files.get(0) == "/proj/math.sy", "math.sy")
+        }
+    }
+}
+
+test fn testResolveImportStdlib() {
+    val r = Resolver {
+        root: "/proj",
+        projectRoot: "/proj",
+        stdlibDir: "/stdlib",
+        packages: Map[String, String]{}
+    }
+    var index = emptyPathIndex()
+    index.fileContents.set("/stdlib/mock.sy", "pub fn assert_eq(a: Int, b: Int, name: String) {}")
+    val data = emptyImportDecl("@soyuz/mock", ImportPathKind.Stdlib)
+    match resolveImport(r, data, "", index) {
+        None => assertMsg(false, "expected stdlib resolve")
+        Some(files) => assertMsg(files.get(0) == "/stdlib/mock.sy", "mock.sy")
+    }
+}
+
+test fn testResolveImportRelative() {
+    val r = newResolver("/proj")
+    var index = emptyPathIndex()
+    index.fileContents.set("/proj/src/math.sy", "pub fn dobrar(x: Int) = x * 2")
+    val data = emptyImportDecl("./math", ImportPathKind.Relative)
+    match resolveImport(r, data, "/proj/src/main.sy", index) {
+        None => assertMsg(false, "expected relative import resolve")
+        Some(files) => assertMsg(files.get(0) == "/proj/src/math.sy", "relative math.sy")
+    }
+}
+
+test fn testEffectiveImportPathKindLegacyStdlib() {
+    assertMsg(effectiveImportPathKind(ImportPathKind.Legacy, true) == ImportPathKind.Stdlib, "legacy stdlib promoted")
+    assertMsg(effectiveImportPathKind(ImportPathKind.Legacy, false) == ImportPathKind.Legacy, "legacy unchanged")
+}
+
+test fn testNewResolverWithStdlibFromIndexLoadsProject() {
+    val root = "/tmp/proj"
+    val entry = "/tmp/proj/src/main.sy"
+    val toml = "[packages]\nlexer = \"lib/lexer\"\n"
+    var index = emptyPathIndex()
+    index.markerFiles.append(joinPathFile(root, "soyuz.toml"))
+    index.fileContents.set(joinPathFile(root, "soyuz.toml"), toml)
+    val r = newResolverWithStdlibFromIndex(entry, "/stdlib", index)
+    assertMsg(r.projectRoot == root, "project root from entry")
+    assertMsg(r.packages.get("lexer") == "lib/lexer", "packages from toml")
+    assertMsg(r.stdlibDir == "/stdlib", "stdlib dir set")
+}
+
+// Port of stdlib_namespace_test.go TestStdlibNestedPath — nested stdlib module path.
+test fn testResolveStdlibNestedPath() {
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set("/tmp/stdlib/collections/list.sy", "pub fn length() -> Int = 0")
+    val r = Resolver {
+        root: "/tmp/app",
+        projectRoot: "",
+        stdlibDir: stdlibDir,
+        packages: Map[String, String]{}
+    }
+    val data = ImportDeclData {
+        path: "@soyuz/collections/list",
+        names: List[ImportName]{},
+        namespace: "",
+        pathKind: ImportPathKind.Stdlib,
+        packageAlias: "",
+        isStdlib: false,
+        resolvedFiles: List[String]{}
+    }
+    match resolveImport(r, data, "", index) {
+        None => assertMsg(false, "expected nested stdlib resolve")
+        Some(files) => assertMsg(files.get(0) == "/tmp/stdlib/collections/list.sy", "collections/list.sy")
+    }
+}

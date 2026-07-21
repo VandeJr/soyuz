@@ -1,0 +1,104 @@
+import (
+    { Node, FuncDeclData, IdentifierData, MemberExprData, IntLiteralData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { isTaskInstanceType, isTaskClassType, isTaskStaticGather, isTaskGatherCall, isTaskGatherFnArg, nextTaskWrapperName, taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, listRuntimeGet, gatherSpawnCondBlockName, gatherAwaitCondBlockName, generateTaskGatherStub, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
+    { assertMsg } from @soyuz/testing
+)
+
+fn gatherEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn gatherEmptyClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+test fn testIsTaskInstanceType() {
+    val taskClass = gatherEmptyClass("Task")
+    val arcClass = gatherEmptyClass("Arc")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    assertMsg(isTaskInstanceType(taskInt), "Task[Int] is task")
+    assertMsg(!isTaskInstanceType(arcInt), "Arc[Int] not task")
+    assertMsg(!isTaskInstanceType(IntType), "Int not task")
+}
+
+test fn testIsTaskClassType() {
+    val taskClass = gatherEmptyClass("Task")
+    val channelClass = gatherEmptyClass("Channel")
+    assertMsg(isTaskClassType(Type.Class(taskClass)), "Task class type")
+    assertMsg(!isTaskClassType(Type.Class(channelClass)), "Channel not Task class")
+}
+
+test fn testIsTaskStaticGather() {
+    assertMsg(isTaskStaticGather("Task", "gather"), "Task.gather")
+    assertMsg(!isTaskStaticGather("Task", "all"), "not Task.all")
+    assertMsg(!isTaskStaticGather("List", "gather"), "not List.gather")
+}
+
+test fn testIsTaskGatherCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "gather" })
+    assertMsg(isTaskGatherCall(member), "Task.gather member is gather call")
+    val arcId = Node.Identifier(3, span, IdentifierData { name: "Arc" })
+    val arcMember = Node.MemberExpr(4, span, MemberExprData { object: arcId, property: "new" })
+    assertMsg(!isTaskGatherCall(arcMember), "Arc.new not gather")
+}
+
+test fn testIsTaskGatherFnArg() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val fnId = Node.Identifier(1, span, IdentifierData { name: "dobrar" })
+    assertMsg(isTaskGatherFnArg(fnId), "named fn arg")
+    val lit = Node.IntLiteral(2, span, IntLiteralData { value: "1" })
+    assertMsg(!isTaskGatherFnArg(lit), "literal not fn arg")
+}
+
+test fn testNextTaskWrapperName() {
+    val g = newGenerator(gatherEmptyCheckResult())
+    val w1 = nextTaskWrapperName(g)
+    val w2 = nextTaskWrapperName(g)
+    assertMsg(w1 == "__task_wrapper_1", "first wrapper name")
+    assertMsg(w2 == "__task_wrapper_2", "second wrapper name")
+}
+
+test fn testGenerateTaskGatherStub() {
+    val g = newGenerator(gatherEmptyCheckResult())
+    match generateTaskGatherStub(g) {
+        None => assertMsg(false, "task gather stub")
+        Some(_) => {
+            assertMsg(g.gatherResultStub != None, "result stub stored")
+            assertMsg(g.gatherEnqueueStub != None, "enqueue stub stored")
+            assertMsg(g.gatherAwaitStub != None, "await stub stored")
+            assertMsg(g.gatherTaskWrapperName != None, "wrapper name stored")
+            assertMsg(gatherBlockNamesRegistered(g), "gather loop blocks registered")
+        }
+    }
+    assertMsg(gatherRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(gatherRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeNew()), "soyuz_list_new registered")
+    assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeAppend()), "soyuz_list_append registered")
+    assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeGet()), "soyuz_list_get registered")
+    match g.gatherTaskWrapperName {
+        None => assertMsg(false, "wrapper name")
+        Some(name) => assertMsg(name == "__task_wrapper_1", "wrapper counter used")
+    }
+}

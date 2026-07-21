@@ -1,0 +1,62 @@
+import (
+    { cliBuildReleaseFlag, cliBuildOutputFlag, cliBuildReleaseFromArgs, cliBuildOutputFromArgs, cliBuildLegacyEntryFromArgs, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, buildCliLibraryVerifyStubMessage, buildCliLegacyDefaultOutput, buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, buildCliLegacyBootstrapCommand, buildCliProjectBootstrapCommand, defaultHelloMinimalBuildArgv, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { helloMinimalFixturePath } from @driver/export
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliBuildArgsParse() {
+    var args = List[String]{}
+    args.append(helloMinimalFixturePath())
+    assertMsg(cliBuildLegacyEntryFromArgs(args) == helloMinimalFixturePath(), "entry from positional")
+    assertMsg(!cliBuildReleaseFromArgs(args), "no release by default")
+    assertMsg(cliBuildOutputFromArgs(args).len() == 0, "no output flag")
+
+    var withFlags = List[String]{}
+    withFlags.append(cliBuildReleaseFlag())
+    withFlags.append(cliBuildOutputFlag())
+    withFlags.append("/tmp/out")
+    withFlags.append(helloMinimalFixturePath())
+    assertMsg(cliBuildReleaseFromArgs(withFlags), "release flag")
+    assertMsg(cliBuildOutputFromArgs(withFlags) == "/tmp/out", "output flag value")
+    assertMsg(cliBuildLegacyEntryFromArgs(withFlags) == helloMinimalFixturePath(), "entry after flags")
+    assertMsg(cliBuildLegacyHasEntry(withFlags), "legacy has entry")
+}
+
+test fn testBuildCliLegacyPlanFromArgs() {
+    var args = List[String]{}
+    args.append(helloMinimalFixturePath())
+    val plan = buildCliLegacyPlanFromArgs(args)
+    assertMsg(buildCliLegacyPlanReady(plan), "legacy plan ready")
+    assertMsg(plan.outputFile == buildCliLegacyDefaultOutput(), "default output")
+    assertMsg(!plan.release, "default not release")
+
+    var customOut = List[String]{}
+    customOut.append(cliBuildOutputFlag())
+    customOut.append("mybin")
+    customOut.append(helloMinimalFixturePath())
+    val customPlan = buildCliLegacyPlanFromArgs(customOut)
+    assertMsg(customPlan.outputFile == "mybin", "custom output")
+    assertMsg(buildCliLegacySuccessMessage(customPlan).contains("mybin"), "success message")
+}
+
+test fn testBuildCliLegacyBootstrapCommand() {
+    var args = List[String]{}
+    args.append(helloMinimalFixturePath())
+    val plan = buildCliLegacyPlanFromArgs(args)
+    val cmd = buildCliLegacyBootstrapCommand(plan)
+    assertMsg(cmd.contains("soyuz build"), "bootstrap build prefix")
+    assertMsg(cmd.contains(helloMinimalFixturePath()), "bootstrap build entry")
+}
+
+test fn testDefaultHelloMinimalBuildArgv() {
+    val argv = defaultHelloMinimalBuildArgv()
+    assertMsg(argv.size() == 3, "hello minimal build argv shape")
+    assertMsg(argv.get(1) == "build", "build command")
+}
+
+test fn testBuildCliProjectBootstrapCommand() {
+    assertMsg(buildCliProjectBootstrapCommand(List[String]{}) == "soyuz build", "project build bootstrap")
+    var withRelease = List[String]{}
+    withRelease.append(cliBuildReleaseFlag())
+    assertMsg(buildCliProjectBootstrapCommand(withRelease).contains("--release"), "project release flag")
+}

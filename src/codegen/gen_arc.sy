@@ -1,0 +1,180 @@
+import (
+    { Node } from @ast/ast
+    { nodeId } from @ast/ast_helpers
+    { Type } from @checker/types
+    { Generator } from @codegen/generator
+    { LlvmValue } from @codegen/llvm_types
+    { stubLlvmValue } from @codegen/gen_ir
+)
+
+pub fn arcRuntimeNew() -> String {
+    return "srt_arc_new"
+}
+
+pub fn arcRuntimeClone() -> String {
+    return "srt_arc_clone"
+}
+
+pub fn arcRuntimeRelease() -> String {
+    return "srt_arc_release"
+}
+
+pub fn arcRuntimeGet() -> String {
+    return "srt_arc_get"
+}
+
+pub fn arcRuntimeRefcount() -> String {
+    return "srt_arc_refcount"
+}
+
+pub fn isArcType(t: Type) -> Bool = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => ct.name == "Arc" && params.size() > 0
+        _ => false
+    }
+    _ => false
+}
+
+pub fn arcInnerType(t: Type) -> Option[Type] = match t {
+    Specialized(base, params) => match base {
+        Class(ct) => {
+            if ct.name == "Arc" && params.size() > 0 {
+                return Some(params.get(0))
+            }
+            return None
+        }
+        _ => None
+    }
+    _ => None
+}
+
+pub fn isArcClassType(t: Type) -> Bool = match t {
+    Class(ct) => ct.name == "Arc"
+    _ => false
+}
+
+pub fn isArcStaticNew(typeName: String, methodName: String) -> Bool {
+    return typeName == "Arc" && methodName == "new"
+}
+
+pub fn isArcNewCall(callee: Node) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => match memberData.object {
+        Identifier(_, _, idData) => isArcStaticNew(idData.name, memberData.property)
+        _ => false
+    }
+    _ => false
+}
+
+fn arcCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
+    if id >= g.check.nodeTypes.size() { return None }
+    return g.check.nodeTypes.get(id)
+}
+
+pub fn isArcInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
+    MemberExpr(_, _, memberData) => {
+        if memberData.property != methodName { return false }
+        match arcCheckerNodeType(g, nodeId(memberData.object)) {
+            None => false
+            Some(t) => isArcType(t)
+        }
+    }
+    _ => false
+}
+
+pub fn isArcCloneCall(callee: Node, g: Generator) -> Bool {
+    return isArcInstanceMethodCall(callee, g, "clone")
+}
+
+pub fn isArcGetCall(callee: Node, g: Generator) -> Bool {
+    return isArcInstanceMethodCall(callee, g, "get")
+}
+
+pub fn isArcRefcountCall(callee: Node, g: Generator) -> Bool {
+    return isArcInstanceMethodCall(callee, g, "refcount")
+}
+
+fn registerArcRuntimeSymbol(g: Generator, symbol: String) {
+    var found = false
+    for s in g.arcRuntimeSymbols {
+        if s == symbol { found = true }
+    }
+    if !found {
+        var syms = g.arcRuntimeSymbols
+        syms.append(symbol)
+        g.arcRuntimeSymbols = syms
+    }
+}
+
+pub fn arcRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
+    for s in g.arcRuntimeSymbols {
+        if s == symbol { return true }
+    }
+    return false
+}
+
+pub fn generateArcNewStub(g: Generator) -> Option[LlvmValue] {
+    registerArcRuntimeSymbol(g, arcRuntimeNew())
+    val stub = stubLlvmValue(g)
+    g.arcNewStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateArcCloneStub(g: Generator) -> Option[LlvmValue] {
+    registerArcRuntimeSymbol(g, arcRuntimeClone())
+    val stub = stubLlvmValue(g)
+    g.arcCloneStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateArcGetStub(g: Generator) -> Option[LlvmValue] {
+    registerArcRuntimeSymbol(g, arcRuntimeGet())
+    val stub = stubLlvmValue(g)
+    g.arcGetStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateArcRefcountStub(g: Generator) -> Option[LlvmValue] {
+    registerArcRuntimeSymbol(g, arcRuntimeRefcount())
+    val stub = stubLlvmValue(g)
+    g.arcRefcountStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn generateArcReleaseStub(g: Generator) -> Option[LlvmValue] {
+    registerArcRuntimeSymbol(g, arcRuntimeRelease())
+    val stub = stubLlvmValue(g)
+    g.arcReleaseStub = Some(stub)
+    return Some(stub)
+}
+
+pub fn pushArcScope(g: Generator) {
+    var stack = g.arcVarStack
+    stack.append([])
+    g.arcVarStack = stack
+}
+
+pub fn ownArcVar(g: Generator, name: String) {
+    if g.arcVarStack.size() == 0 { return }
+    var top = g.arcVarStack.get(g.arcVarStack.size() - 1)
+    top.append(name)
+    var stack = g.arcVarStack
+    stack.set(g.arcVarStack.size() - 1, top)
+    g.arcVarStack = stack
+}
+
+pub fn popArcScope(g: Generator) -> List[String] {
+    if g.arcVarStack.size() == 0 { return [] }
+    val owned = g.arcVarStack.get(g.arcVarStack.size() - 1)
+    var stack = g.arcVarStack
+    stack.removeAt(g.arcVarStack.size() - 1)
+    g.arcVarStack = stack
+    return owned
+}
+
+pub fn emitArcDrops(g: Generator, names: List[String]) -> Bool {
+    if names.size() == 0 { return true }
+    return match generateArcReleaseStub(g) {
+        None => false
+        Some(_) => true
+    }
+}

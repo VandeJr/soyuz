@@ -1,5 +1,6 @@
 import (
-    { Checker, Type, FuncType, ClassType, InterfaceType, TypeParameter, SpecializedType, Unknown } from @checker/types
+    { Checker } from @checker/checker
+    { Type, FuncType, ClassType, InterfaceType, Unknown, typeToString } from @checker/types
 )
 
 pub fn isCompatibleFunc(expected: FuncType, actual: FuncType) -> Bool {
@@ -7,17 +8,17 @@ pub fn isCompatibleFunc(expected: FuncType, actual: FuncType) -> Bool {
         return false
     }
     for i in range(0, expected.params.size()) {
-        if expected.params[i].toString() != actual.params[i].toString() {
+        if typeToString(expected.params.get(i)) != typeToString(actual.params.get(i)) {
             return false
         }
     }
-    return expected.returnType.toString() == actual.returnType.toString()
+    return typeToString(expected.returnType) == typeToString(actual.returnType)
 }
 
 fn interfaceAssignable(expectedName: String, actual: Type) -> Bool = match actual {
-    ClassType(_, _, _, _, _, implements, _, _) => {
+    Class(data) => {
         var ok = false
-        for impl in implements {
+        for impl in data.implements {
             if impl.name == expectedName {
                 ok = true
             }
@@ -31,7 +32,7 @@ fn hasTypeParameter(params: List[Type]) -> Bool {
     var found = false
     for p in params {
         if match p {
-            TypeParameter(_) => true
+            TypeParam(_) => true
             _ => false
         } {
             found = true
@@ -46,7 +47,7 @@ fn paramsAssignable(c: Checker, stParams: List[Type], actParams: List[Type]) -> 
     }
     var allOk = true
     for i in range(0, stParams.size()) {
-        if !isAssignable(c, stParams[i], actParams[i]) {
+        if !isAssignable(c, stParams.get(i), actParams.get(i)) {
             allOk = false
         }
     }
@@ -54,7 +55,7 @@ fn paramsAssignable(c: Checker, stParams: List[Type], actParams: List[Type]) -> 
 }
 
 fn specializedAssignable(c: Checker, stBase: Type, stParams: List[Type], actual: Type) -> Bool {
-    if actual.toString() == stBase.toString() {
+    if typeToString(actual) == typeToString(stBase) {
         return true
     }
     if hasTypeParameter(stParams) {
@@ -63,9 +64,9 @@ fn specializedAssignable(c: Checker, stBase: Type, stParams: List[Type], actual:
     var actParams: List[Type] = []
     var sameBase = false
     if match actual {
-        SpecializedType(actBase, _, params) => {
+        Specialized(actBase, params) => {
             actParams = params
-            actBase.toString() == stBase.toString()
+            typeToString(actBase) == typeToString(stBase)
         }
         _ => false
     } {
@@ -74,39 +75,39 @@ fn specializedAssignable(c: Checker, stBase: Type, stParams: List[Type], actual:
     if !sameBase {
         return false
     }
-    if actParams.size() > 0 && actParams[0].toString() == "Unknown" {
+    if actParams.size() > 0 && typeToString(actParams.get(0)) == "Unknown" {
         return true
     }
     paramsAssignable(c, stParams, actParams)
 }
 
 pub fn isAssignable(c: Checker, expected: Type, actual: Type) -> Bool {
-    if expected.toString() == "Unknown" || actual.toString() == "Unknown" {
+    if typeToString(expected) == "Unknown" || typeToString(actual) == "Unknown" {
         return true
     }
-    if expected.toString() == actual.toString() {
+    if typeToString(expected) == typeToString(actual) {
         return true
     }
     if match expected {
-        TypeParameter(_) => true
+        TypeParam(_) => true
         _ => false
     } {
         return true
     }
     if match expected {
-        InterfaceType(name, _) => interfaceAssignable(name, actual)
+        Interface(data) => interfaceAssignable(data.name, actual)
         _ => false
     } {
         return true
     }
     if match expected {
-        FuncType(_, ret, _, _, _) if ret == actual => true
+        Func(ft) if ft.returnType == actual => true
         _ => false
     } {
         return false
     }
     if match expected {
-        SpecializedType(stBase, _, stParams) => specializedAssignable(c, stBase, stParams, actual)
+        Specialized(stBase, stParams) => specializedAssignable(c, stBase, stParams, actual)
         _ => false
     } {
         return true

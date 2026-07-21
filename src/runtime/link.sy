@@ -1,0 +1,250 @@
+import (
+    { RuntimeAsset, RuntimeWriteEntry, isRuntimeCSource, planRuntimeWrite, loadRuntimeAssetsFromIndex, loadRuntimeAssetsFromMaterializedIndex, applyRuntimeWritePlan, runtimeWritePlanFullyApplied } from @runtime/embed
+    { PathIndex, pathIndexFileContent, pathIndexWriteFile } from @module/paths
+)
+
+pub record LinkConfig {
+    llFile: String,
+    outputFile: String,
+    tmpDir: String,
+    optimize: Bool
+}
+
+pub record LinkBundle {
+    assets: List[RuntimeAsset],
+    writePlan: List[RuntimeWriteEntry],
+    clangArgs: List[String]
+}
+
+pub fn prepareLinkBundle(cfg: LinkConfig, assets: List[RuntimeAsset]) -> LinkBundle = LinkBundle {
+    assets: assets,
+    writePlan: planRuntimeWrite(cfg.tmpDir, assets),
+    clangArgs: buildClangArgs(cfg, assets)
+}
+
+pub fn prepareLinkBundleFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> LinkBundle {
+    val assets = loadRuntimeAssetsFromIndex(srcDir, index)
+    return prepareLinkBundle(cfg, assets)
+}
+
+pub fn prepareLinkBundleFromMaterializedIndex(cfg: LinkConfig, index: PathIndex) -> LinkBundle {
+    val assets = loadRuntimeAssetsFromMaterializedIndex(cfg.tmpDir, index)
+    return prepareLinkBundle(cfg, assets)
+}
+
+pub fn joinTmpAsset(tmpDir: String, fileName: String) -> String {
+    if tmpDir.endsWith("/") { return "$(tmpDir)$(fileName)" }
+    return "$(tmpDir)/$(fileName)"
+}
+
+pub fn defaultLlFileName() -> String = "out.ll"
+
+pub fn defaultLlFilePath(tmpDir: String) -> String = joinTmpAsset(tmpDir, defaultLlFileName())
+
+// Mirrors cmd/main.go os.WriteFile(llFile, []byte(irStr), 0644).
+pub fn writeLlToIndex(index: PathIndex, llPath: String, irContent: String) -> PathIndex {
+    return pathIndexWriteFile(index, llPath, irContent)
+}
+
+pub fn llFileWritten(index: PathIndex, llPath: String, irContent: String) -> Bool {
+    match pathIndexFileContent(index, llPath) {
+        None => return false
+        Some(content) => return content == irContent
+    }
+}
+
+// Mirrors cmd/main.go clang link argv assembly (without spawning clang).
+pub fn buildClangArgs(cfg: LinkConfig, assets: List[RuntimeAsset]) -> List[String] {
+    var args: List[String] = []
+    args.append(cfg.llFile)
+    for asset in assets {
+        if isRuntimeCSource(asset.name) {
+            args.append(joinTmpAsset(cfg.tmpDir, asset.name))
+        }
+    }
+    args.append("-I")
+    args.append(cfg.tmpDir)
+    args.append("-pthread")
+    if cfg.optimize {
+        args.append("-O2")
+    }
+    args.append("-o")
+    args.append(cfg.outputFile)
+    return args
+}
+
+pub fn clangArgsIncludeLlFile(args: List[String], llFile: String) -> Bool {
+    for arg in args {
+        if arg == llFile { return true }
+    }
+    return false
+}
+
+pub fn formatClangCommand(args: List[String]) -> String {
+    var result = "clang"
+    for arg in args {
+        result = "$(result) $(arg)"
+    }
+    return result
+}
+
+pub fn linkBundleReady(bundle: LinkBundle) -> Bool {
+    if bundle.clangArgs.size() == 0 { return false }
+    for entry in bundle.writePlan {
+        if entry.path.endsWith(".c") && entry.content.len() == 0 {
+            return false
+        }
+    }
+    return true
+}
+
+pub record LinkResult {
+    command: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn makeLinkResult(bundle: LinkBundle) -> LinkResult {
+    val command = formatClangCommand(bundle.clangArgs)
+    if !linkBundleReady(bundle) {
+        return LinkResult {
+            command: command,
+            ready: false,
+            error: "runtime assets incompletos para link"
+        }
+    }
+    return LinkResult {
+        command: command,
+        ready: true,
+        error: ""
+    }
+}
+
+pub fn defaultClangDriver() -> String = "clang"
+
+pub record ClangLinkInvocation {
+    driver: String,
+    args: List[String],
+    outputFile: String
+}
+
+pub fn clangLinkInvocationFromBundle(cfg: LinkConfig, bundle: LinkBundle) -> ClangLinkInvocation = ClangLinkInvocation {
+    driver: defaultClangDriver(),
+    args: bundle.clangArgs,
+    outputFile: cfg.outputFile
+}
+
+pub fn clangInvocationMatchesBundle(cfg: LinkConfig, bundle: LinkBundle, invocation: ClangLinkInvocation) -> Bool {
+    if invocation.driver != defaultClangDriver() { return false }
+    if invocation.outputFile != cfg.outputFile { return false }
+    if invocation.args.size() != bundle.clangArgs.size() { return false }
+    var i = 0
+    loop {
+        if i >= bundle.clangArgs.size() { break }
+        if invocation.args.get(i) != bundle.clangArgs.get(i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+pub fn defaultMaterializeScript() -> String = "tools/runtime-materialize-plan.sh"
+
+pub fn defaultRunLinkScript() -> String = "tools/runtime-run-link.sh"
+
+pub fn defaultLinkPipelineScript() -> String = "tools/runtime-link-pipeline.sh"
+
+pub record CompileLinkPlan {
+    bundle: LinkBundle,
+    linkResult: LinkResult,
+    invocation: ClangLinkInvocation,
+    materializeScript: String,
+    runLinkScript: String,
+    pipelineScript: String
+}
+
+pub fn compileLinkPlanReady(plan: CompileLinkPlan) -> Bool = plan.linkResult.ready
+
+pub fn buildCompileLinkPlan(cfg: LinkConfig, bundle: LinkBundle) -> CompileLinkPlan = CompileLinkPlan {
+    bundle: bundle,
+    linkResult: makeLinkResult(bundle),
+    invocation: clangLinkInvocationFromBundle(cfg, bundle),
+    materializeScript: defaultMaterializeScript(),
+    runLinkScript: defaultRunLinkScript(),
+    pipelineScript: defaultLinkPipelineScript()
+}
+
+pub fn buildCompileLinkPlanFromIndex(cfg: LinkConfig, srcDir: String, index: PathIndex) -> CompileLinkPlan {
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, index)
+    return buildCompileLinkPlan(cfg, bundle)
+}
+
+// Rebuild link argv from tmpDir files after manifest apply (no runtime srcDir lookup).
+pub fn buildCompileLinkPlanFromMaterializedIndex(cfg: LinkConfig, index: PathIndex) -> CompileLinkPlan {
+    val bundle = prepareLinkBundleFromMaterializedIndex(cfg, index)
+    return buildCompileLinkPlan(cfg, bundle)
+}
+
+pub fn applyLinkBundleWritePlan(index: PathIndex, bundle: LinkBundle) -> PathIndex {
+    return applyRuntimeWritePlan(index, bundle.writePlan)
+}
+
+pub fn materializeLinkBundleFromIndex(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex) -> PathIndex {
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, sourceIndex)
+    return applyLinkBundleWritePlan(index, bundle)
+}
+
+pub record CompileOutput {
+    tmpIndex: PathIndex,
+    cfg: LinkConfig,
+    bundle: LinkBundle,
+    irContent: String
+}
+
+pub fn compileOutputReady(output: CompileOutput) -> Bool {
+    if !linkBundleReady(output.bundle) { return false }
+    if !runtimeWritePlanFullyApplied(output.tmpIndex, output.bundle.writePlan) { return false }
+    return llFileWritten(output.tmpIndex, output.cfg.llFile, output.irContent)
+}
+
+pub fn materializeCompileOutput(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex, irContent: String) -> CompileOutput {
+    val bundle = prepareLinkBundleFromIndex(cfg, srcDir, sourceIndex)
+    var tmpIndex = applyLinkBundleWritePlan(index, bundle)
+    tmpIndex = writeLlToIndex(tmpIndex, cfg.llFile, irContent)
+    return CompileOutput {
+        tmpIndex: tmpIndex,
+        cfg: cfg,
+        bundle: bundle,
+        irContent: irContent
+    }
+}
+
+pub fn defaultLinkConfig(tmpDir: String, outputFile: String, optimize: Bool) -> LinkConfig = LinkConfig {
+    llFile: defaultLlFilePath(tmpDir),
+    outputFile: outputFile,
+    tmpDir: tmpDir,
+    optimize: optimize
+}
+
+pub record CompilePipeline {
+    output: CompileOutput,
+    linkPlan: CompileLinkPlan
+}
+
+pub fn compilePipelineReady(pipeline: CompilePipeline) -> Bool {
+    if !compileOutputReady(pipeline.output) { return false }
+    return compileLinkPlanReady(pipeline.linkPlan)
+}
+
+pub fn buildCompilePipeline(cfg: LinkConfig, output: CompileOutput) -> CompilePipeline = CompilePipeline {
+    output: output,
+    linkPlan: buildCompileLinkPlan(cfg, output.bundle)
+}
+
+pub fn buildCompilePipelineFromIndex(index: PathIndex, cfg: LinkConfig, srcDir: String, sourceIndex: PathIndex, irContent: String) -> CompilePipeline {
+    val output = materializeCompileOutput(index, cfg, srcDir, sourceIndex, irContent)
+    return buildCompilePipeline(cfg, output)
+}
+
+pub fn compilePipelineBundlesMatch(pipeline: CompilePipeline) -> Bool {
+    return pipeline.linkPlan.bundle.clangArgs.size() == pipeline.output.bundle.clangArgs.size()
+}

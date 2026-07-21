@@ -1,0 +1,154 @@
+// Mirrors soyuz-go/cmd/main.go switch on os.Args[1] (routing only, no OS spawn).
+
+import (
+    { cliCommandNew, cliCommandBuild, cliCommandRun, cliCommandTest, cliArgvNeedsUsage, cliDispatchFromArgv, cliRunReadyFromArgv, cliRunMaterializeReadyFromArgv, cliRunEntryFromArgs, cliHelloMinimalRunOrderedCommands, cliHelloMinimalRunOrderedCommandsReady, cliHelloMinimalRunExecCommandFromArgv, cliHelloMinimalBinaryPath, cliUsageText, defaultHelloMinimalRunArgv, defaultCliHelloMinimalManifestPath } from @driver/cli
+    { helloMinimalFixturePath } from @driver/export
+    { runPlanOrderedMaterializeCommandCount } from @driver/run
+    { cliNewArgsReady, newProjectPlanFromArgs, newProjectPlanReady } from @driver/new
+    { buildCliLegacyPlanFromArgs, buildCliLegacyPlanReady, buildCliLegacySuccessMessage, defaultHelloMinimalBuildArgv, cliBuildLegacyHasEntry, cliBuildProjectModeFromArgs, defaultSoyuzLibraryBuildArgv } from @driver/build_cli
+    { soyuzLibraryProjectVerifyReady, buildCliLibraryVerifyMessage, buildCliProjectConfigFromRoot, soyuzLibraryProjectRoot, soyuzLibraryProjectIndex } from @driver/project_cli
+    { testCliLegacyPlanFromArgs, testCliLegacyPlanReady, testCliDefaultTmpBinPath, defaultTestRunnerArgv } from @driver/test_cli
+    { planHelloFullBuild, testRunnerCliPath, helloTestBuildReady } from @driver/export
+    { fullBuildReady } from @driver/pipeline
+)
+
+pub fn cliActionUsage() -> String = "usage"
+
+pub fn cliActionRun() -> String = "run"
+
+pub fn cliActionBuild() -> String = "build"
+
+pub fn cliActionTest() -> String = "test"
+
+pub fn cliActionNew() -> String = "new"
+
+pub fn cliDispatchAction(argv: List[String]) -> String {
+    if cliArgvNeedsUsage(argv) { return cliActionUsage() }
+    val dispatch = cliDispatchFromArgv(argv)
+    if !dispatch.known { return cliActionUsage() }
+    if dispatch.command == cliCommandRun() { return cliActionRun() }
+    if dispatch.command == cliCommandBuild() { return cliActionBuild() }
+    if dispatch.command == cliCommandTest() { return cliActionTest() }
+    if dispatch.command == cliCommandNew() { return cliActionNew() }
+    return cliActionUsage()
+}
+
+pub fn cliRunActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionRun() { return false }
+    return cliRunReadyFromArgv(argv)
+}
+
+pub fn cliHelloMinimalRunActionReady() -> Bool {
+    return cliRunActionReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliRunActionPipelineReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionRun() { return false }
+    return cliRunMaterializeReadyFromArgv(argv, defaultCliHelloMinimalManifestPath())
+}
+
+pub fn cliHelloMinimalRunActionPipelineReady() -> Bool {
+    return cliRunActionPipelineReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliDispatchNeedsUsage(argv: List[String]) -> Bool {
+    return cliDispatchAction(argv) == cliActionUsage()
+}
+
+pub fn cliDispatchUsageOutput(argv: List[String]) -> String {
+    if !cliDispatchNeedsUsage(argv) { return "" }
+    return cliUsageText()
+}
+
+pub fn cliRunActionOrderedCommands(argv: List[String]) -> List[String] {
+    if !cliRunActionPipelineReady(argv) { return List[String]{} }
+    val dispatch = cliDispatchFromArgv(argv)
+    val entry = cliRunEntryFromArgs(dispatch.args)
+    if entry != helloMinimalFixturePath() { return List[String]{} }
+    return cliHelloMinimalRunOrderedCommands()
+}
+
+pub fn cliRunActionOrderedCommandsReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionRun() { return false }
+    val cmds = cliRunActionOrderedCommands(argv)
+    if cmds.size() != runPlanOrderedMaterializeCommandCount() { return false }
+    return cliHelloMinimalRunOrderedCommandsReady()
+}
+
+pub fn cliHelloMinimalRunActionOrderedCommandsReady() -> Bool {
+    return cliRunActionOrderedCommandsReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliRunActionExecCommand(argv: List[String]) -> String {
+    if !cliRunActionPipelineReady(argv) { return "" }
+    val dispatch = cliDispatchFromArgv(argv)
+    val entry = cliRunEntryFromArgs(dispatch.args)
+    if entry != helloMinimalFixturePath() { return "" }
+    return cliHelloMinimalRunExecCommandFromArgv(argv)
+}
+
+pub fn cliHelloMinimalRunActionExecReady() -> Bool {
+    return cliRunActionExecCommand(defaultHelloMinimalRunArgv()) == cliHelloMinimalBinaryPath()
+}
+
+pub fn cliNewActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionNew() { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    if !cliNewArgsReady(dispatch.args) { return false }
+    return newProjectPlanReady(newProjectPlanFromArgs(dispatch.args))
+}
+
+pub fn cliNewSuccessMessageFromArgv(argv: List[String]) -> String {
+    if !cliNewActionReady(argv) { return "" }
+    val dispatch = cliDispatchFromArgv(argv)
+    return newProjectPlanFromArgs(dispatch.args).successMessage
+}
+
+pub fn cliBuildActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionBuild() { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    if cliBuildProjectModeFromArgs(dispatch.args) {
+        return soyuzLibraryProjectVerifyReady()
+    }
+    val plan = buildCliLegacyPlanFromArgs(dispatch.args)
+    if !buildCliLegacyPlanReady(plan) { return false }
+    if plan.entry != helloMinimalFixturePath() { return false }
+    return fullBuildReady(planHelloFullBuild())
+}
+
+pub fn cliBuildSuccessMessageFromArgv(argv: List[String]) -> String {
+    if !cliBuildActionReady(argv) { return "" }
+    val dispatch = cliDispatchFromArgv(argv)
+    if cliBuildProjectModeFromArgs(dispatch.args) {
+        val root = soyuzLibraryProjectRoot()
+        val index = soyuzLibraryProjectIndex()
+        return buildCliLibraryVerifyMessage(buildCliProjectConfigFromRoot(root, index))
+    }
+    return buildCliLegacySuccessMessage(buildCliLegacyPlanFromArgs(dispatch.args))
+}
+
+pub fn cliHelloMinimalBuildActionReady() -> Bool {
+    return cliBuildActionReady(defaultHelloMinimalBuildArgv())
+}
+
+pub fn cliSoyuzLibraryBuildActionReady() -> Bool {
+    return cliBuildActionReady(defaultSoyuzLibraryBuildArgv())
+}
+
+pub fn cliTestActionReady(argv: List[String]) -> Bool {
+    if cliDispatchAction(argv) != cliActionTest() { return false }
+    val dispatch = cliDispatchFromArgv(argv)
+    val plan = testCliLegacyPlanFromArgs(dispatch.args)
+    if !testCliLegacyPlanReady(plan) { return false }
+    if plan.entry != testRunnerCliPath() { return false }
+    return helloTestBuildReady(plan.filter)
+}
+
+pub fn cliTestExecCommandFromArgv(argv: List[String]) -> String {
+    if !cliTestActionReady(argv) { return "" }
+    return testCliDefaultTmpBinPath()
+}
+
+pub fn cliTestRunnerActionReady() -> Bool {
+    return cliTestActionReady(defaultTestRunnerArgv())
+}

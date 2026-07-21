@@ -1,0 +1,2204 @@
+import (
+    { Node, FuncDeclData, IntLiteralData, FloatLiteralData, BinaryExprData, UnaryExprData, CharLiteralData, StringLiteralData, IdentifierData, CallExprData, IndexExprData, VarDeclData, AssignExprData, VarKind, MatchExprData, MatchArm, Pattern, LiteralPatternValue, EnumDeclData, EnumVariant, EnumField, TypeExpr, MemberExprData, RecordLiteralData, RecordLiteralField, RecordField, RecordDeclData, RecordPatternField, TaskExprData, PipeExprData, AsyncPipeExprData, AsyncPipeQuestStepData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, FuncType, Type, IntType, CharType, StringType, UnitType, BoolType, EnumType, ClassType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { ConstValue, parseIntLiteralText, evalConstExpr, evalIntBinaryOp, isArithmeticBinaryOp, isUnaryOp, typeConstantNames, generateExprNode, isLiteralNode, isIdentifierNode, isCallNode, isIndexNode, isUnaryNode, isVarDeclNode, isAssignNode, isMatchNode, literalPatternValueOk, constFromLiteralPatternValue } from @codegen/gen_exprs
+    { generateLiteralPatternValue } from @codegen/gen_patterns
+    { generateEnumDecl, enumVariantTag, generateRecordDecl } from @codegen/gen_structs
+    { blockNameRegistered, matchPhiIncomingCount } from @codegen/gen_ir
+    { mapTypeToLLVM } from @codegen/gen_types
+    { llvmI64, llvmI32, llvmTypesEqual } from @codegen/llvm_types
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeTryRecv, channelRuntimeClose, channelRuntimeIsClosed, channelRuntimeSymbolRegistered, chanSomeBlockName, chanNoneBlockName } from @codegen/gen_channel
+    { mutexRuntimeNew, mutexRuntimeLock, mutexGuardRuntimeGet, mutexGuardRuntimeSet, rwlockRuntimeNew, rwlockRuntimeRead, rwlockRuntimeWrite, atomicRuntimeNew, atomicRuntimeStore, atomicRuntimeLoad, atomicRuntimeAdd, atomicRuntimeCas, syncRuntimeSymbolRegistered } from @codegen/gen_sync
+    { arcRuntimeNew, arcRuntimeClone, arcRuntimeGet, arcRuntimeRefcount, arcRuntimeSymbolRegistered } from @codegen/gen_arc
+    { taskRuntimeEnqueue, taskRuntimeAwait, listRuntimeNew, listRuntimeAppend, gatherRuntimeSymbolRegistered, gatherBlockNamesRegistered } from @codegen/gen_gather
+    { taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskRuntimeSymbolRegistered, taskMallocBuiltin, taskFreeBuiltin, taskTupleAllocBuiltin, generateTaskEnqueueStub, taskNullStoreRecorded } from @codegen/gen_task
+    { newAlloca } from @codegen/gen_ir
+    { llvmI8Ptr } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testParseIntLiteralText() {
+    assertMsg(parseIntLiteralText("42") == Some(42), "parse 42")
+    assertMsg(parseIntLiteralText("-7") == Some(-7), "parse -7")
+    assertMsg(parseIntLiteralText("0") == Some(0), "parse 0")
+    assertMsg(parseIntLiteralText("") == None, "empty")
+}
+
+test fn testEvalIntBinaryOp() {
+    assertMsg(evalIntBinaryOp("+", 10, 5) == Some(15), "10+5")
+    assertMsg(evalIntBinaryOp("*", 10, 5) == Some(50), "10*5")
+    assertMsg(evalIntBinaryOp("/", 10, 0) == None, "div by zero")
+}
+
+test fn testEvalConstUnaryOp() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }
+    val inner = Node.IntLiteral(1, span, IntLiteralData { value: "7" })
+    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: inner })
+    match evalConstExpr(node) {
+        Some(IntVal(v)) => assertMsg(v == -7, "-7")
+        _ => assertMsg(false, "expected IntVal -7")
+    }
+    assertMsg(isUnaryOp("-"), "minus is unary")
+}
+
+test fn testEvalConstExprMath() {
+    val left = Node.IntLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 2 }, IntLiteralData { value: "10" })
+    val right = Node.IntLiteral(2, Span { line: 1, column: 4, startOffset: 3, endOffset: 4 }, IntLiteralData { value: "5" })
+    val node = Node.BinaryExpr(3, Span { line: 1, column: 1, startOffset: 0, endOffset: 4 }, BinaryExprData { operator: "+", left: left, right: right })
+    match evalConstExpr(node) {
+        Some(IntVal(v)) => assertMsg(v == 15, "(10+5) const fold")
+        _ => assertMsg(false, "expected IntVal")
+    }
+}
+
+test fn testTypeConstantNames() {
+    val names = typeConstantNames()
+    assertMsg(names.get("IntType") == "Int", "IntType maps to Int")
+    assertMsg(isArithmeticBinaryOp("+"), "plus is arithmetic")
+}
+
+test fn testLiteralPatternValueOk() {
+    assertMsg(literalPatternValueOk(LiteralPatternValue.Int("42")), "int literal ok")
+    assertMsg(!literalPatternValueOk(LiteralPatternValue.Int("")), "empty int invalid")
+    assertMsg(literalPatternValueOk(LiteralPatternValue.Bool(true)), "bool literal ok")
+}
+
+test fn testGenerateLiteralPatternValue() {
+    val g = newGenerator(exprTestCheckResult())
+    val handlesBefore = g.valueHandleCounter
+    match generateLiteralPatternValue(g, LiteralPatternValue.Int("7")) {
+        None => assertMsg(false, "expected int pattern value")
+        Some(v) => assertMsg(v.handle > handlesBefore, "pattern literal value handle")
+    }
+    match constFromLiteralPatternValue(LiteralPatternValue.Int("7")) {
+        None => assertMsg(false, "expected const from pattern int")
+        Some(cv) => match cv {
+            IntVal(n) => assertMsg(n == 7, "pattern int const value")
+            _ => assertMsg(false, "expected int const")
+        }
+    }
+}
+
+fn exprTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn checkerWithNodeType(id: Int, t: Type) -> CheckResult {
+    var cr = exprTestCheckResult()
+    var i = 0
+    loop {
+        if i > id { break }
+        if i == id {
+            cr.nodeTypes.append(Some(t))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
+
+fn mapHasIntType(m: Map[Int, Type], key: Int) -> Bool {
+    for k in m.keys() { if k == key { return true } }
+    return false
+}
+
+fn checkerWithNodeTypes(types: Map[Int, Type]) -> CheckResult {
+    var maxId = 0
+    for id in types.keys() {
+        if id > maxId { maxId = id }
+    }
+    var cr = exprTestCheckResult()
+    var i = 0
+    loop {
+        if i > maxId { break }
+        if mapHasIntType(types, i) {
+            cr.nodeTypes.append(Some(types.get(i)))
+        } else {
+            cr.nodeTypes.append(None)
+        }
+        i = i + 1
+    }
+    return cr
+}
+
+test fn testGenerateExprNodeIntLiteral() {
+    val node = Node.IntLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 2 }, IntLiteralData { value: "42" })
+    val g = newGenerator(checkerWithNodeType(1, IntType))
+    assertMsg(isLiteralNode(node), "int literal")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "int literal -> i64")
+            match r.maybeConst {
+                HasValue(IntVal(v)) => assertMsg(v == 42, "const value 42")
+                _ => assertMsg(false, "expected HasValue IntVal")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeCharLiteral() {
+    val node = Node.CharLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }, CharLiteralData { value: 'A' })
+    val g = newGenerator(checkerWithNodeType(1, CharType))
+    assertMsg(isLiteralNode(node), "char literal")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI32()), "char literal -> i32")
+            match r.maybeConst {
+                HasValue(CharVal(c)) => assertMsg(c == 'A', "const char A")
+                _ => assertMsg(false, "expected HasValue CharVal")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeIdentifier() {
+    val node = Node.Identifier(2, Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }, IdentifierData { name: "x" })
+    val g = newGenerator(checkerWithNodeType(2, IntType))
+    assertMsg(isIdentifierNode(node), "identifier")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "identifier x -> i64")
+            match r.maybeConst {
+                NoConst => {}
+                _ => assertMsg(false, "expected NoConst for identifier")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 10 }
+    val arg1 = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    val arg2 = Node.IntLiteral(4, span, IntLiteralData { value: "2" })
+    val callee = Node.Identifier(5, span, IdentifierData { name: "add" })
+    val ft = FuncType { params: [IntType, IntType], returnType: IntType, generics: [], defaults: [], isOptional: [] }
+    val call = Node.CallExpr(6, span, CallExprData { callee: callee, args: [arg1, arg2] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(3, IntType)
+    types.set(4, IntType)
+    types.set(5, Type.Func(ft))
+    types.set(6, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isCallNode(call), "call expr")
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "call -> i64")
+            match r.maybeConst {
+                NoConst => {}
+                _ => assertMsg(false, "expected NoConst for call")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeStringLiteral() {
+    val node = Node.StringLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 4 }, StringLiteralData { value: "hi" })
+    val g = newGenerator(checkerWithNodeType(1, StringType))
+    assertMsg(isLiteralNode(node), "string literal")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, StringType)), "string literal -> SoyuzString*")
+            match r.maybeConst {
+                HasValue(StringVal(s)) => assertMsg(s == "hi", "const string hi")
+                _ => assertMsg(false, "expected HasValue StringVal")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeIndexExpr() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 6 }
+    val obj = Node.Identifier(1, span, IdentifierData { name: "xs" })
+    val idx = Node.IntLiteral(2, span, IntLiteralData { value: "0" })
+    val node = Node.IndexExpr(3, span, IndexExprData { object: obj, index: idx })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, IntType)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isIndexNode(node), "index expr")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "index expr -> i64")
+            match r.maybeConst {
+                NoConst => {}
+                _ => assertMsg(false, "expected NoConst for index")
+            }
+        }
+    }
+}
+
+test fn testGenerateExprNodeUnaryMinus() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }
+    val inner = Node.IntLiteral(1, span, IntLiteralData { value: "7" })
+    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: inner })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isUnaryNode(node), "unary expr")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected expr result")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "unary minus -> i64")
+            match r.maybeConst {
+                HasValue(IntVal(v)) => assertMsg(v == -7, "const -7")
+                _ => assertMsg(false, "expected HasValue IntVal -7")
+            }
+        }
+    }
+}
+
+test fn testGenerateVarDeclNode() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 10 }
+    val init = Node.IntLiteral(2, span, IntLiteralData { value: "0" })
+    val node = Node.VarDecl(1, span, VarDeclData {
+        namePos: span,
+        isPub: false,
+        kind: VarKind.Var,
+        name: "x",
+        pattern: None,
+        typeExpr: None,
+        init: Some(init)
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isVarDeclNode(node), "var decl")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected var decl result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "var x -> i64")
+    }
+}
+
+test fn testGenerateAssignExprNode() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 6 }
+    val left = Node.Identifier(2, span, IdentifierData { name: "x" })
+    val right = Node.IntLiteral(3, span, IntLiteralData { value: "20" })
+    val node = Node.AssignExpr(4, span, AssignExprData { left: left, right: right })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isAssignNode(node), "assign expr")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected assign result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, llvmI64()), "assign -> i64")
+    }
+}
+
+test fn testGenerateMatchExprWithGuard() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
+    val guardCond = Node.IntLiteral(7, span, IntLiteralData { value: "1" })
+    val negBody = Node.StringLiteral(4, span, StringLiteralData { value: "neg" })
+    val posBody = Node.StringLiteral(5, span, StringLiteralData { value: "pos" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(2, span, "n"),
+        guard: Some(guardCond),
+        body: negBody
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(3, span),
+        guard: None,
+        body: posBody
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val node = Node.MatchExpr(6, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(4, StringType)
+    types.set(5, StringType)
+    types.set(6, StringType)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    assertMsg(isMatchNode(node), "match expr")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, StringType)), "match returns String")
+    }
+}
+
+test fn testGenerateMatchExprEnumConstructor() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "cor" })
+    val body = Node.IntLiteral(4, span, IntLiteralData { value: "1" })
+    val arm = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(2, span, "Verde", []),
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(4, IntType)
+    types.set(5, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected enum match expr result")
+        Some(r) => assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "enum match returns Int")
+    }
+}
+
+// Port of soyuz-go/internal/codegen/m6_enum_test.go TestM6EnumMatch (codegen block scaffolding).
+test fn testM6EnumMatchCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 80 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "c" })
+    val body0 = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val body1 = Node.IntLiteral(11, span, IntLiteralData { value: "2" })
+    val body2 = Node.IntLiteral(12, span, IntLiteralData { value: "3" })
+    val arm0 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(2, span, "Vermelho", []),
+        guard: None,
+        body: body0
+    }
+    val arm1 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(3, span, "Verde", []),
+        guard: None,
+        body: body1
+    }
+    val arm2 = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(4, span),
+        guard: None,
+        body: body2
+    }
+    val data = MatchExprData { subject: subject, arms: [arm0, arm1, arm2] }
+    val node = Node.MatchExpr(5, span, data)
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Vermelho", [])
+    variants.set("Verde", [])
+    variants.set("Azul", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    types.set(11, IntType)
+    types.set(12, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    val v2 = EnumVariant { span: span, name: "Azul", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1, v2] }), "register Cor")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected m6 enum match codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "classifica returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_Vermelho_tag_cmp"), "Vermelho tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_Verde_tag_cmp"), "Verde tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "first arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_1_body"), "second arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_2_body"), "wildcard arm body block")
+            assertMsg(matchPhiIncomingCount(g) == 4, "three arm bodies plus fallthrough phi")
+        }
+    }
+}
+
+// Port of m6_enum_test.go Forma enum — match on variants with payload fields.
+test fn testM6EnumWithFieldsMatchCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 80 }
+    val floatType = Type.Basic("Float")
+    val subject = Node.Identifier(1, span, IdentifierData { name: "f" })
+    val raioBinding = Pattern.Binding(6, span, "r")
+    val larguraBinding = Pattern.Binding(7, span, "w")
+    val body0 = Node.Identifier(10, span, IdentifierData { name: "r" })
+    val body1 = Node.Identifier(11, span, IdentifierData { name: "w" })
+    val arm0 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(2, span, "Circulo", [raioBinding]),
+        guard: None,
+        body: body0
+    }
+    val arm1 = MatchArm {
+        span: span,
+        pattern: Pattern.Constructor(3, span, "Retangulo", [larguraBinding]),
+        guard: None,
+        body: body1
+    }
+    val data = MatchExprData { subject: subject, arms: [arm0, arm1] }
+    val node = Node.MatchExpr(5, span, data)
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Circulo", [floatType])
+    variants.set("Retangulo", [floatType])
+    val formaType = Type.Enum(EnumType {
+        name: "Forma",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, formaType)
+    types.set(5, floatType)
+    types.set(10, floatType)
+    types.set(11, floatType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val raioField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val larguraField = EnumField { name: "largura", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val circulo = EnumVariant { span: span, name: "Circulo", fields: [raioField] }
+    val retangulo = EnumVariant { span: span, name: "Retangulo", fields: [larguraField] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo, retangulo] }), "register Forma")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected m6 enum with fields match codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, floatType)), "match returns Float")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_Circulo_tag_cmp"), "Circulo tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_Retangulo_tag_cmp"), "Retangulo tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "Circulo arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_1_body"), "Retangulo arm body block")
+            assertMsg(matchPhiIncomingCount(g) == 3, "two arm bodies plus fallthrough phi")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumSimple — bare Vermelho zero-arg enum constructor.
+test fn testM6EnumSimpleCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val vermelho = Node.Identifier(2, span, IdentifierData { name: "Vermelho" })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Vermelho", [])
+    variants.set("Verde", [])
+    variants.set("Azul", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    val ctorType = Type.Func(FuncType {
+        params: [],
+        returnType: corType,
+        generics: [],
+        defaults: [],
+        isOptional: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(2, ctorType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    val v2 = EnumVariant { span: span, name: "Azul", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1, v2] }), "register Cor")
+    match generateExprNode(g, vermelho) {
+        None => assertMsg(false, "expected Vermelho enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, corType)), "Vermelho returns Cor")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            assertMsg(g.constructorPayloadPtr == None, "zero-arg variant has no payload ptr")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumWithFields — Circulo(5.0) bare constructor call.
+test fn testM6EnumWithFieldsCtorCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val floatType = Type.Basic("Float")
+    val callee = Node.Identifier(2, span, IdentifierData { name: "Circulo" })
+    val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "5.0" })
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: [arg] })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Circulo", [floatType])
+    variants.set("Retangulo", [floatType])
+    val formaType = Type.Enum(EnumType {
+        name: "Forma",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(3, floatType)
+    types.set(4, formaType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val raioField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val larguraField = EnumField { name: "largura", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val circulo = EnumVariant { span: span, name: "Circulo", fields: [raioField] }
+    val retangulo = EnumVariant { span: span, name: "Retangulo", fields: [larguraField] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo, retangulo] }), "register Forma")
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Circulo(5.0) enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, formaType)), "Circulo(5.0) returns Forma")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            match g.constructorPayloadPtr {
+                None => assertMsg(false, "payload variant allocates payload ptr stub")
+                Some(v) => assertMsg(v.handle > 0, "payload ptr handle")
+            }
+            assertMsg(g.constructorArgLoads.size() == 1, "one constructor arg load stub")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumDotSyntax — Cor.Vermelho zero-arg enum constructor.
+test fn testM6EnumDotSyntaxCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val corId = Node.Identifier(1, span, IdentifierData { name: "Cor" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: corId, property: "Vermelho" })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Vermelho", [])
+    variants.set("Verde", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(2, corType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    match generateExprNode(g, member) {
+        None => assertMsg(false, "expected Cor.Vermelho enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, corType)), "Cor.Vermelho returns Cor")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            assertMsg(g.constructorPayloadPtr == None, "zero-arg variant has no payload ptr")
+            assertMsg(g.constructorArgLoads.size() == 0, "zero-arg constructor has no arg loads")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6EnumDotSyntaxWithArgs — Forma.Circulo(3.14).
+test fn testM6EnumDotSyntaxWithArgsCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val floatType = Type.Basic("Float")
+    val formaId = Node.Identifier(1, span, IdentifierData { name: "Forma" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: formaId, property: "Circulo" })
+    val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "3.14" })
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: [arg] })
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Circulo", [floatType])
+    val formaType = Type.Enum(EnumType {
+        name: "Forma",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, formaType)
+    types.set(2, formaType)
+    types.set(3, floatType)
+    types.set(4, formaType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val raioField = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val circulo = EnumVariant { span: span, name: "Circulo", fields: [raioField] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo] }), "register Forma")
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Forma.Circulo(3.14) enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, formaType)), "Forma.Circulo returns Forma")
+            match g.constructorTagLoad {
+                None => assertMsg(false, "enum constructor stores tag stub")
+                Some(v) => assertMsg(v.handle > 0, "tag load handle")
+            }
+            match g.constructorPayloadPtr {
+                None => assertMsg(false, "payload variant allocates payload ptr stub")
+                Some(v) => assertMsg(v.handle > 0, "payload ptr handle")
+            }
+            assertMsg(g.constructorArgLoads.size() == 1, "one constructor arg load stub")
+        }
+    }
+}
+
+// Port of m6_enum_test.go TestM6TwoEnumsSameVariantName — Status.Ok vs Resultado.Ok.
+test fn testM6TwoEnumsSameVariantNameCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val statusId = Node.Identifier(1, span, IdentifierData { name: "Status" })
+    val resultadoId = Node.Identifier(3, span, IdentifierData { name: "Resultado" })
+    val statusOk = Node.MemberExpr(2, span, MemberExprData { object: statusId, property: "Ok" })
+    val resultadoOk = Node.MemberExpr(4, span, MemberExprData { object: resultadoId, property: "Ok" })
+    var statusVariants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    statusVariants.set("Ok", [])
+    statusVariants.set("Erro", [])
+    val statusType = Type.Enum(EnumType {
+        name: "Status",
+        variants: statusVariants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var resultadoVariants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    resultadoVariants.set("Ok", [])
+    resultadoVariants.set("Falha", [])
+    val resultadoType = Type.Enum(EnumType {
+        name: "Resultado",
+        variants: resultadoVariants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, statusType)
+    types.set(2, statusType)
+    types.set(3, resultadoType)
+    types.set(4, resultadoType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val sOk = EnumVariant { span: span, name: "Ok", fields: [] }
+    val sErro = EnumVariant { span: span, name: "Erro", fields: [] }
+    val rOk = EnumVariant { span: span, name: "Ok", fields: [] }
+    val rFalha = EnumVariant { span: span, name: "Falha", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Status", generics: [], variants: [sOk, sErro] }), "register Status")
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Resultado", generics: [], variants: [rOk, rFalha] }), "register Resultado")
+    match generateExprNode(g, statusOk) {
+        None => assertMsg(false, "expected Status.Ok enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, statusType)), "Status.Ok returns Status")
+            match enumVariantTag(g, "Status", "Ok") {
+                None => assertMsg(false, "Status.Ok tag")
+                Some(tag) => assertMsg(tag == 0, "Status.Ok tag is 0")
+            }
+        }
+    }
+    match generateExprNode(g, resultadoOk) {
+        None => assertMsg(false, "expected Resultado.Ok enum constructor codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, resultadoType)), "Resultado.Ok returns Resultado")
+            assertMsg(!llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, statusType)), "Resultado.Ok is not Status")
+            match enumVariantTag(g, "Resultado", "Ok") {
+                None => assertMsg(false, "Resultado.Ok tag")
+                Some(tag) => assertMsg(tag == 0, "Resultado.Ok tag is 0")
+            }
+        }
+    }
+}
+
+// Port of soyuz-go gen_structs.go generateRecordLiteral (Point{x: 1, y: 2} stub).
+test fn testGenerateRecordLiteralCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val xVal = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val yVal = Node.IntLiteral(11, span, IntLiteralData { value: "2" })
+    var litFields: List[RecordLiteralField] = []
+    litFields.append(RecordLiteralField { span: span, name: "x", value: xVal })
+    litFields.append(RecordLiteralField { span: span, name: "y", value: yVal })
+    val node = Node.RecordLiteral(5, span, RecordLiteralData { name: "Point", typeArgs: [], fields: litFields })
+    var recordFields: Map[String, Type] = Map[String, Type]{}
+    recordFields.set("x", IntType)
+    recordFields.set("y", IntType)
+    val pointType = Type.Record("Point", recordFields, [])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(5, pointType)
+    types.set(10, IntType)
+    types.set(11, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val xField = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yField = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xField, yField] }), "register Point")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected Point record literal codegen")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, pointType)), "record literal returns Point")
+            match g.recordLiteralAlloc {
+                None => assertMsg(false, "record literal alloc stub")
+                Some(v) => assertMsg(v.handle > 0, "alloc handle")
+            }
+            assertMsg(g.recordLiteralFieldStores.size() == 2, "field store per literal field")
+        }
+    }
+}
+
+test fn testMatchExprRecordPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "p" })
+    val body = Node.Identifier(10, span, IdentifierData { name: "x" })
+    val xField = RecordPatternField { name: "x", pattern: None }
+    val yField = RecordPatternField { name: "y", pattern: None }
+    val pat = Pattern.Record(2, span, "Point", [xField, yField])
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var pointFields: Map[String, Type] = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    pointFields.set("y", Type.Basic("Float"))
+    val pointType = Type.Record("Point", pointFields, [])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, pointType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yDecl = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Float") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl, yDecl] }), "register Point")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on Point record pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "record arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "record arm body block")
+            assertMsg(g.recordPatternSubject != None, "record subject stub during match")
+            assertMsg(g.recordPatternFieldLoads.size() == 2, "field load per shorthand field")
+            assertMsg(g.recordPatternFieldStores.size() == 2, "field store per shorthand binding")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprTuplePatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val body = Node.Identifier(10, span, IdentifierData { name: "a" })
+    val aPat = Pattern.Binding(6, span, "a")
+    val bPat = Pattern.Binding(7, span, "b")
+    val pat = Pattern.Tuple(2, span, [aPat, bPat])
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    val floatType = Type.Basic("Float")
+    val tupleType = Type.Tuple([IntType, floatType])
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, tupleType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on tuple pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "tuple arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "tuple arm body block")
+            assertMsg(blockNameRegistered(g, "tuple_elem_0_ok"), "first tuple elem ok block")
+            assertMsg(g.tuplePatternSubject != None, "tuple subject stub during match")
+            assertMsg(g.tuplePatternElemLoads.size() == 2, "elem load per tuple binding")
+            assertMsg(g.tuplePatternElemStores.size() == 2, "elem store per tuple binding")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprRangePatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val body = Node.IntLiteral(10, span, IntLiteralData { value: "42" })
+    val toPat = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), toPat, true)
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on range pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "range arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "range arm body block")
+            assertMsg(blockNameRegistered(g, "range_ge"), "range ge stub block")
+            assertMsg(g.rangePatternFromValue != None, "range from bound stub")
+            assertMsg(g.rangePatternToValue != None, "range to bound stub")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprLiteralPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val body = Node.IntLiteral(10, span, IntLiteralData { value: "42" })
+    val pat = Pattern.Literal(2, span, LiteralPatternValue.Int("1"))
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on literal pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "literal arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "literal arm body block")
+            assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal compare stub block")
+            match g.literalPatternSubjectValue {
+                None => assertMsg(false, "literal pattern records subject value stub")
+                Some(v) => assertMsg(v.handle > 0, "subject value handle for literal cmp")
+            }
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprBindingPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val body = Node.Identifier(10, span, IdentifierData { name: "x" })
+    val pat = Pattern.Binding(2, span, "x")
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on binding pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "binding arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "binding arm body block")
+            assertMsg(!blockNameRegistered(g, "literal_match_cmp"), "binding pattern has no literal cmp")
+            match g.bindingPatternSubjectStore {
+                None => assertMsg(false, "binding pattern stores subject value stub")
+                Some(v) => assertMsg(v.handle > 0, "subject value handle for binding store")
+            }
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprConstructorPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "cor" })
+    val body = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
+    val pat = Pattern.Constructor(2, span, "Verde", [])
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, corType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on constructor pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "constructor arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "constructor arm body block")
+            assertMsg(blockNameRegistered(g, "match_Verde_tag_cmp"), "constructor tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_Verde_ok"), "constructor match ok block")
+            assertMsg(g.constructorTagLoad != None, "constructor tag load stub")
+            assertMsg(g.constructorPayloadPtr != None, "constructor payload ptr stub")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprConstructorPayloadBindingCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "opt" })
+    val body = Node.Identifier(10, span, IdentifierData { name: "n" })
+    val binding = Pattern.Binding(3, span, "n")
+    val pat = Pattern.Constructor(2, span, "Some", [binding])
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optionType = Type.Enum(EnumType {
+        name: "Option",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, optionType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "register Option")
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on Some(n) constructor pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "constructor arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "constructor arm body block")
+            assertMsg(blockNameRegistered(g, "match_Some_tag_cmp"), "Some tag cmp block")
+            assertMsg(blockNameRegistered(g, "match_Some_ok"), "Some match ok block")
+            assertMsg(g.constructorTagLoad != None, "constructor tag load stub")
+            assertMsg(g.constructorPayloadPtr != None, "constructor payload ptr stub")
+            assertMsg(g.constructorArgLoads.size() == 1, "one payload arg load")
+            assertMsg(g.constructorArgStores.size() == 1, "one payload arg store into binding")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+test fn testMatchExprWildcardPatternCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 60 }
+    val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val body = Node.IntLiteral(10, span, IntLiteralData { value: "42" })
+    val pat = Pattern.Wildcard(2, span)
+    val arm = MatchArm {
+        span: span,
+        pattern: pat,
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [arm] }
+    val node = Node.MatchExpr(5, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(5, IntType)
+    types.set(10, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr on wildcard pattern")
+        Some(r) => {
+            assertMsg(llvmTypesEqual(r.llvmType, mapTypeToLLVM(g, IntType)), "match returns Int")
+            assertMsg(blockNameRegistered(g, "match_merge"), "match merge block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "wildcard arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "wildcard arm body block")
+            assertMsg(!blockNameRegistered(g, "literal_match_cmp"), "wildcard has no literal cmp")
+            assertMsg(g.constructorTagLoad == None, "wildcard has no constructor tag load")
+            assertMsg(g.bindingPatternSubjectStore == None, "wildcard does not bind subject")
+            assertMsg(matchPhiIncomingCount(g) == 2, "arm body plus fallthrough phi")
+        }
+    }
+}
+
+// Port of soyuz-go/internal/codegen/when_guard_test.go TestMatchWhenGuardCodegen.
+test fn testMatchWhenGuardCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
+    val guardCond = Node.IntLiteral(7, span, IntLiteralData { value: "1" })
+    val negBody = Node.StringLiteral(4, span, StringLiteralData { value: "negativo" })
+    val posBody = Node.StringLiteral(5, span, StringLiteralData { value: "positivo" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(2, span, "n"),
+        guard: Some(guardCond),
+        body: negBody
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(3, span),
+        guard: None,
+        body: posBody
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val node = Node.MatchExpr(6, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(4, StringType)
+    types.set(5, StringType)
+    types.set(6, StringType)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match when guard codegen")
+        Some(_) => {
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "match_arm_0_pattern_ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "guard pass targets body block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_next"), "guard fail targets next block")
+            match g.matchGuardCondValue {
+                None => assertMsg(false, "match guard condition value stub")
+                Some(v) => assertMsg(v.handle > 0, "guard cond br uses generated condition stub")
+            }
+        }
+    }
+}
+
+test fn testGenerateMatchExprCreatesBlocks() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
+    val guardCond = Node.IntLiteral(7, span, IntLiteralData { value: "1" })
+    val negBody = Node.StringLiteral(4, span, StringLiteralData { value: "neg" })
+    val posBody = Node.StringLiteral(5, span, StringLiteralData { value: "pos" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(2, span, "n"),
+        guard: Some(guardCond),
+        body: negBody
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(3, span),
+        guard: None,
+        body: posBody
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val node = Node.MatchExpr(6, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(4, StringType)
+    types.set(5, StringType)
+    types.set(6, StringType)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr with blocks")
+        Some(_) => {
+            assertMsg(blockNameRegistered(g, "match_merge"), "merge block registered")
+            assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "first arm pattern ok block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_body"), "first arm body block")
+            assertMsg(blockNameRegistered(g, "match_arm_0_next"), "guarded arm fail block")
+            assertMsg(blockNameRegistered(g, "match_arm_1_next"), "second arm next block")
+            assertMsg(matchPhiIncomingCount(g) == 3, "arm values plus fallthrough phi incomings")
+            match g.matchPhiResult {
+                None => assertMsg(false, "match phi result stub")
+                Some(phi) => assertMsg(phi.handle > 0, "phi result handle at merge")
+            }
+        }
+    }
+}
+
+test fn testGenerateMatchExprRestoresBindingVarsBetweenArms() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
+    val subject = Node.IntLiteral(1, span, IntLiteralData { value: "10" })
+    val bindingBody = Node.IntLiteral(4, span, IntLiteralData { value: "1" })
+    val catchallBody = Node.IntLiteral(5, span, IntLiteralData { value: "2" })
+    val bindingArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(2, span, "n"),
+        guard: None,
+        body: bindingBody
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(3, span),
+        guard: None,
+        body: catchallBody
+    }
+    val data = MatchExprData { subject: subject, arms: [bindingArm, catchallArm] }
+    val node = Node.MatchExpr(6, span, data)
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(4, IntType)
+    types.set(5, IntType)
+    types.set(6, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, node) {
+        None => assertMsg(false, "expected match expr")
+        Some(_) => {
+            var hasN = false
+            for k in g.vars.keys() {
+                if k == "n" { hasN = true }
+            }
+            assertMsg(!hasN, "binding n not leaked after arms")
+        }
+    }
+}
+
+fn channelTestClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+// Port of m_channel_test.go TestChannelNewEmitsSrtChanNew — Channel.new(4) call expr dispatch.
+test fn testChannelNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "4" })
+    var args: List[Node] = []
+    args.append(capArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelClass))
+    types.set(2, Type.Class(channelClass))
+    types.set(3, IntType)
+    types.set(4, channelInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Channel.new(4) codegen")
+        Some(_) => {
+            assertMsg(g.channelNewStub != None, "channel new stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexNewAndLockEmitsCalls (new half) — Mutex.new(42) call expr dispatch.
+test fn testMutexNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexClass = channelTestClass("Mutex")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mutexId = Node.Identifier(1, span, IdentifierData { name: "Mutex" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: mutexId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(mutexClass))
+    types.set(2, Type.Class(mutexClass))
+    types.set(3, IntType)
+    types.set(4, mutexInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Mutex.new(42) codegen")
+        Some(_) => {
+            assertMsg(g.mutexNewStub != None, "mutex new stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeNew()), "srt_mutex_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockReadEmitsSrtRwlockRead (new half) — RwLock.new(0) call expr dispatch.
+test fn testRwLockNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = channelTestClass("RwLock")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwlockId = Node.Identifier(1, span, IdentifierData { name: "RwLock" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwlockId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(rwlockClass))
+    types.set(2, Type.Class(rwlockClass))
+    types.set(3, IntType)
+    types.set(4, rwlockInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected RwLock.new(0) codegen")
+        Some(_) => {
+            assertMsg(g.rwLockNewStub != None, "rwlock new stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeNew()), "srt_rwlock_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicNewEmitsSrtAtomicNew — Atomic.new(0) call expr dispatch.
+test fn testAtomicNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicId = Node.Identifier(1, span, IdentifierData { name: "Atomic" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: atomicId, property: "new" })
+    val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    var args: List[Node] = []
+    args.append(initArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(atomicClass))
+    types.set(2, Type.Class(atomicClass))
+    types.set(3, IntType)
+    types.set(4, atomicInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Atomic.new(0) codegen")
+        Some(_) => {
+            assertMsg(g.atomicNewStub != None, "atomic new stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeNew()), "srt_atomic_new registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicNewEmitsSrtAtomicNew (store half) — a.store(1) call expr dispatch.
+test fn testAtomicStoreCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "store" })
+    val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    var args: List[Node] = []
+    args.append(valArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, atomicInt)
+    types.set(2, atomicInt)
+    types.set(3, IntType)
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected a.store(1) codegen")
+        Some(_) => {
+            assertMsg(g.atomicStoreStub != None, "atomic store stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeStore()), "srt_atomic_store registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicLoadEmitsSrtAtomicLoad — a.load() call expr dispatch.
+test fn testAtomicLoadCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "load" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, atomicInt)
+    types.set(2, atomicInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected a.load() codegen")
+        Some(_) => {
+            assertMsg(g.atomicLoadStub != None, "atomic load stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeLoad()), "srt_atomic_load registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicAddEmitsSrtAtomicAdd — a.add(1) call expr dispatch.
+test fn testAtomicAddCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "add" })
+    val deltaArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    var args: List[Node] = []
+    args.append(deltaArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, atomicInt)
+    types.set(2, atomicInt)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected a.add(1) codegen")
+        Some(_) => {
+            assertMsg(g.atomicAddStub != None, "atomic add stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeAdd()), "srt_atomic_add registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestAtomicCasEmitsSrtAtomicCas — a.compareAndSwap(0, 1) call expr dispatch.
+test fn testAtomicCasCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val atomicClass = channelTestClass("Atomic")
+    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "compareAndSwap" })
+    val expArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    val desArg = Node.IntLiteral(4, span, IntLiteralData { value: "1" })
+    var args: List[Node] = []
+    args.append(expArg)
+    args.append(desArg)
+    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, atomicInt)
+    types.set(2, atomicInt)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    types.set(5, BoolType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected a.compareAndSwap(0, 1) codegen")
+        Some(_) => {
+            assertMsg(g.atomicCasStub != None, "atomic cas stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, atomicRuntimeCas()), "srt_atomic_cas registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockReadEmitsSrtRwlockRead (read half) — rw.read() call expr dispatch.
+test fn testRwLockReadCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = channelTestClass("RwLock")
+    val readGuardClass = channelTestClass("ReadGuard")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val readGuardInt = Type.Specialized(Type.Class(readGuardClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, rwlockInt)
+    types.set(2, rwlockInt)
+    types.set(4, readGuardInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected rw.read() codegen")
+        Some(_) => {
+            assertMsg(g.rwLockReadStub != None, "rwlock read stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeRead()), "srt_rwlock_read registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestRwLockWriteGuardUnlockedOnScopeExit (write half) — rw.write() call expr dispatch.
+test fn testRwLockWriteCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val rwlockClass = channelTestClass("RwLock")
+    val writeGuardClass = channelTestClass("WriteGuard")
+    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
+    val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, rwlockInt)
+    types.set(2, rwlockInt)
+    types.set(3, writeGuardInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected rw.write() codegen")
+        Some(_) => {
+            assertMsg(g.rwLockWriteStub != None, "rwlock write stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, rwlockRuntimeWrite()), "srt_rwlock_write registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexNewAndLockEmitsCalls (lock half) — m.lock() call expr dispatch.
+test fn testMutexLockCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val mutexClass = channelTestClass("Mutex")
+    val guardClass = channelTestClass("MutexGuard")
+    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, mutexInt)
+    types.set(2, mutexInt)
+    types.set(4, guardInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected m.lock() codegen")
+        Some(_) => {
+            assertMsg(g.mutexLockStub != None, "mutex lock stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexRuntimeLock()), "srt_mutex_lock registered")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelZeroCapacityEmitsSrtChanNew — Channel.new(0) rendezvous.
+test fn testChannelZeroCapacityNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
+    var args: List[Node] = []
+    args.append(capArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelClass))
+    types.set(2, Type.Class(channelClass))
+    types.set(3, IntType)
+    types.set(4, channelInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Channel.new(0) codegen")
+        Some(_) => {
+            assertMsg(g.channelNewStub != None, "channel new stub stored for zero capacity")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new for rendezvous")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelSendEmitsSrtChanSend — ch.send(42) call expr dispatch.
+test fn testChannelSendCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "send" })
+    val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
+    var args: List[Node] = []
+    args.append(valArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(3, IntType)
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.send(42) codegen")
+        Some(_) => {
+            assertMsg(g.channelSendStub != None, "channel send stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
+        }
+    }
+}
+
+fn optionIntType() -> Type {
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optEnum = EnumType {
+        name: "Option",
+        variants: variants,
+        variantFieldNames: Map[String, List[String]]{},
+        generics: ["T"]
+    }
+    return Type.Specialized(Type.Enum(optEnum), [IntType])
+}
+
+// Port of m_channel_test.go TestChannelRecvEmitsSrtChanRecv — ch.recv() call expr dispatch.
+test fn testChannelRecvCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val optionInt = optionIntType()
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, optionInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.recv() codegen")
+        Some(_) => {
+            assertMsg(g.channelRecvPhiResult != None, "channel recv phi stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeRecv()), "srt_chan_recv registered")
+            assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
+            assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelTryRecvEmitsSrtChanTryRecv — ch.tryRecv() call expr dispatch.
+test fn testChannelTryRecvCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val optionInt = optionIntType()
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "tryRecv" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, optionInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.tryRecv() codegen")
+        Some(_) => {
+            assertMsg(g.channelRecvTryMode, "tryRecv mode flag")
+            assertMsg(g.channelRecvPhiResult != None, "channel tryRecv phi stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeTryRecv()), "srt_chan_try_recv registered")
+            assertMsg(blockNameRegistered(g, chanSomeBlockName()), "chan_some block")
+            assertMsg(blockNameRegistered(g, chanNoneBlockName()), "chan_none block")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelCloseEmitsSrtChanClose — ch.close() call expr dispatch.
+test fn testChannelCloseCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "close" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.close() codegen")
+        Some(_) => {
+            assertMsg(g.channelCloseStub != None, "channel close stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeClose()), "srt_chan_close registered")
+        }
+    }
+}
+
+// Port of m_channel_test.go TestChannelIsClosedEmitsSrtChanIsClosed — ch.isClosed() call expr dispatch.
+test fn testChannelIsClosedCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val channelClass = channelTestClass("Channel")
+    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "isClosed" })
+    var args: List[Node] = []
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, channelInt)
+    types.set(2, channelInt)
+    types.set(4, BoolType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected ch.isClosed() codegen")
+        Some(_) => {
+            assertMsg(g.channelIsClosedStub != None, "channel isClosed stub stored")
+            assertMsg(channelRuntimeSymbolRegistered(g, channelRuntimeIsClosed()), "srt_chan_is_closed registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexGuardValueRead — guard.value member expr dispatch.
+test fn testSyncGuardValueReadExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardClass = channelTestClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, guardInt)
+    types.set(2, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, member) {
+        None => assertMsg(false, "expected guard.value read codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardReadStub != None, "sync guard read stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeGet()), "srt_mutex_guard_get registered")
+        }
+    }
+}
+
+// Port of m_sync_test.go TestMutexGuardValueWrite — guard.value = expr assign dispatch.
+test fn testSyncGuardValueWriteExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val guardClass = channelTestClass("MutexGuard")
+    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
+    val left = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    val right = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
+    val assign = Node.AssignExpr(4, span, AssignExprData { left: left, right: right })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, guardInt)
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, assign) {
+        None => assertMsg(false, "expected guard.value write codegen")
+        Some(_) => {
+            assertMsg(g.syncGuardWriteStub != None, "sync guard write stub stored")
+            assertMsg(syncRuntimeSymbolRegistered(g, mutexGuardRuntimeSet()), "srt_mutex_guard_set registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcNewEmitsSrtArcNew — Arc.new(42) call expr dispatch.
+test fn testArcNewCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcId = Node.Identifier(1, span, IdentifierData { name: "Arc" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: arcId, property: "new" })
+    val arg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
+    var args: List[Node] = []
+    args.append(arg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(arcClass))
+    types.set(2, Type.Class(arcClass))
+    types.set(3, IntType)
+    types.set(4, arcInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.new call codegen")
+        Some(_) => {
+            assertMsg(g.arcNewStub != None, "arc new stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeNew()), "srt_arc_new registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcCloneEmitsSrtArcClone — a.clone() call expr dispatch.
+test fn testArcCloneCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "clone" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, arcInt)
+    types.set(2, arcInt)
+    types.set(3, arcInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.clone call codegen")
+        Some(_) => {
+            assertMsg(g.arcCloneStub != None, "arc clone stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeClone()), "srt_arc_clone registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcGetEmitsSrtArcGet — a.get() call expr dispatch.
+test fn testArcGetCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "get" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, arcInt)
+    types.set(2, arcInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.get call codegen")
+        Some(_) => {
+            assertMsg(g.arcGetStub != None, "arc get stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeGet()), "srt_arc_get registered")
+        }
+    }
+}
+
+// Port of m_arc_test.go TestArcRefcountEmitsSrtArcRefcount — a.refcount() call expr dispatch.
+test fn testArcRefcountCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val arcClass = channelTestClass("Arc")
+    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "refcount" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, arcInt)
+    types.set(2, arcInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Arc.refcount call codegen")
+        Some(_) => {
+            assertMsg(g.arcRefcountStub != None, "arc refcount stub stored")
+            assertMsg(arcRuntimeSymbolRegistered(g, arcRuntimeRefcount()), "srt_arc_refcount registered")
+        }
+    }
+}
+
+// Port of m26_gather_test.go TestTaskGatherEmitsSrtEnqueue — Task.gather(list, fn) dispatch.
+test fn testTaskGatherCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val listClass = channelTestClass("List")
+    val taskClass = channelTestClass("Task")
+    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "gather" })
+    val listArg = Node.Identifier(3, span, IdentifierData { name: "nums" })
+    val fnArg = Node.Identifier(4, span, IdentifierData { name: "dobrar" })
+    var args: List[Node] = []
+    args.append(listArg)
+    args.append(fnArg)
+    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(taskClass))
+    types.set(2, Type.Class(taskClass))
+    types.set(3, listInt)
+    types.set(4, Type.Basic("Unit"))
+    types.set(5, listInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Task.gather call codegen")
+        Some(_) => {
+            assertMsg(g.gatherResultStub != None, "gather result stub stored")
+            assertMsg(g.gatherEnqueueStub != None, "gather enqueue stub stored")
+            assertMsg(g.gatherAwaitStub != None, "gather await stub stored")
+            assertMsg(gatherRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(gatherRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+            assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeNew()), "soyuz_list_new registered")
+            assertMsg(gatherRuntimeSymbolRegistered(g, listRuntimeAppend()), "soyuz_list_append registered")
+            assertMsg(gatherBlockNamesRegistered(g), "gather loop blocks registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskEnqueue — task double(5) expr dispatch.
+test fn testTaskEnqueueExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val callee = Node.Identifier(1, span, IdentifierData { name: "double" })
+    val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
+    var args: List[Node] = []
+    args.append(arg)
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: call })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Basic("Unit"))
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task enqueue expr codegen")
+        Some(_) => {
+            assertMsg(g.taskEnqueueStub != None, "task enqueue stub stored")
+            assertMsg(g.taskLastWrapperName != None, "task wrapper name stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskFreeBuiltin()), "free registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskWrapperFreeArgs — task add(3, 7) registers malloc/free for wrapper.
+test fn testTaskWrapperFreeArgsCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val callee = Node.Identifier(1, span, IdentifierData { name: "add" })
+    val argA = Node.IntLiteral(2, span, IntLiteralData { value: "3" })
+    val argB = Node.IntLiteral(3, span, IntLiteralData { value: "7" })
+    var args: List[Node] = []
+    args.append(argA)
+    args.append(argB)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val taskExpr = Node.TaskExpr(5, span, TaskExprData { inner: call })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Basic("Unit"))
+    types.set(2, IntType)
+    types.set(3, IntType)
+    types.set(4, IntType)
+    types.set(5, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task wrapper free args codegen")
+        Some(_) => {
+            assertMsg(g.taskEnqueueStub != None, "task enqueue stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered for args buffer")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskFreeBuiltin()), "free registered for args buffer")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskDetach — t.detach() call expr dispatch.
+test fn testTaskDetachCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, taskInt)
+    types.set(2, taskInt)
+    types.set(3, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected task detach call codegen")
+        Some(_) => {
+            assertMsg(g.taskDetachStub != None, "task detach stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+            assertMsg(taskNullStoreRecorded(g, "t"), "detach nulls task handle")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskCancelEmitsSrtCancel — t.cancel() call expr dispatch.
+test fn testTaskCancelCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, taskInt)
+    types.set(2, taskInt)
+    types.set(3, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected task cancel call codegen")
+        Some(_) => {
+            assertMsg(g.taskCancelStub != None, "task cancel stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeCancel()), "srt_cancel registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskAwait — t.await() call expr dispatch.
+test fn testTaskAwaitCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, taskInt)
+    types.set(2, taskInt)
+    types.set(3, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected task await call codegen")
+        Some(_) => {
+            assertMsg(g.taskAwaitStub != None, "task await stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+        }
+    }
+}
+
+// Port of m15_task_pipe_test.go TestTaskPipeBasicIR — task (n |> double) expr dispatch.
+test fn testTaskPipeExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fnId = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: pipe })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, Type.Basic("Unit"))
+    types.set(3, IntType)
+    types.set(4, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task pipe expr codegen")
+        Some(_) => {
+            assertMsg(g.taskPipeMode, "pipe mode flag set")
+            assertMsg(g.taskEnqueueStub != None, "task enqueue stub stored")
+            assertMsg(g.taskLastWrapperName != None, "task wrapper name stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+        }
+    }
+}
+
+// Port of m15_task_pipe_test.go TestTaskPipeAwaitResult — pipe task then t.await() dispatch.
+test fn testTaskPipeAwaitResultCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fnId = Node.Identifier(2, span, IdentifierData { name: "inc" })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: pipe })
+    val tId = Node.Identifier(5, span, IdentifierData { name: "t" })
+    val awaitCallee = Node.MemberExpr(6, span, MemberExprData { object: tId, property: "await" })
+    val awaitCall = Node.CallExpr(7, span, CallExprData { callee: awaitCallee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, Type.Basic("Unit"))
+    types.set(3, IntType)
+    types.set(4, taskInt)
+    types.set(5, taskInt)
+    types.set(6, taskInt)
+    types.set(7, IntType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, taskExpr) {
+        None => assertMsg(false, "expected task pipe expr codegen")
+        Some(_) => assertMsg(g.taskPipeMode, "pipe task enqueued first")
+    }
+    match generateExprNode(g, awaitCall) {
+        None => assertMsg(false, "expected await after pipe task codegen")
+        Some(_) => {
+            assertMsg(g.taskAwaitStub != None, "task await stub stored after pipe")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered after pipe")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskAllEmitsSrtAwait — Task.all(t1, t2) call expr dispatch.
+test fn testTaskAllCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "all" })
+    val t1 = Node.Identifier(3, span, IdentifierData { name: "t1" })
+    val t2 = Node.Identifier(4, span, IdentifierData { name: "t2" })
+    var args: List[Node] = []
+    args.append(t1)
+    args.append(t2)
+    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(taskClass))
+    types.set(2, Type.Class(taskClass))
+    types.set(3, taskInt)
+    types.set(4, taskInt)
+    types.set(5, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Task.all call codegen")
+        Some(_) => {
+            assertMsg(g.taskAllStub != None, "task all stub stored")
+            assertMsg(g.taskAllArgCount == 2, "two task args")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+        }
+    }
+}
+
+// Port of m18_task_fan_test.go TestTaskFanEmitsMultipleEnqueueAndWrappers — Task.fan(n, f, g) dispatch.
+test fn testTaskFanCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "fan" })
+    val input = Node.IntLiteral(3, span, IntLiteralData { value: "5" })
+    val f1 = Node.Identifier(4, span, IdentifierData { name: "double" })
+    val f2 = Node.Identifier(5, span, IdentifierData { name: "triple" })
+    var args: List[Node] = []
+    args.append(input)
+    args.append(f1)
+    args.append(f2)
+    val call = Node.CallExpr(6, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(taskClass))
+    types.set(2, Type.Class(taskClass))
+    types.set(3, IntType)
+    types.set(4, Type.Basic("Unit"))
+    types.set(5, Type.Basic("Unit"))
+    types.set(6, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected Task.fan call codegen")
+        Some(_) => {
+            assertMsg(g.taskFanStub != None, "task fan stub stored")
+            assertMsg(g.taskFanFnCount == 2, "two fan functions")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+        }
+    }
+}
+
+// Port of m16_async_pipe_test.go TestAsyncPipeEmitsEnqueueAndAwait — n ~> double ~> triple dispatch.
+test fn testAsyncPipeExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val doubleId = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val tripleId = Node.Identifier(3, span, IdentifierData { name: "triple" })
+    var steps: List[Node] = []
+    steps.append(nId)
+    steps.append(doubleId)
+    steps.append(tripleId)
+    val asyncPipe = Node.AsyncPipeExpr(4, span, AsyncPipeExprData { steps: steps })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, Type.Basic("Unit"))
+    types.set(3, Type.Basic("Unit"))
+    types.set(4, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, asyncPipe) {
+        None => assertMsg(false, "expected async pipe expr codegen")
+        Some(_) => {
+            assertMsg(g.asyncPipeStub != None, "async pipe stub stored")
+            assertMsg(g.asyncPipeStepCount == 2, "two fn steps")
+            assertMsg(g.asyncChainWrapperName != None, "chain wrapper name stored")
+            assertMsg(g.taskLastWrapperName != None, "step wrapper name stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+        }
+    }
+}
+
+// Port of m17_async_pipe_quest_test.go TestAsyncPipeQuestShortCircuitBranch — n ~> validate ~?> double.
+test fn testAsyncPipeQuestExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = channelTestClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val validateId = Node.Identifier(2, span, IdentifierData { name: "validate" })
+    val doubleId = Node.Identifier(3, span, IdentifierData { name: "double" })
+    val questDouble = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: doubleId })
+    var steps: List[Node] = []
+    steps.append(nId)
+    steps.append(validateId)
+    steps.append(questDouble)
+    val asyncPipe = Node.AsyncPipeExpr(5, span, AsyncPipeExprData { steps: steps })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, IntType)
+    types.set(2, Type.Basic("Unit"))
+    types.set(3, Type.Basic("Unit"))
+    types.set(4, Type.Basic("Unit"))
+    types.set(5, taskInt)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, asyncPipe) {
+        None => assertMsg(false, "expected async pipe quest expr codegen")
+        Some(_) => {
+            assertMsg(g.asyncPipeStub != None, "async pipe stub stored")
+            assertMsg(g.asyncPipeStepCount == 2, "two fn steps")
+            assertMsg(g.asyncPipeQuestStepCount == 1, "one quest step")
+            assertMsg(g.asyncChainWrapperName != None, "chain wrapper name stored")
+            assertMsg(blockNameRegistered(g, "chain_err"), "chain_err block registered")
+            assertMsg(blockNameRegistered(g, "chain_ok"), "chain_ok block registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskHandleCurrentEmitsSrtTaskHandleCurrent — TaskHandle.current() dispatch.
+test fn testTaskHandleCurrentCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelTestClass("TaskHandle")))
+    types.set(2, Type.Class(channelTestClass("TaskHandle")))
+    types.set(3, Type.Basic("Unit"))
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected TaskHandle.current call codegen")
+        Some(_) => {
+            assertMsg(g.taskHandleCurrentStub != None, "task handle current stub stored")
+            assertMsg(g.taskHandleCurrentPhiResult != None, "phi result stored")
+            assertMsg(blockNameRegistered(g, "task_handle_some"), "task_handle_some block registered")
+            assertMsg(blockNameRegistered(g, "task_handle_none"), "task_handle_none block registered")
+            assertMsg(blockNameRegistered(g, "task_handle_merge"), "task_handle_merge block registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCurrentRuntime()), "srt_task_handle_current registered")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskHandleCancelledEmitsSrtTaskCancelled — handle.cancelled() dispatch.
+test fn testTaskHandleCancelledCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "cancelled" })
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelTestClass("TaskHandle")))
+    types.set(2, Type.Class(channelTestClass("TaskHandle")))
+    types.set(3, BoolType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected TaskHandle.cancelled call codegen")
+        Some(_) => {
+            assertMsg(g.taskHandleCancelledStub != None, "task handle cancelled stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCancelledRuntime()), "srt_task_cancelled registered")
+        }
+    }
+}
+
+// Port of m_task_test.go TestTaskHandleProgressEmitsSrtTaskSetProgress — handle.progress(0.5) dispatch.
+test fn testTaskHandleProgressCallExprCodegen() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "progress" })
+    val progressArg = Node.FloatLiteral(3, span, FloatLiteralData { value: "0.5" })
+    var args: List[Node] = []
+    args.append(progressArg)
+    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    var types: Map[Int, Type] = Map[Int, Type]{}
+    types.set(1, Type.Class(channelTestClass("TaskHandle")))
+    types.set(2, Type.Class(channelTestClass("TaskHandle")))
+    types.set(3, Type.Basic("Float"))
+    types.set(4, UnitType)
+    val g = newGenerator(checkerWithNodeTypes(types))
+    match generateExprNode(g, call) {
+        None => assertMsg(false, "expected TaskHandle.progress call codegen")
+        Some(_) => {
+            assertMsg(g.taskHandleProgressStub != None, "task handle progress stub stored")
+            assertMsg(taskRuntimeSymbolRegistered(g, taskHandleProgressRuntime()), "srt_task_set_progress registered")
+        }
+    }
+}

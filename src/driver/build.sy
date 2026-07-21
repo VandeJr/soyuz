@@ -1,0 +1,121 @@
+import (
+    { defaultRuntimeSrcSubdir } from @runtime/embed
+    { PathIndex, joinPathFile, emptyPathIndex } from @module/paths
+    { LinkConfig, defaultLinkConfig, buildCompilePipelineFromIndex, compilePipelineReady, CompilePipeline } from @runtime/link
+    { compilePipelineManifest, manifestContainsMarkers, defaultExportManifestScript, defaultApplyManifestScript, expectedHelloPipelineManifestEntries } from @runtime/manifest
+)
+
+// Mirrors cmd/main.go buildInternal parameters (without OS I/O).
+pub record BuildConfig {
+    inputFile: String,
+    outputFile: String,
+    release: Bool,
+    projectRoot: String,
+    isTestBuild: Bool,
+    testFilter: String,
+    tmpDir: String,
+    runtimeSrcDir: String
+}
+
+pub fn defaultBuildTmpPrefix() -> String = "/tmp/soyuz-"
+
+pub fn defaultRuntimeSrcDir(goRoot: String) -> String {
+    return joinPathFile(goRoot, defaultRuntimeSrcSubdir())
+}
+
+pub fn buildConfigForEntry(inputFile: String, outputFile: String, release: Bool, tmpDir: String, runtimeSrcDir: String) -> BuildConfig = BuildConfig {
+    inputFile: inputFile,
+    outputFile: outputFile,
+    release: release,
+    projectRoot: "",
+    isTestBuild: false,
+    testFilter: "",
+    tmpDir: tmpDir,
+    runtimeSrcDir: runtimeSrcDir
+}
+
+pub fn buildConfigForTest(inputFile: String, outputFile: String, testFilter: String, tmpDir: String, runtimeSrcDir: String) -> BuildConfig = BuildConfig {
+    inputFile: inputFile,
+    outputFile: outputFile,
+    release: false,
+    projectRoot: "",
+    isTestBuild: true,
+    testFilter: testFilter,
+    tmpDir: tmpDir,
+    runtimeSrcDir: runtimeSrcDir
+}
+
+pub fn linkConfigFromBuild(cfg: BuildConfig) -> LinkConfig {
+    return defaultLinkConfig(cfg.tmpDir, cfg.outputFile, cfg.release)
+}
+
+pub record BuildArtifacts {
+    irContent: String,
+    pipeline: CompilePipeline,
+    manifest: String,
+    exportManifestScript: String,
+    applyManifestScript: String
+}
+
+pub fn planPostCodegenBuild(cfg: BuildConfig, sourceIndex: PathIndex, irContent: String) -> BuildArtifacts {
+    val linkCfg = linkConfigFromBuild(cfg)
+    val pipeline = buildCompilePipelineFromIndex(emptyPathIndex(), linkCfg, cfg.runtimeSrcDir, sourceIndex, irContent)
+    return BuildArtifacts {
+        irContent: irContent,
+        pipeline: pipeline,
+        manifest: compilePipelineManifest(pipeline),
+        exportManifestScript: defaultExportManifestScript(),
+        applyManifestScript: defaultApplyManifestScript()
+    }
+}
+
+pub fn buildArtifactsReady(artifacts: BuildArtifacts) -> Bool {
+    if !compilePipelineReady(artifacts.pipeline) { return false }
+    return manifestContainsMarkers(artifacts.manifest)
+}
+
+pub fn defaultRuntimeExportManifestScript() -> String = "tools/runtime-export-runtime-manifest.sh"
+
+pub fn defaultDriverLinkStubCheckScript() -> String = "tools/driver-link-stub-check.sh"
+
+pub fn defaultDriverFullBuildCheckScript() -> String = "tools/driver-full-build-check.sh"
+
+pub fn defaultDriverHelloIrLinkCheckScript() -> String = "tools/driver-hello-ir-link-check.sh"
+
+pub fn defaultExportDriverHelloIrScript() -> String = "tools/export-driver-hello-ir.sh"
+
+pub fn defaultDriverExportCodegenIrCheckScript() -> String = "tools/driver-export-codegen-ir-check.sh"
+
+pub fn defaultDriverAppliedManifestLinkCheckScript() -> String = "tools/driver-applied-manifest-link-check.sh"
+
+pub fn defaultDriverRunPlanLinkCheckScript() -> String = "tools/driver-run-plan-link-check.sh"
+
+pub fn defaultExportHelloRunManifestScript() -> String = "tools/export-hello-run-manifest.sh"
+
+pub fn defaultDriverRunManifestRoundTripCheckScript() -> String = "tools/driver-run-manifest-round-trip-check.sh"
+
+pub fn defaultDriverRunPlanMaterializeCheckScript() -> String = "tools/driver-run-plan-materialize-check.sh"
+
+pub fn defaultDriverBootstrapHelloRunCheckScript() -> String = "tools/driver-bootstrap-hello-run-check.sh"
+
+pub fn defaultDriverCliRunDispatchCheckScript() -> String = "tools/driver-cli-run-dispatch-check.sh"
+
+pub fn defaultDriverCliRunPipelineCheckScript() -> String = "tools/driver-cli-run-pipeline-check.sh"
+
+pub fn defaultDriverCliEntryCheckScript() -> String = "tools/driver-cli-entry-check.sh"
+
+pub fn defaultDriverCliNewCheckScript() -> String = "tools/driver-cli-new-check.sh"
+
+pub fn defaultDriverCliBuildCheckScript() -> String = "tools/driver-cli-build-check.sh"
+
+pub fn defaultDriverCliTestCheckScript() -> String = "tools/driver-cli-test-check.sh"
+
+pub fn defaultDriverCliProjectBuildCheckScript() -> String = "tools/driver-cli-project-build-check.sh"
+
+pub fn defaultDriverMainEntryCheckScript() -> String = "tools/driver-main-entry-check.sh"
+
+pub fn defaultDriverTestRunnerCheckScript() -> String = "tools/driver-test-runner-check.sh"
+
+pub fn defaultDriverBootstrapVerifyScript() -> String = "tools/bootstrap-verify.sh"
+
+pub fn expectedFullBuildManifestEntries() -> Int = expectedHelloPipelineManifestEntries()

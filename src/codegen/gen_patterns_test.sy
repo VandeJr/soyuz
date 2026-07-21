@@ -1,0 +1,701 @@
+import (
+    { Node, FuncDeclData, EnumDeclData, EnumVariant, EnumField, Span, TypeExpr, MatchArm, Pattern, LiteralPatternValue, IntLiteralData, MatchExprData, FuncParam, RecordPatternField, RecordField, RecordDeclData } from @ast/ast
+    { CheckResult, Type, EnumType, FuncType, IntType, StringType, typeToString } from @checker/types
+    { newGenerator } from @codegen/generator
+    { generateEnumDecl, generateRecordDecl } from @codegen/gen_structs
+    { enumVariantForPattern, resolveEnumPayloadType, resolveEnumPayloadTypeWithChecker, isWildcardPattern, isBindingPattern, isConstructorPattern, isLiteralPattern, isRangePattern, patternRequiresCondBr, isCatchallMatchPattern, patternConstructorName, constructorPatternArgCount, matchArmHasGuard, matchArmIsCatchall, matchArmPatternOkBlockName, matchArmBodyBlockName, matchArmNextBlockName, matchArmGuardPassBlockName, matchMergeBlockName, buildMatchArmPlan, buildMatchArmPlans, patternBindingName, collectPatternBindings, matchPatternSupported, matchPatternSupportedWithType, matchPatternSupportedForSubject, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, registerPatternBinding, patternBindingSlotType, recordPatternFieldSlotType, tuplePatternElemSlotType, constructorPatternArgSubjectType, constructorPatternArgSlotType, funcParamPatternsSupported, constructorPatternMatchOkBlockName, constructorPatternTagCmpBlockName, rangePatternGeBlockName, rangePatternUpperCmpBlockName, literalPatternCmpBlockName, enumFieldPatternOkBlockName, tupleElemPatternOkBlockName, recordFieldPatternOkBlockName, buildFuncParamPatternSteps } from @codegen/gen_patterns
+    { mapTypeToLLVM } from @codegen/gen_types
+    { blockNameRegistered, currentBlockHandle } from @codegen/gen_ir
+    { llvmI64, llvmF64, llvmI8Ptr, llvmStructType, llvmTypesEqual } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn patternsZeroSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 0 }
+
+fn patternsEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testEnumVariantForPatternBySubjectType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v0 = EnumVariant { span: patternsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: patternsZeroSpan(), name: "Verde", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }
+    assertMsg(generateEnumDecl(g, decl), "register Cor")
+    match enumVariantForPattern(g, "Verde", Some(Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    }))) {
+        None => assertMsg(false, "expected Verde lookup")
+        Some(lookup) => assertMsg(lookup.variantInfo.tag == 1, "Verde tag is 1")
+    }
+}
+
+test fn testEnumVariantForPatternSameNameFallback() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Ok", fields: [] }
+    val decl = EnumDeclData { isPub: true, name: "Ok", generics: [], variants: [v] }
+    assertMsg(generateEnumDecl(g, decl), "register Ok enum")
+    match enumVariantForPattern(g, "Ok", None) {
+        None => assertMsg(false, "expected Ok via same-name fallback")
+        Some(lookup) => assertMsg(lookup.variantInfo.tag == 0, "Ok tag is 0")
+    }
+}
+
+test fn testEnumVariantForPatternScanTwoEnums() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val sOk = EnumVariant { span: patternsZeroSpan(), name: "Ok", fields: [] }
+    val sErro = EnumVariant { span: patternsZeroSpan(), name: "Erro", fields: [] }
+    val rOk = EnumVariant { span: patternsZeroSpan(), name: "Ok", fields: [] }
+    val rFalha = EnumVariant { span: patternsZeroSpan(), name: "Falha", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Status", generics: [], variants: [sOk, sErro] }), "Status")
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Resultado", generics: [], variants: [rOk, rFalha] }), "Resultado")
+    match enumVariantForPattern(g, "Ok", Some(Type.Enum(EnumType {
+        name: "Status",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    }))) {
+        None => assertMsg(false, "Status.Ok lookup")
+        Some(lookup) => assertMsg(lookup.variantInfo.tag == 0, "Status.Ok tag 0")
+    }
+}
+
+test fn testResolveEnumPayloadTypeFromPayloadStruct() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val field = EnumField { name: "raio", typeExpr: TypeExpr.Named(0, patternsZeroSpan(), "Float") }
+    val circulo = EnumVariant { span: patternsZeroSpan(), name: "Circulo", fields: [field] }
+    val decl = EnumDeclData { isPub: true, name: "Forma", generics: [], variants: [circulo] }
+    assertMsg(generateEnumDecl(g, decl), "register Forma")
+    match enumVariantForPattern(g, "Circulo", None) {
+        None => assertMsg(false, "Circulo lookup")
+        Some(lookup) => {
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Circulo", None)
+            assertMsg(llvmTypesEqual(ty, llvmStructType("Forma__Circulo__payload", [llvmF64()])), "payload struct type")
+        }
+    }
+}
+
+test fn testResolveEnumPayloadTypeSpecializedSome() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Some", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [v] }), "Option")
+    match enumVariantForPattern(g, "Some", None) {
+        None => assertMsg(false, "Some lookup")
+        Some(lookup) => {
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Some", Some(Type.Specialized(Type.Basic("Option"), [IntType])))
+            assertMsg(llvmTypesEqual(ty, llvmI64()), "Some payload maps to Int")
+        }
+    }
+}
+
+test fn testResolveEnumPayloadTypeSpecializedErr() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Err", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Result", generics: [], variants: [v] }), "Result")
+    match enumVariantForPattern(g, "Err", None) {
+        None => assertMsg(false, "Err lookup")
+        Some(lookup) => {
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Err", Some(Type.Specialized(Type.Basic("Result"), [StringType])))
+            assertMsg(llvmTypesEqual(ty, llvmI8Ptr()), "Err payload is i8*")
+        }
+    }
+}
+
+test fn testPatternClassificationHelpers() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val wildcard = Pattern.Wildcard(0, span)
+    val binding = Pattern.Binding(1, span, "n")
+    val constructor = Pattern.Constructor(2, span, "Verde", [])
+    val literal = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    assertMsg(isWildcardPattern(wildcard), "wildcard")
+    assertMsg(isBindingPattern(binding), "binding")
+    assertMsg(isConstructorPattern(constructor), "constructor")
+    assertMsg(!isConstructorPattern(literal), "literal not constructor")
+    assertMsg(isCatchallMatchPattern(wildcard), "wildcard catchall")
+    assertMsg(!isCatchallMatchPattern(binding), "binding not catchall in match")
+    assertMsg(!isCatchallMatchPattern(constructor), "constructor not catchall")
+    match patternConstructorName(constructor) {
+        None => assertMsg(false, "constructor name")
+        Some(name) => assertMsg(name == "Verde", "Verde name")
+    }
+    assertMsg(constructorPatternArgCount(constructor) == 0, "no constructor args")
+}
+
+test fn testMatchArmGuardAndCatchall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val body = Node.IntLiteral(5, span, IntLiteralData { value: "0" })
+    val guardCond = Node.IntLiteral(6, span, IntLiteralData { value: "1" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(0, span, "n"),
+        guard: Some(guardCond),
+        body: body
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(1, span),
+        guard: None,
+        body: body
+    }
+    assertMsg(matchArmHasGuard(guardedArm), "arm has guard")
+    assertMsg(!matchArmHasGuard(catchallArm), "catchall no guard")
+    assertMsg(matchArmIsCatchall(catchallArm), "wildcard catchall arm")
+    assertMsg(!matchArmIsCatchall(guardedArm), "binding arm not catchall")
+}
+
+test fn testMatchArmBlockNames() {
+    assertMsg(matchArmPatternOkBlockName(0) == "match_arm_0_pattern_ok", "pattern ok block")
+    assertMsg(matchArmBodyBlockName(1) == "match_arm_1_body", "body block")
+    assertMsg(matchArmNextBlockName(2) == "match_arm_2_next", "next block")
+    assertMsg(matchArmGuardPassBlockName(0) == "match_arm_0_guard_pass", "guard pass block")
+    assertMsg(matchMergeBlockName() == "match_merge", "merge block")
+}
+
+test fn testBuildMatchArmPlans() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val body = Node.IntLiteral(5, span, IntLiteralData { value: "0" })
+    val guardCond = Node.IntLiteral(6, span, IntLiteralData { value: "1" })
+    val subject = Node.IntLiteral(7, span, IntLiteralData { value: "10" })
+    val guardedArm = MatchArm {
+        span: span,
+        pattern: Pattern.Binding(0, span, "n"),
+        guard: Some(guardCond),
+        body: body
+    }
+    val catchallArm = MatchArm {
+        span: span,
+        pattern: Pattern.Wildcard(1, span),
+        guard: None,
+        body: body
+    }
+    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val plans = buildMatchArmPlans(data)
+    assertMsg(plans.size() == 2, "two arm plans")
+    assertMsg(plans.get(0).patternOkBlockName == "match_arm_0_pattern_ok", "first arm pattern ok")
+    assertMsg(plans.get(0).hasGuard, "first arm has guard")
+    assertMsg(plans.get(1).bodyBlockName == "match_arm_1_body", "second arm body block")
+    assertMsg(!plans.get(1).hasGuard, "catchall no guard")
+}
+
+test fn testPatternBindingNameAndCollect() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val binding = Pattern.Binding(0, span, "n")
+    match patternBindingName(binding) {
+        None => assertMsg(false, "binding name")
+        Some(name) => assertMsg(name == "n", "binding n")
+    }
+    val ctor = Pattern.Constructor(1, span, "Some", [binding])
+    val names = collectPatternBindings(ctor)
+    assertMsg(names.size() == 1, "one binding from constructor")
+    assertMsg(names.get(0) == "n", "nested binding n")
+}
+
+test fn testMatchPatternSupportedConstructor() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v0 = EnumVariant { span: patternsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: patternsZeroSpan(), name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    val okPat = Pattern.Constructor(2, patternsZeroSpan(), "Verde", [])
+    val badPat = Pattern.Constructor(3, patternsZeroSpan(), "Missing", [])
+    assertMsg(matchPatternSupported(g, okPat), "Verde supported")
+    assertMsg(!matchPatternSupported(g, badPat), "missing variant unsupported")
+}
+
+test fn testFuncParamPatternsSupported() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val bindingParam = FuncParam { span: span, pattern: Pattern.Binding(0, span, "x"), typeExpr: None, defaultExpr: None }
+    val literalParam = FuncParam { span: span, pattern: Pattern.Literal(1, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }
+    assertMsg(funcParamPatternsSupported(g, [bindingParam]), "binding param supported")
+    assertMsg(funcParamPatternsSupported(g, [literalParam]), "literal param supported")
+}
+
+test fn testMatchPatternSupportedForSubjectCor() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v0 = EnumVariant { span: patternsZeroSpan(), name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: patternsZeroSpan(), name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    val verdePat = Pattern.Constructor(2, patternsZeroSpan(), "Verde", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    assertMsg(matchPatternSupportedWithType(g, verdePat, corType), "Verde supported for Cor subject")
+    assertMsg(!matchPatternSupportedWithType(g, Pattern.Constructor(3, patternsZeroSpan(), "Missing", []), corType), "missing variant unsupported for Cor")
+}
+
+test fn testPatternMatchBlockNames() {
+    assertMsg(constructorPatternMatchOkBlockName("Verde") == "match_Verde_ok", "constructor match ok block")
+    assertMsg(constructorPatternTagCmpBlockName("Verde") == "match_Verde_tag_cmp", "constructor tag cmp block")
+    assertMsg(rangePatternGeBlockName() == "range_ge", "range ge block")
+    assertMsg(rangePatternUpperCmpBlockName(true) == "range_le", "inclusive upper cmp block")
+    assertMsg(rangePatternUpperCmpBlockName(false) == "range_lt", "exclusive upper cmp block")
+    assertMsg(literalPatternCmpBlockName() == "literal_match_cmp", "literal cmp block")
+    assertMsg(enumFieldPatternOkBlockName("Some", 0) == "enum_Some_field_0_ok", "enum field ok block")
+    assertMsg(tupleElemPatternOkBlockName(1) == "tuple_elem_1_ok", "tuple elem ok block")
+}
+
+test fn testMatchPatternDispatchLiteralCondBr() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val pat = Pattern.Literal(2, span, LiteralPatternValue.Int("1"))
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "literal dispatch")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal compare stub block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "literal then block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_next"), "literal next block")
+    assertMsg(g.literalPatternSubjectValue == None, "no literal subject without match subject")
+}
+
+test fn testMatchPatternDispatchRangeCondBr() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val to = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, true)
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "range dispatch")
+    assertMsg(blockNameRegistered(g, "range_ge"), "range ge stub block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "range then block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_next"), "range next block")
+    assertMsg(g.valueHandleCounter >= handlesBefore + 2, "range generates from and to bound values")
+    assertMsg(g.rangePatternFromValue != None, "range from bound recorded")
+    assertMsg(g.rangePatternToValue != None, "range to bound recorded")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block after range dispatch")
+        Some(handle) => assertMsg(handle > 0, "range upper bound stub lands on then block")
+    }
+}
+
+test fn testMatchPatternDispatchRangeRejectsNonLiteralTo() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val to = Pattern.Wildcard(3, span)
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, true)
+    assertMsg(!matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "range needs literal upper bound")
+}
+
+test fn testMatchPatternDispatchRangeExclusive() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val to = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, false)
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "exclusive range dispatch")
+}
+
+test fn testPatternRequiresCondBr() {
+    val span = patternsZeroSpan()
+    assertMsg(!patternRequiresCondBr(Pattern.Wildcard(0, span)), "wildcard unconditional")
+    assertMsg(!patternRequiresCondBr(Pattern.Binding(1, span, "x")), "binding unconditional")
+    assertMsg(patternRequiresCondBr(Pattern.Literal(2, span, LiteralPatternValue.Int("1"))), "literal conditional")
+    assertMsg(patternRequiresCondBr(Pattern.Constructor(3, span, "Some", [])), "constructor conditional")
+}
+
+test fn testBuildFuncParamPatternSteps() {
+    val span = patternsZeroSpan()
+    val literalParam = FuncParam { span: span, pattern: Pattern.Literal(0, span, LiteralPatternValue.Int("1")), typeExpr: None, defaultExpr: None }
+    val bindingParam = FuncParam { span: span, pattern: Pattern.Binding(1, span, "x"), typeExpr: None, defaultExpr: None }
+    val steps = buildFuncParamPatternSteps(0, [literalParam, bindingParam])
+    assertMsg(steps.size() == 2, "two param pattern steps")
+    assertMsg(steps.get(0).okBlockName == "v0_p0_ok", "first param ok block")
+    assertMsg(steps.get(1).okBlockName == "v0_p1_ok", "second param ok block")
+    assertMsg(isLiteralPattern(steps.get(0).pattern), "first step literal pattern")
+    assertMsg(isBindingPattern(steps.get(1).pattern), "second step binding pattern")
+}
+
+test fn testMatchPatternBindingRegistersVar() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val pat = Pattern.Binding(0, span, "n")
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "binding dispatch")
+    var hasN = false
+    for k in g.vars.keys() {
+        if k == "n" { hasN = true }
+    }
+    assertMsg(hasN, "binding n registered in g.vars")
+    assertMsg(g.bindingPatternSubjectStore == None, "no subject store without subject")
+}
+
+test fn testMatchPatternBindingWithSubjectStore() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val pat = Pattern.Binding(0, span, "n")
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g, pat, IntType, "match_arm_0_pattern_ok", "match_arm_0_next"), "binding with subject")
+    assertMsg(g.bindingPatternSubjectStore != None, "subject value stored into binding alloca")
+    assertMsg(g.valueHandleCounter > handlesBefore + 1, "subject store stub allocates value handle")
+    var hasN = false
+    for k in g.vars.keys() {
+        if k == "n" { hasN = true }
+    }
+    assertMsg(hasN, "binding n registered with subject")
+}
+
+test fn testRegisterPatternBinding() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    assertMsg(registerPatternBinding(g, "x", llvmI64()), "register binding")
+    var hasX = false
+    for k in g.vars.keys() {
+        if k == "x" { hasX = true }
+    }
+    assertMsg(hasX, "x in g.vars")
+}
+
+test fn testPatternBindingSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    assertMsg(llvmTypesEqual(patternBindingSlotType(g, false, IntType), llvmI64()), "no subject defaults to i64")
+    assertMsg(llvmTypesEqual(patternBindingSlotType(g, true, IntType), llvmI64()), "Int subject maps to i64")
+    assertMsg(llvmTypesEqual(patternBindingSlotType(g, true, StringType), mapTypeToLLVM(g, StringType)), "String subject maps to string ptr")
+}
+
+test fn testRecordPatternFieldSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yDecl = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Float") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl, yDecl] }), "Point")
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    pointFields.set("y", Type.Basic("Float"))
+    val pointType = Type.Record("Point", pointFields, [])
+    assertMsg(llvmTypesEqual(recordPatternFieldSlotType(g, true, pointType, "Point", "x"), llvmI64()), "x from checker Record fields")
+    assertMsg(llvmTypesEqual(recordPatternFieldSlotType(g, true, pointType, "Point", "y"), llvmF64()), "y from checker Record fields")
+    assertMsg(llvmTypesEqual(recordPatternFieldSlotType(g, false, pointType, "Point", "x"), llvmI64()), "x from struct info without subject")
+}
+
+test fn testTuplePatternElemSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val tupleType = Type.Tuple([IntType, Type.Basic("Float")])
+    assertMsg(llvmTypesEqual(tuplePatternElemSlotType(g, true, tupleType, 0), llvmI64()), "tuple elem 0 from checker")
+    assertMsg(llvmTypesEqual(tuplePatternElemSlotType(g, true, tupleType, 1), llvmF64()), "tuple elem 1 from checker")
+    assertMsg(llvmTypesEqual(tuplePatternElemSlotType(g, false, tupleType, 0), llvmI64()), "no subject defaults to i64")
+}
+
+test fn testConstructorPatternArgSubjectType() {
+    var pairFields = Map[String, List[Type]]{}
+    pairFields.set("Pair", [IntType, Type.Basic("Float")])
+    val dataType = Type.Enum(EnumType { name: "Data", variants: pairFields, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+    assertMsg(typeToString(constructorPatternArgSubjectType(true, dataType, "Pair", 1)) == "Float", "arg 1 subject is Float")
+}
+
+test fn testConstructorPatternArgSlotType() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val f0 = EnumField { name: "a", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val f1 = EnumField { name: "b", typeExpr: TypeExpr.Named(0, span, "Float") }
+    val pair = EnumVariant { span: span, name: "Pair", fields: [f0, f1] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data")
+    match enumVariantForPattern(g, "Pair", None) {
+        None => assertMsg(false, "Pair variant lookup")
+        Some(lookup) => {
+            assertMsg(llvmTypesEqual(constructorPatternArgSlotType(g, false, Type.Basic("Unknown"), lookup.variantInfo, "Pair", 0), llvmI64()), "arg 0 from variant fields")
+            assertMsg(llvmTypesEqual(constructorPatternArgSlotType(g, false, Type.Basic("Unknown"), lookup.variantInfo, "Pair", 1), llvmF64()), "arg 1 from variant fields")
+            var pairFields = Map[String, List[Type]]{}
+            pairFields.set("Pair", [IntType, Type.Basic("Float")])
+            val dataType = Type.Enum(EnumType { name: "Data", variants: pairFields, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+            assertMsg(llvmTypesEqual(constructorPatternArgSlotType(g, true, dataType, lookup.variantInfo, "Pair", 1), llvmF64()), "arg 1 from checker enum fields")
+        }
+    }
+}
+
+test fn testResolveEnumPayloadTypeWithChecker() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val v = EnumVariant { span: patternsZeroSpan(), name: "Some", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [v] }), "Option")
+    match enumVariantForPattern(g, "Some", None) {
+        None => assertMsg(false, "Some lookup")
+        Some(lookup) => {
+            val subject = Type.Specialized(Type.Basic("Option"), [IntType])
+            val ty = resolveEnumPayloadTypeWithChecker(g, lookup.variantInfo, "Some", subject)
+            assertMsg(llvmTypesEqual(ty, llvmI64()), "Some payload with checker subject")
+        }
+    }
+}
+
+test fn testMatchPatternDispatchWildcard() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val pat = Pattern.Wildcard(0, span)
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "wildcard dispatch")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block after wildcard dispatch")
+        Some(handle) => assertMsg(handle > 0, "current block handle set")
+    }
+}
+
+test fn testMatchPatternDispatchConstructor() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val v0 = EnumVariant { span: span, name: "Vermelho", fields: [] }
+    val v1 = EnumVariant { span: span, name: "Verde", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Cor", generics: [], variants: [v0, v1] }), "register Cor")
+    val pat = Pattern.Constructor(2, span, "Verde", [])
+    val corType = Type.Enum(EnumType {
+        name: "Cor",
+        variants: Map[String, List[Type]]{},
+        variantFieldNames: Map[String, List[String]]{},
+        generics: []
+    })
+    assertMsg(matchPatternDispatchWithSubject(g, pat, corType, "match_arm_0_pattern_ok", "match_arm_0_next"), "constructor dispatch")
+    assertMsg(blockNameRegistered(g, "match_Verde_tag_cmp"), "constructor tag cmp block")
+    assertMsg(blockNameRegistered(g, "match_Verde_ok"), "constructor ok block registered")
+    assertMsg(blockNameRegistered(g, "match_arm_0_next"), "constructor fail block registered")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "then block registered")
+    assertMsg(g.constructorTagLoad != None, "constructor tag load stub")
+    assertMsg(g.constructorPayloadPtr != None, "constructor payload ptr stub")
+}
+
+test fn testMatchPatternDispatchConstructorSomeWithSubjectPayloadLoads() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val binding = Pattern.Binding(3, span, "n")
+    val pat = Pattern.Constructor(2, span, "Some", [binding])
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optionType = Type.Enum(EnumType { name: "Option", variants: variants, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g, pat, optionType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(n) with subject")
+    assertMsg(g.constructorTagLoad != None, "tag load with subject")
+    assertMsg(g.constructorPayloadPtr != None, "payload ptr with subject")
+    assertMsg(g.constructorArgLoads.size() == 1, "one payload arg load")
+    assertMsg(g.constructorArgStores.size() == 1, "one payload arg store into binding")
+    assertMsg(g.valueHandleCounter > handlesBefore + 3, "subject access stubs allocate handles")
+}
+
+test fn testMatchPatternDispatchConstructorLiteralArgWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val pat = Pattern.Constructor(2, span, "Some", [lit])
+    var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
+    variants.set("Some", [IntType])
+    variants.set("None", [])
+    val optionType = Type.Enum(EnumType { name: "Option", variants: variants, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+    assertMsg(matchPatternDispatchWithSubject(g, pat, optionType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(42) with subject")
+    assertMsg(g.constructorArgLoads.size() == 1, "payload arg load for literal pattern")
+    assertMsg(g.literalPatternSubjectValue != None, "literal cmp uses preloaded payload arg")
+    assertMsg(g.constructorArgStores.size() == 0, "literal arg does not store binding")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal cmp for constructor arg")
+    assertMsg(blockNameRegistered(g, "match_Some_ok"), "constructor ok block")
+}
+
+test fn testMatchPatternDispatchConstructorLiteralArgNoSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val pat = Pattern.Constructor(2, span, "Some", [lit])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(42) no subject")
+    assertMsg(g.constructorArgLoads.size() == 0, "no payload loads without subject")
+    assertMsg(g.literalPatternSubjectValue == None, "no literal subject without match subject")
+}
+
+test fn testMatchPatternDispatchConstructorWithBindingArg() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val field = EnumField { name: "value", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val some = EnumVariant { span: span, name: "Some", fields: [field] }
+    val none = EnumVariant { span: span, name: "None", fields: [] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Option", generics: [], variants: [some, none] }), "Option")
+    val binding = Pattern.Binding(3, span, "n")
+    val pat = Pattern.Constructor(2, span, "Some", [binding])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Some(n) dispatch")
+    assertMsg(g.constructorTagLoad == None, "no tag load without subject")
+    assertMsg(g.constructorPayloadPtr == None, "no payload ptr without subject")
+    assertMsg(g.constructorArgStores.size() == 0, "no arg stores without subject")
+    assertMsg(blockNameRegistered(g, "match_Some_ok"), "constructor ok block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "binding then block")
+}
+
+test fn testMatchPatternDispatchConstructorMultiFieldArgs() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val f0 = EnumField { name: "a", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val f1 = EnumField { name: "b", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val pair = EnumVariant { span: span, name: "Pair", fields: [f0, f1] }
+    assertMsg(generateEnumDecl(g, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data")
+    val arg0 = Pattern.Binding(4, span, "a")
+    val arg1 = Pattern.Binding(5, span, "b")
+    val pat = Pattern.Constructor(2, span, "Pair", [arg0, arg1])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Pair(a,b) dispatch")
+    assertMsg(blockNameRegistered(g, "enum_Pair_field_0_ok"), "first nested field ok block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "final then block")
+    var pairFields = Map[String, List[Type]]{}
+    pairFields.set("Pair", [IntType, IntType])
+    val dataType = Type.Enum(EnumType { name: "Data", variants: pairFields, variantFieldNames: Map[String, List[String]]{}, generics: [] })
+    val g2 = newGenerator(patternsEmptyCheckResult())
+    assertMsg(generateEnumDecl(g2, EnumDeclData { isPub: true, name: "Data", generics: [], variants: [pair] }), "Data g2")
+    assertMsg(matchPatternDispatchWithSubject(g2, pat, dataType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Pair with subject dispatch")
+    assertMsg(g2.constructorArgLoads.size() == 2, "two payload arg loads with subject")
+    assertMsg(g2.constructorArgStores.size() == 2, "two payload arg stores into bindings")
+}
+
+test fn testMatchPatternDispatchRecordShorthandFields() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yDecl = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl, yDecl] }), "Point")
+    val xField = RecordPatternField { name: "x", pattern: None }
+    val yField = RecordPatternField { name: "y", pattern: None }
+    val pat = Pattern.Record(2, span, "Point", [xField, yField])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x, y } dispatch")
+    var hasX = false
+    var hasY = false
+    for k in g.vars.keys() {
+        if k == "x" { hasX = true }
+        if k == "y" { hasY = true }
+    }
+    assertMsg(hasX, "x bound from record field")
+    assertMsg(hasY, "y bound from record field")
+    assertMsg(g.recordPatternFieldLoads.size() == 0, "no field loads without subject")
+    assertMsg(g.recordPatternFieldStores.size() == 0, "no field stores without subject")
+}
+
+test fn testMatchPatternDispatchRecordWithSubjectFieldLoads() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    val yDecl = RecordField { span: span, name: "y", typeExpr: TypeExpr.Named(0, span, "Float") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl, yDecl] }), "Point")
+    val xField = RecordPatternField { name: "x", pattern: None }
+    val yField = RecordPatternField { name: "y", pattern: None }
+    val pat = Pattern.Record(2, span, "Point", [xField, yField])
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    pointFields.set("y", Type.Basic("Float"))
+    val pointType = Type.Record("Point", pointFields, [])
+    val handlesBefore = g.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point with subject")
+    assertMsg(g.recordPatternSubject != None, "record subject stub")
+    assertMsg(g.recordPatternFieldLoads.size() == 2, "field load per shorthand field")
+    assertMsg(g.recordPatternFieldStores.size() == 2, "field store per shorthand binding")
+    assertMsg(g.valueHandleCounter > handlesBefore + 4, "subject plus field gep/load stubs")
+}
+
+test fn testMatchPatternDispatchRecordNestedBindingWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val binding = Pattern.Binding(3, span, "n")
+    val xField = RecordPatternField { name: "x", pattern: Some(binding) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    val pointType = Type.Record("Point", pointFields, [])
+    assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: n } with subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 1, "field load for nested binding")
+    assertMsg(g.recordPatternFieldStores.size() == 1, "nested binding store from loaded field")
+    var hasN = false
+    for k in g.vars.keys() {
+        if k == "n" { hasN = true }
+    }
+    assertMsg(hasN, "n bound from nested field pattern")
+    assertMsg(blockNameRegistered(g, "field_match_ok"), "nested field ok block")
+}
+
+test fn testMatchPatternDispatchRecordNestedBindingNoSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val binding = Pattern.Binding(3, span, "n")
+    val xField = RecordPatternField { name: "x", pattern: Some(binding) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: n } no subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 0, "no field load without subject")
+    assertMsg(g.recordPatternFieldStores.size() == 0, "no field store without subject")
+}
+
+test fn testMatchPatternDispatchRecordNestedLiteralWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val xField = RecordPatternField { name: "x", pattern: Some(lit) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    var pointFields = Map[String, Type]{}
+    pointFields.set("x", IntType)
+    val pointType = Type.Record("Point", pointFields, [])
+    assertMsg(matchPatternDispatchWithSubject(g, pat, pointType, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: 42 } with subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 1, "field load for nested literal")
+    assertMsg(g.literalPatternSubjectValue != None, "literal cmp uses loaded field value")
+    assertMsg(g.recordPatternFieldStores.size() == 0, "literal field does not store binding")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal cmp for nested field")
+    assertMsg(blockNameRegistered(g, "field_match_ok"), "nested field ok block")
+}
+
+test fn testMatchPatternDispatchRecordNestedLiteralNoSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val xDecl = RecordField { span: span, name: "x", typeExpr: TypeExpr.Named(0, span, "Int") }
+    assertMsg(generateRecordDecl(g, RecordDeclData { isPub: true, name: "Point", generics: [], fields: [xDecl] }), "Point")
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val xField = RecordPatternField { name: "x", pattern: Some(lit) }
+    val pat = Pattern.Record(2, span, "Point", [xField])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "Point { x: 42 } no subject")
+    assertMsg(g.recordPatternFieldLoads.size() == 0, "no field load without subject")
+    assertMsg(g.literalPatternSubjectValue == None, "no literal subject without match subject")
+}
+
+test fn testMatchPatternDispatchTupleElements() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val a = Pattern.Binding(3, span, "a")
+    val b = Pattern.Binding(4, span, "b")
+    val pat = Pattern.Tuple(2, span, [a, b])
+    val tupleType = Type.Tuple([IntType, Type.Basic("Float")])
+    assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "tuple (a,b) dispatch")
+    assertMsg(blockNameRegistered(g, "tuple_elem_0_ok"), "first tuple elem ok block")
+    assertMsg(blockNameRegistered(g, "match_arm_0_pattern_ok"), "tuple final then block")
+    assertMsg(g.tuplePatternElemLoads.size() == 0, "no elem loads without subject")
+    assertMsg(g.tuplePatternElemStores.size() == 0, "no elem stores without subject")
+    val g2 = newGenerator(patternsEmptyCheckResult())
+    val handlesBefore = g2.valueHandleCounter
+    assertMsg(matchPatternDispatchWithSubject(g2, pat, tupleType, "match_arm_0_pattern_ok", "match_arm_0_next"), "tuple with subject dispatch")
+    assertMsg(g2.tuplePatternSubject != None, "tuple subject stub")
+    assertMsg(g2.tuplePatternElemLoads.size() == 2, "elem load per tuple binding")
+    assertMsg(g2.tuplePatternElemStores.size() == 2, "elem store per tuple binding")
+    assertMsg(g2.valueHandleCounter > handlesBefore + 4, "subject plus elem gep/load stubs")
+}
+
+test fn testMatchPatternDispatchTupleLiteralWithSubject() {
+    val g = newGenerator(patternsEmptyCheckResult())
+    val span = patternsZeroSpan()
+    val lit = Pattern.Literal(3, span, LiteralPatternValue.Int("42"))
+    val b = Pattern.Binding(4, span, "b")
+    val pat = Pattern.Tuple(2, span, [lit, b])
+    val tupleType = Type.Tuple([IntType, Type.Basic("Float")])
+    assertMsg(matchPatternDispatchWithSubject(g, pat, tupleType, "match_arm_0_pattern_ok", "match_arm_0_next"), "(42, b) with subject")
+    assertMsg(g.tuplePatternElemLoads.size() == 2, "load per tuple elem")
+    assertMsg(g.literalPatternSubjectValue != None, "literal cmp records loaded elem value")
+    assertMsg(g.tuplePatternElemStores.size() == 1, "only binding elem stored")
+    assertMsg(blockNameRegistered(g, "literal_match_cmp"), "literal cmp for tuple elem")
+}

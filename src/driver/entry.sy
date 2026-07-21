@@ -1,0 +1,80 @@
+// Future main.sy entry: argv in → usage text or run exec path out (no OS spawn).
+
+import (
+    { cliActionRun, cliActionNew, cliActionBuild, cliActionTest, cliDispatchAction, cliDispatchUsageOutput, cliRunActionOrderedCommands, cliRunActionOrderedCommandsReady, cliRunActionExecCommand, cliHelloMinimalRunActionExecReady, cliHelloMinimalRunActionOrderedCommandsReady, cliNewActionReady, cliNewSuccessMessageFromArgv, cliBuildActionReady, cliBuildSuccessMessageFromArgv, cliTestActionReady, cliTestExecCommandFromArgv, defaultHelloMinimalRunArgv } from @driver/dispatch
+    { defaultDriverCliEntryCheckScript } from @driver/build
+)
+
+pub fn cliEntryOutput(argv: List[String]) -> String {
+    val usage = cliDispatchUsageOutput(argv)
+    if usage.len() > 0 { return usage }
+    if cliDispatchAction(argv) == cliActionNew() {
+        if !cliNewActionReady(argv) {
+            return "erro: nome do projeto não especificado"
+        }
+        return cliNewSuccessMessageFromArgv(argv)
+    }
+    if cliDispatchAction(argv) == cliActionBuild() {
+        if !cliBuildActionReady(argv) {
+            return "erro: build incompleto"
+        }
+        return cliBuildSuccessMessageFromArgv(argv)
+    }
+    if cliDispatchAction(argv) == cliActionTest() {
+        if !cliTestActionReady(argv) {
+            return "erro: test legacy incompleto"
+        }
+        return cliTestExecCommandFromArgv(argv)
+    }
+    if cliDispatchAction(argv) == cliActionRun() {
+        if !cliRunActionOrderedCommandsReady(argv) {
+            return "erro: pipeline run incompleto"
+        }
+        val execCmd = cliRunActionExecCommand(argv)
+        if execCmd.len() == 0 {
+            return "erro: comando exec run vazio"
+        }
+        return execCmd
+    }
+    return "erro: subcomando ainda não portado no driver Soyuz"
+}
+
+pub fn cliHelloMinimalEntryOutput() -> String {
+    return cliEntryOutput(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliHelloMinimalEntryOutputReady() -> Bool {
+    return cliHelloMinimalRunActionExecReady()
+}
+
+pub fn defaultCliEntryCheckScript() -> String = defaultDriverCliEntryCheckScript()
+
+pub fn cliEntryOrderedCommands(argv: List[String]) -> List[String] {
+    if cliDispatchAction(argv) != cliActionRun() { return List[String]{} }
+    return cliRunActionOrderedCommands(argv)
+}
+
+pub fn cliHelloMinimalEntryOrderedCommandsReady() -> Bool {
+    return cliRunActionOrderedCommandsReady(defaultHelloMinimalRunArgv())
+}
+
+pub fn cliEntryReady(argv: List[String]) -> Bool {
+    if cliDispatchUsageOutput(argv).len() > 0 { return false }
+    if cliDispatchAction(argv) == cliActionNew() {
+        return cliNewActionReady(argv)
+    }
+    if cliDispatchAction(argv) == cliActionBuild() {
+        return cliBuildActionReady(argv)
+    }
+    if cliDispatchAction(argv) == cliActionTest() {
+        return cliTestActionReady(argv)
+    }
+    if cliDispatchAction(argv) == cliActionRun() {
+        return cliRunActionOrderedCommandsReady(argv)
+    }
+    return false
+}
+
+pub fn cliHelloMinimalEntryReady() -> Bool {
+    return cliEntryReady(defaultHelloMinimalRunArgv()) && cliHelloMinimalEntryOutputReady() && cliHelloMinimalEntryOrderedCommandsReady()
+}

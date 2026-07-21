@@ -1,9 +1,13 @@
-// M6 — enum tests (stub — port from soyuz-go/internal/checker/)
+// M6 — enum tests (port of soyuz-go/internal/codegen/m6_enum_test.go checker scenarios)
+import @parser/load
+import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Parser } from @parser/parser
-    { newChecker, check } from @checker/checker
-    { TypeError, CheckResult } from @checker/types
+    { newChecker } from @checker/checker
+    { check } from @checker/dispatch
+    { TypeError } from @checker/types
+    { assertMsg } from @soyuz/testing
 )
 
 fn checkM6(src: String) -> List[TypeError] {
@@ -12,8 +16,105 @@ fn checkM6(src: String) -> List[TypeError] {
     return check(newChecker(), prog).errors
 }
 
-test fn testM6Baseline() {
-    // TODO: port milestone 6 tests from soyuz-go
-    val errs = checkM6("fn main() { val x: Int = 1 }")
-    assert(errs.size() == 0, "M6 baseline stub")
+test fn testM6EnumSimple() {
+    val src = "
+enum Cor {
+    Vermelho
+    Verde
+    Azul
+}
+fn main() -> Int {
+    val c = Vermelho
+    return 0
+}
+"
+    val errs = checkM6(src)
+    assertMsg(errs.size() == 0, "enum simples não deve gerar erros")
+}
+
+test fn testM6EnumMatch() {
+    val src = "
+enum Cor {
+    Vermelho
+    Verde
+    Azul
+}
+fn classifica(c: Cor) -> Int {
+    return match c {
+        Vermelho => 1
+        Verde => 2
+        _ => 3
+    }
+}
+fn main() -> Int {
+    val c = Vermelho
+    return classifica(c)
+}
+"
+    val errs = checkM6(src)
+    assertMsg(errs.size() == 0, "match em enum não deve gerar erros")
+}
+
+test fn testM6EnumWithFields() {
+    val src = "
+enum Forma {
+    Circulo { raio: Float }
+    Retangulo { largura: Float }
+}
+fn main() -> Int {
+    val f = Circulo(5.0)
+    return 0
+}
+"
+    val errs = checkM6(src)
+    assertMsg(errs.size() == 0, "enum com campos não deve gerar erros")
+}
+
+test fn testM6EnumDotSyntax() {
+    val src = "
+enum Cor {
+    Vermelho
+    Verde
+}
+fn main() -> Int {
+    val c = Cor.Vermelho
+    return 0
+}
+"
+    val errs = checkM6(src)
+    assertMsg(errs.size() == 0, "enum dot syntax não deve gerar erros")
+}
+
+test fn testM6EnumDotSyntaxWithArgs() {
+    val src = "
+enum Forma {
+    Circulo { raio: Float }
+}
+fn main() -> Int {
+    val f = Forma.Circulo(3.14)
+    return 0
+}
+"
+    val errs = checkM6(src)
+    assertMsg(errs.size() == 0, "enum dot syntax com args não deve gerar erros")
+}
+
+test fn testM6TwoEnumsSameVariantName() {
+    val src = "
+enum Status {
+    Ok
+    Erro
+}
+enum Resultado {
+    Ok
+    Falha
+}
+fn main() -> Int {
+    val s = Status.Ok
+    val r = Resultado.Ok
+    return 0
+}
+"
+    val errs = checkM6(src)
+    assertMsg(errs.size() == 0, "dois enums com mesma variante não devem conflitar via dot syntax")
 }

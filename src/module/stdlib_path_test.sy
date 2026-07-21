@@ -1,0 +1,28 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+// Mirrors std/path.sy — keep in sync when porting @soyuz/path.
+fn installStdlibPathStub(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "path.sy"), "extern fn soyuz_str_concat(s1: String, s2: String) -> String\nextern fn soyuz_str_last_index_of(s: String, sub: String) -> Int\nextern fn soyuz_str_substring(s: String, start: Int, end: Int) -> String\nextern fn soyuz_str_len(s: String) -> Int\nextern fn soyuz_str_starts_with(s: String, prefix: String) -> Bool\nextern fn soyuz_str_ends_with(s: String, suffix: String) -> Bool\npub class Path { pub val _path: String pub fn join(self, part: String) -> Path = Path { _path: soyuz_str_concat(self._path, part) } pub fn name(self) -> String = self._path pub fn isAbsolute(self) -> Bool = soyuz_str_starts_with(self._path, \"/\") }\npub fn path(p: String) -> Path = Path { _path: p }\n")
+}
+
+pub fn defaultStdlibPathModulePath() -> String = "std/path.sy"
+
+// Port of m3_collections_test.go TestPathExternFnsPresent — path resolves without string.sy.
+test fn testStdlibPathModuleTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibPathStub(index, stdlibDir)
+    index.fileContents.set(entry, "import ( { path } from \"@soyuz/path\" )\nfn main() {\n\tval p = path(\"/home/user/file.txt\")\n\tprint(p.name())\n\tprint(p.isAbsolute())\n\tprint(p.join(\"docs\").name())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect path module ok")
+    assertMsg(collected.files.size() == 2, "path.sy plus main")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib path module type-checks")
+}

@@ -1,0 +1,115 @@
+// Mirrors soyuz-go/cmd/main.go cmdNew (templates + arg parse, no OS I/O).
+
+pub fn cliNewLibFlag() -> String = "--lib"
+
+fn cliNewArgIsFlag(arg: String) -> Bool = arg.startsWith("-")
+
+pub fn cliNewIsLibFromArgs(args: List[String]) -> Bool {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        if args.get(i) == cliNewLibFlag() { return true }
+        i = i + 1
+    }
+    return false
+}
+
+pub fn cliNewNameFromArgs(args: List[String]) -> String {
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        val a = args.get(i)
+        if a == cliNewLibFlag() {
+            i = i + 1
+            continue
+        }
+        if !cliNewArgIsFlag(a) { return a }
+        i = i + 1
+    }
+    return ""
+}
+
+pub fn cliNewArgsReady(args: List[String]) -> Bool = cliNewNameFromArgs(args).len() > 0
+
+pub record NewProjectPlan {
+    name: String,
+    isLib: Bool,
+    tomlContent: String,
+    entryFileName: String,
+    entryContent: String,
+    successMessage: String
+}
+
+pub fn newProjectType(isLib: Bool) -> String {
+    if isLib { return "library" }
+    return "binary"
+}
+
+pub fn newProjectTomlContent(name: String, isLib: Bool) -> String {
+    var content = "[project]\nname    = \"$(name)\"\nversion = \"0.1.0\"\ntype    = \"$(newProjectType(isLib))\"\n"
+    if !isLib {
+        content = "$(content)entry   = \"main.sy\"\n"
+    }
+    return "$(content)\n[packages]\n"
+}
+
+pub fn newProjectMainSyContent() -> String {
+    return "import @soyuz/prelude\n\nfn main() {\n    print(\"Olá, mundo!\")\n}\n"
+}
+
+pub fn newProjectLibSyContent(name: String) -> String = "// Biblioteca $(name)\n"
+
+pub fn newProjectSuccessMessage(name: String, isLib: Bool) -> String {
+    if isLib {
+        return "Projeto biblioteca '$(name)' criado em ./$(name)/"
+    }
+    return "Projeto binário '$(name)' criado em ./$(name)/"
+}
+
+pub fn newProjectPlanFromArgs(args: List[String]) -> NewProjectPlan {
+    val name = cliNewNameFromArgs(args)
+    val isLib = cliNewIsLibFromArgs(args)
+    val toml = newProjectTomlContent(name, isLib)
+    if isLib {
+        return NewProjectPlan {
+            name: name,
+            isLib: true,
+            tomlContent: toml,
+            entryFileName: "lib.sy",
+            entryContent: newProjectLibSyContent(name),
+            successMessage: newProjectSuccessMessage(name, true)
+        }
+    }
+    return NewProjectPlan {
+        name: name,
+        isLib: false,
+        tomlContent: toml,
+        entryFileName: "main.sy",
+        entryContent: newProjectMainSyContent(),
+        successMessage: newProjectSuccessMessage(name, false)
+    }
+}
+
+pub fn newProjectPlanReady(plan: NewProjectPlan) -> Bool {
+    if plan.name.len() == 0 { return false }
+    if plan.tomlContent.len() == 0 { return false }
+    if plan.entryFileName.len() == 0 { return false }
+    if plan.entryContent.len() == 0 { return false }
+    if plan.successMessage.len() == 0 { return false }
+    if plan.isLib {
+        return plan.entryFileName == "lib.sy"
+    }
+    return plan.entryFileName == "main.sy"
+}
+
+pub fn newCliBootstrapCommand(args: List[String]) -> String {
+    if !cliNewArgsReady(args) { return "" }
+    var cmd = "soyuz new"
+    var i = 0
+    loop {
+        if i >= args.size() { break }
+        cmd = "$(cmd) $(args.get(i))"
+        i = i + 1
+    }
+    return cmd
+}

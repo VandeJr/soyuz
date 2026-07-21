@@ -1,0 +1,72 @@
+import (
+    { FrontendBuildPlan, frontendBuildReady } from @driver/frontend
+    { BuildConfig } from @driver/build
+    { newGenerator, setTestMode, Generator } from @codegen/generator
+    { generateProgramBody, ProgramResult } from @codegen/gen_funcs
+    { renderModuleIr, moduleIrHasMain } from @codegen/gen_emit
+    { Node } from @ast/ast
+)
+
+pub record CodegenBuildPlan {
+    frontend: FrontendBuildPlan,
+    funcCount: Int,
+    irContent: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn codegenBuildReady(plan: CodegenBuildPlan) -> Bool = plan.ready
+
+pub fn codegenPlanHasMain(plan: CodegenBuildPlan) -> Bool = moduleIrHasMain(plan.irContent)
+
+pub fn codegenPlanHasHelloPrint(plan: CodegenBuildPlan) -> Bool {
+    if !plan.irContent.contains("c\"hello") { return false }
+    return plan.irContent.contains("call i32 (i8*, ...) @printf")
+}
+
+pub fn codegenPlanIsLinkableHello(plan: CodegenBuildPlan) -> Bool {
+    if !codegenBuildReady(plan) { return false }
+    if !codegenPlanHasHelloPrint(plan) { return false }
+    return plan.irContent.contains("ret i32 0")
+}
+
+// Legacy stub format kept for bash driver-link-stub-check.sh parity.
+pub fn stubModuleIr(funcCount: Int) -> String {
+    return "; soyuz codegen stub ($(funcCount) top-level funcs)\ntarget triple = \"x86_64-unknown-linux-gnu\"\ndefine i32 @main() {\nentry:\n  ret i32 0\n}\n"
+}
+
+pub fn runCodegenPasses(g: Generator, body: List[Node]) -> Option[ProgramResult] {
+    return generateProgramBody(g, body)
+}
+
+pub fn planCodegenBuild(frontend: FrontendBuildPlan, cfg: BuildConfig) -> CodegenBuildPlan {
+    if !frontendBuildReady(frontend) {
+        return CodegenBuildPlan {
+            frontend: frontend,
+            funcCount: 0,
+            irContent: "",
+            ready: false,
+            error: frontend.error
+        }
+    }
+    var g = newGenerator(frontend.checkResult)
+    if cfg.isTestBuild {
+        setTestMode(g, cfg.testFilter)
+    }
+    match runCodegenPasses(g, frontend.collected.body) {
+        None => CodegenBuildPlan {
+            frontend: frontend,
+            funcCount: 0,
+            irContent: "",
+            ready: false,
+            error: "erro no codegen"
+        }
+        Some(result) => CodegenBuildPlan {
+            frontend: frontend,
+            funcCount: result.funcCount,
+            irContent: renderModuleIr(g, result.funcCount),
+            ready: true,
+            error: ""
+        }
+    }
+}

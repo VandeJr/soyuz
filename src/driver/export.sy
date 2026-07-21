@@ -1,0 +1,162 @@
+import (
+    { runtimeAssetNames } from @runtime/embed
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { buildConfigForEntry, buildConfigForTest, defaultRuntimeSrcDir } from @driver/build
+    { planFrontendBuild } from @driver/frontend
+    { planCodegenBuild, codegenBuildReady, codegenPlanIsLinkableHello, CodegenBuildPlan } from @driver/codegen
+    { planFullBuild, FullBuildPlan, applyFullBuildManifest, fullBuildAppliedLinkPlanReady, fullBuildReady } from @driver/pipeline
+    { RunBuildPlan, RunPlan, planRun, planRunBuildFromFullBuild, planRunFromRunBuild, runBuildReady, runPlanReady, runBuildManifestRoundTripReady } from @driver/run
+)
+
+pub fn helloMinimalFixturePath() -> String = "tools/fixtures/hello_minimal.sy"
+
+pub fn helloFixtureCliRunTmpDir() -> String = "/tmp/soyuz-cli-run"
+
+pub fn helloFixtureEntryPath() -> String = "/tmp/soyuz-export-hello.sy"
+
+pub fn helloFixtureStdlibDir() -> String = "/tmp/soyuz-export-stdlib"
+
+pub fn helloFixtureGoRoot() -> String = "/ref/soyuz-go"
+
+pub fn helloFixtureTmpDir() -> String = "/tmp/soyuz-export-build"
+
+pub fn helloFixturePreludeSource() -> String = "pub fn print(x: String) {}"
+
+pub fn helloFixtureProgramSource() -> String = "fn main() {\n    print(\"hello\")\n}\n"
+
+pub fn helloFixtureTestProgramSource() -> String = "test fn testOk() {}\nfn main() {}\n"
+
+pub fn testRunnerCliPath() -> String = "test_runner.sy"
+
+pub fn helloFixtureCliTestTmpDir() -> String = "/tmp/soyuz-cli-test"
+
+fn helloTestSourcesIndex(entryFile: String, stdlibDir: String) -> PathIndex {
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), helloFixturePreludeSource())
+    index.fileContents.set(entryFile, helloFixtureTestProgramSource())
+    return index
+}
+
+fn helloSourcesIndex(entryFile: String, stdlibDir: String) -> PathIndex {
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), helloFixturePreludeSource())
+    index.fileContents.set(entryFile, helloFixtureProgramSource())
+    return index
+}
+
+fn helloFixtureIndex() -> PathIndex {
+    return helloSourcesIndex(helloFixtureEntryPath(), helloFixtureStdlibDir())
+}
+
+fn helloFixtureRuntimeIndex(goRoot: String) -> PathIndex {
+    val runtimeSrc = defaultRuntimeSrcDir(goRoot)
+    var sourceIndex = emptyPathIndex()
+    for name in runtimeAssetNames() {
+        sourceIndex.fileContents.set(joinPathFile(runtimeSrc, name), "// $(name)\n")
+    }
+    return sourceIndex
+}
+
+pub fn planHelloCodegenBuild() -> CodegenBuildPlan {
+    val entry = helloFixtureEntryPath()
+    val r = newResolverWithStdlib(entry, helloFixtureStdlibDir())
+    val cfg = buildConfigForEntry(
+        entry,
+        "$(helloFixtureTmpDir())/app",
+        false,
+        helloFixtureTmpDir(),
+        defaultRuntimeSrcDir(helloFixtureGoRoot())
+    )
+    return planCodegenBuild(planFrontendBuild(entry, r, helloFixtureIndex()), cfg)
+}
+
+pub fn planHelloFullBuild() -> FullBuildPlan {
+    val entry = helloFixtureEntryPath()
+    val goRoot = helloFixtureGoRoot()
+    val r = newResolverWithStdlib(entry, helloFixtureStdlibDir())
+    val cfg = buildConfigForEntry(
+        entry,
+        "$(helloFixtureTmpDir())/app",
+        false,
+        helloFixtureTmpDir(),
+        defaultRuntimeSrcDir(goRoot)
+    )
+    return planFullBuild(entry, cfg, r, helloFixtureIndex(), helloFixtureRuntimeIndex(goRoot))
+}
+
+pub fn planHelloTestBuild(filter: String) -> FullBuildPlan {
+    val entry = testRunnerCliPath()
+    val tmpDir = helloFixtureCliTestTmpDir()
+    val goRoot = helloFixtureGoRoot()
+    val stdlibDir = "$(tmpDir)/stdlib"
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val cfg = buildConfigForTest(
+        entry,
+        "$(tmpDir)/test-bin",
+        filter,
+        tmpDir,
+        defaultRuntimeSrcDir(goRoot)
+    )
+    return planFullBuild(entry, cfg, r, helloTestSourcesIndex(entry, stdlibDir), helloFixtureRuntimeIndex(goRoot))
+}
+
+pub fn helloTestBuildReady(filter: String) -> Bool {
+    return fullBuildReady(planHelloTestBuild(filter))
+}
+
+pub fn helloCodegenIrContent() -> String {
+    val plan = planHelloCodegenBuild()
+    if !codegenBuildReady(plan) { return "" }
+    return plan.irContent
+}
+
+pub fn helloCodegenIrExportReady() -> Bool {
+    return codegenPlanIsLinkableHello(planHelloCodegenBuild())
+}
+
+pub fn helloFullBuildAppliedLinkPlanReady() -> Bool {
+    val plan = planHelloFullBuild()
+    return fullBuildAppliedLinkPlanReady(plan, applyFullBuildManifest(plan))
+}
+
+pub fn planHelloRunBuild() -> RunBuildPlan {
+    return planRunBuildFromFullBuild(planHelloFullBuild())
+}
+
+pub fn helloRunBuildPlanReady() -> Bool {
+    return runBuildReady(planHelloRunBuild())
+}
+
+pub fn helloRunBuildManifestRoundTripReady() -> Bool {
+    return runBuildManifestRoundTripReady(planHelloRunBuild())
+}
+
+pub fn planHelloRun() -> RunPlan {
+    return planRunForHelloSources(helloFixtureEntryPath(), helloFixtureTmpDir(), helloFixtureGoRoot())
+}
+
+pub fn planRunForHelloSources(entryFile: String, tmpDir: String, goRoot: String) -> RunPlan {
+    val stdlibDir = "$(tmpDir)/stdlib"
+    val r = newResolverWithStdlib(entryFile, stdlibDir)
+    val cfg = buildConfigForEntry(
+        entryFile,
+        "$(tmpDir)/app",
+        false,
+        tmpDir,
+        defaultRuntimeSrcDir(goRoot)
+    )
+    return planRun(entryFile, cfg, r, helloSourcesIndex(entryFile, stdlibDir), helloFixtureRuntimeIndex(goRoot))
+}
+
+pub fn planHelloMinimalRun() -> RunPlan {
+    return planRunForHelloSources(helloMinimalFixturePath(), helloFixtureCliRunTmpDir(), helloFixtureGoRoot())
+}
+
+pub fn helloMinimalRunPlanReady() -> Bool {
+    return runPlanReady(planHelloMinimalRun())
+}
+
+pub fn helloRunPlanReady() -> Bool {
+    return runPlanReady(planHelloRun())
+}

@@ -1,71 +1,104 @@
 import (
-    {
-        Type, FuncType, EnumType, ClassType, InterfaceType, SpecializedType, TypeParameter,
-        IntType, FloatType, BoolType, StringType, CharType
-    } from @checker/types
+    { Node } from @ast/ast
+    { Type, FuncType, EnumType, ClassType, InterfaceType, IntType, FloatType, BoolType, StringType, CharType } from @checker/types
 )
 
-pub fn builtinExtendSelfTypes() -> Map[String, Type] = [
-    "String": StringType,
-    "Int": IntType,
-    "Float": FloatType,
-    "Bool": BoolType,
-    "Char": CharType
-]
+pub fn emptyTypes() -> List[Type] { [] }
+pub fn tParam(name: String) -> Type = Type.TypeParam(name)
+
+fn fnType(params: List[Type], ret: Type) -> FuncType {
+    FuncType { params: params, returnType: ret, generics: [], defaults: [], isOptional: [] }
+}
+
+pub fn fn0(ret: Type) -> FuncType = fnType(emptyTypes(), ret)
+pub fn fn1(p: Type, ret: Type) -> FuncType = fnType([p], ret)
+pub fn fn2(p1: Type, p2: Type, ret: Type) -> FuncType = fnType([p1, p2], ret)
+fn oneFn(ft: FuncType) -> List[FuncType] = [ft]
+
+fn setExtMethod(ext: Map[String, List[FuncType]], name: String, ft: FuncType) {
+    ext.set(name, oneFn(ft))
+}
+
+pub fn builtinExtendSelfTypes() -> Map[String, Type] {
+    var m = Map[String, Type]{}
+    m.set("String", StringType)
+    m.set("Int", IntType)
+    m.set("Float", FloatType)
+    m.set("Bool", BoolType)
+    m.set("Char", CharType)
+    return m
+}
 
 pub fn builtinTypeExtensions() -> Map[String, Map[String, List[FuncType]]] {
+    var resultVariants = Map[String, List[Type]]{}
+    resultVariants.set("Ok", [IntType])
+    resultVariants.set("Err", [Type.Interface(InterfaceType { name: "Error", methods: Map[String, FuncType]{} })])
     val resultEnum = EnumType {
         name: "Result", generics: ["T"],
-        variants: ["Ok": [IntType], "Err": [InterfaceType { name: "Error", methods: Map[String, List[FuncType]]{} }]],
+        variants: resultVariants,
         variantFieldNames: Map[String, List[String]]{}
     }
-    val resultInt = SpecializedType { base: resultEnum, params: [IntType] }
-    val resultFloat = SpecializedType { base: resultEnum, params: [FloatType] }
+
+    val resultInt = Type.Specialized(Type.Enum(resultEnum), [IntType])
+    val resultFloat = Type.Specialized(Type.Enum(resultEnum), [FloatType])
+    var optionVariants = Map[String, List[Type]]{}
+    optionVariants.set("Some", [tParam("T")])
+    optionVariants.set("None", emptyTypes())
     val optionBase = EnumType {
         name: "Option", generics: ["T"],
-        variants: ["Some": [TypeParameter { name: "T" }], "None": []],
+        variants: optionVariants,
         variantFieldNames: Map[String, List[String]]{}
     }
-    val optionInt = SpecializedType { base: optionBase, params: [IntType] }
-    val optionChar = SpecializedType { base: optionBase, params: [CharType] }
-    val listBase = ClassType { name: "List", generics: ["T"], fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{}, implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{} }
-    val listOfString = SpecializedType { base: listBase, params: [StringType] }
-    return [
-        "String": [
-            "len": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }],
-            "isEmpty": [FuncType { params: [], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
-            "toUpperCase": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "toUpper": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "toLowerCase": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "toLower": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "trim": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "contains": [FuncType { params: [StringType], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
-            "startsWith": [FuncType { params: [StringType], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
-            "endsWith": [FuncType { params: [StringType], returnType: BoolType, generics: [], defaults: [], isOptional: [] }],
-            "indexOf": [FuncType { params: [StringType], returnType: optionInt, generics: [], defaults: [], isOptional: [] }],
-            "lastIndexOf": [FuncType { params: [StringType], returnType: optionInt, generics: [], defaults: [], isOptional: [] }],
-            "replace": [FuncType { params: [StringType, StringType], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "split": [FuncType { params: [StringType], returnType: listOfString, generics: [], defaults: [], isOptional: [] }],
-            "substring": [FuncType { params: [IntType, IntType], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "byteAt": [FuncType { params: [IntType], returnType: optionInt, generics: [], defaults: [], isOptional: [] }],
-            "unicodeAt": [FuncType { params: [IntType], returnType: optionChar, generics: [], defaults: [], isOptional: [] }],
-            "toInt": [FuncType { params: [], returnType: resultInt, generics: [], defaults: [], isOptional: [] }],
-            "toFloat": [FuncType { params: [], returnType: resultFloat, generics: [], defaults: [], isOptional: [] }]
-        ],
-        "Int": [
-            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "toFloat": [FuncType { params: [], returnType: FloatType, generics: [], defaults: [], isOptional: [] }],
-            "abs": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        "Float": [
-            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }],
-            "toInt": [FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        "Bool": [
-            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }]
-        ],
-        "Char": [
-            "toString": [FuncType { params: [], returnType: StringType, generics: [], defaults: [], isOptional: [] }]
-        ]
-    ]
+    val optionInt = Type.Specialized(Type.Enum(optionBase), [IntType])
+    val optionChar = Type.Specialized(Type.Enum(optionBase), [CharType])
+    val listBase = ClassType {
+        name: "List", generics: ["T"],
+        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}
+    }
+    val listOfString = Type.Specialized(Type.Class(listBase), [StringType])
+
+    var stringExt = Map[String, List[FuncType]]{}
+    setExtMethod(stringExt, "len", fn0(IntType))
+    setExtMethod(stringExt, "isEmpty", fn0(BoolType))
+    setExtMethod(stringExt, "toUpperCase", fn0(StringType))
+    setExtMethod(stringExt, "toUpper", fn0(StringType))
+    setExtMethod(stringExt, "toLowerCase", fn0(StringType))
+    setExtMethod(stringExt, "toLower", fn0(StringType))
+    setExtMethod(stringExt, "trim", fn0(StringType))
+    setExtMethod(stringExt, "contains", fn1(StringType, BoolType))
+    setExtMethod(stringExt, "startsWith", fn1(StringType, BoolType))
+    setExtMethod(stringExt, "endsWith", fn1(StringType, BoolType))
+    setExtMethod(stringExt, "indexOf", fn1(StringType, optionInt))
+    setExtMethod(stringExt, "lastIndexOf", fn1(StringType, optionInt))
+    setExtMethod(stringExt, "replace", fn2(StringType, StringType, StringType))
+    setExtMethod(stringExt, "split", fn1(StringType, listOfString))
+    setExtMethod(stringExt, "substring", fn2(IntType, IntType, StringType))
+    setExtMethod(stringExt, "byteAt", fn1(IntType, optionInt))
+    setExtMethod(stringExt, "unicodeAt", fn1(IntType, optionChar))
+    setExtMethod(stringExt, "toInt", fn0(resultInt))
+    setExtMethod(stringExt, "toFloat", fn0(resultFloat))
+
+    var intExt = Map[String, List[FuncType]]{}
+    setExtMethod(intExt, "toString", fn0(StringType))
+    setExtMethod(intExt, "toFloat", fn0(FloatType))
+    setExtMethod(intExt, "abs", fn0(IntType))
+
+    var floatExt = Map[String, List[FuncType]]{}
+    setExtMethod(floatExt, "toString", fn0(StringType))
+    setExtMethod(floatExt, "toInt", fn0(IntType))
+
+    var boolExt = Map[String, List[FuncType]]{}
+    setExtMethod(boolExt, "toString", fn0(StringType))
+
+    var charExt = Map[String, List[FuncType]]{}
+    setExtMethod(charExt, "toString", fn0(StringType))
+
+    var out = Map[String, Map[String, List[FuncType]]]{}
+    out.set("String", stringExt)
+    out.set("Int", intExt)
+    out.set("Float", floatExt)
+    out.set("Bool", boolExt)
+    out.set("Char", charExt)
+    return out
 }

@@ -1,0 +1,136 @@
+import (
+    { FuncDeclData, Node } from @ast/ast
+    { CheckResult, FuncType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrToBlockStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, defaultLlvmValue, emitStoreStub, emitGepStub, emitLoadStub } from @codegen/gen_ir
+    { llvmI64, llvmStructType } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+fn irTestCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testBlockNameWithSuffix() {
+    assertMsg(blockNameWithSuffix("entry", 0) == "entry", "first block keeps name")
+    assertMsg(blockNameWithSuffix("entry", 1) == "entry_1", "second block suffix")
+}
+
+test fn testNewBlockAssignsUniqueHandles() {
+    val g = newGenerator(irTestCheckResult())
+    val first = newBlock(g, "v0_p0_ok")
+    val second = newBlock(g, "v0_p0_ok")
+    assertMsg(first.handle != second.handle, "duplicate names get unique handles")
+    assertMsg(uniqueBlockName(g, "v0_p0_ok") == "v0_p0_ok_1", "unique name after one use")
+}
+
+test fn testSetCurrentBlock() {
+    val g = newGenerator(irTestCheckResult())
+    val block = newBlock(g, "variant_0_body")
+    setCurrentBlock(g, block)
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block handle")
+        Some(handle) => assertMsg(handle == block.handle, "current block handle")
+    }
+}
+
+test fn testNewAllocaAssignsUniqueHandles() {
+    val g = newGenerator(irTestCheckResult())
+    val first = newAlloca(g, llvmI64())
+    val second = newAlloca(g, llvmI64())
+    assertMsg(first.handle != second.handle, "alloca handles are unique")
+}
+
+test fn testSnapshotRestoreVars() {
+    val g = newGenerator(irTestCheckResult())
+    g.vars.set("x", newAlloca(g, llvmI64()))
+    val saved = snapshotVars(g)
+    g.vars.set("y", newAlloca(g, llvmI64()))
+    restoreVars(g, saved)
+    var hasX = false
+    var hasY = false
+    for k in g.vars.keys() {
+        if k == "x" { hasX = true }
+        if k == "y" { hasY = true }
+    }
+    assertMsg(hasX, "x restored")
+    assertMsg(!hasY, "y removed after restore")
+}
+
+test fn testEmitCondBrStub() {
+    val g = newGenerator(irTestCheckResult())
+    assertMsg(emitCondBrStub(g, "then_block", "next_block"), "cond br stub")
+    assertMsg(blockNameRegistered(g, "then_block"), "then block registered")
+    assertMsg(blockNameRegistered(g, "next_block"), "next block registered")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "current block after cond br")
+        Some(handle) => assertMsg(handle > 0, "current at then block")
+    }
+}
+
+test fn testRecordMatchPhiIncoming() {
+    val g = newGenerator(irTestCheckResult())
+    clearMatchPhiIncomings(g)
+    val block = newBlock(g, "arm_body")
+    recordMatchPhiIncoming(g, newAlloca(g, llvmI64()), block)
+    assertMsg(matchPhiIncomingCount(g) == 1, "one phi incoming recorded")
+}
+
+test fn testEmitPhiStub() {
+    val g = newGenerator(irTestCheckResult())
+    clearMatchPhiIncomings(g)
+    match emitPhiStub(g) {
+        None => assertMsg(true, "no phi without incomings")
+        Some(_) => assertMsg(false, "unexpected phi")
+    }
+    val block = newBlock(g, "arm_body")
+    recordMatchPhiIncoming(g, newAlloca(g, llvmI64()), block)
+    match emitPhiStub(g) {
+        None => assertMsg(false, "expected phi stub")
+        Some(phi) => assertMsg(phi.handle > 0, "phi result handle")
+    }
+    match g.matchPhiResult {
+        None => assertMsg(false, "matchPhiResult set")
+        Some(phi) => assertMsg(phi.handle > 0, "stored phi result")
+    }
+}
+
+test fn testEmitBrToBlockStub() {
+    val g = newGenerator(irTestCheckResult())
+    val target = newBlock(g, "loop_after")
+    val other = newBlock(g, "loop_body")
+    setCurrentBlock(g, other)
+    assertMsg(emitBrToBlockStub(g, target), "br to block stub")
+    match currentBlockHandle(g) {
+        None => assertMsg(false, "expected current block")
+        Some(handle) => assertMsg(handle == target.handle, "current at branch target")
+    }
+}
+
+test fn testDefaultLlvmValueScalars() {
+    val g = newGenerator(irTestCheckResult())
+    val handlesBefore = g.valueHandleCounter
+    match defaultLlvmValue(g, llvmI64()) {
+        None => assertMsg(false, "i64 has default zero")
+        Some(v) => assertMsg(v.handle > handlesBefore, "default value handle")
+    }
+    assertMsg(defaultLlvmValue(g, llvmStructType("Point", [llvmI64()])) == None, "struct has no default zero")
+}
+
+test fn testEmitGepLoadStubs() {
+    val g = newGenerator(irTestCheckResult())
+    val handlesBefore = g.valueHandleCounter
+    val gep = emitGepStub(g)
+    val load = emitLoadStub(g)
+    assertMsg(gep.handle != load.handle, "gep and load get unique handles")
+    assertMsg(g.valueHandleCounter >= handlesBefore + 2, "stubs bump value counter")
+}

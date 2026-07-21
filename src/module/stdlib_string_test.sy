@@ -1,0 +1,33 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installStdlibErrorStubForString(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "error.sy"), "pub interface Error { pub fn message() -> String pub fn code() -> Int }\npub class NoneError : Error { pub val msg: String pub fn message(self) -> String = self.msg pub fn code(self) -> Int = 1 }\npub fn noneError(msg: String) -> Error = NoneError { msg: msg }\n")
+}
+
+// Mirrors std/string.sy — keep in sync when porting @soyuz/string.
+fn installStdlibStringStub(index: PathIndex, stdlibDir: String) {
+    installStdlibErrorStubForString(index, stdlibDir)
+    index.fileContents.set(joinPathFile(stdlibDir, "string.sy"), "import ( { Error } from \"@soyuz/error\" )\nextern fn soyuz_str_len(s: String) -> Int\nextern fn soyuz_str_concat(s1: String, s2: String) -> String\nextern fn soyuz_str_contains(s: String, sub: String) -> Bool\nextern fn soyuz_str_to_int(s: String) -> Int\nextern fn soyuz_str_parse_has_error() -> Bool\npub class ParseError : Error { pub val msg: String pub fn message(self) -> String = self.msg pub fn code(self) -> Int = 400 }\nextend String { pub fn len(self) -> Int = soyuz_str_len(self) pub fn contains(self, sub: String) -> Bool = soyuz_str_contains(self, sub) pub fn toInt(self) -> Result[Int] = Ok(soyuz_str_to_int(self)) }\npub class StringBuilder { pub var _data: String = \"\" pub fn append(self, s: String) { self._data = soyuz_str_concat(self._data, s) } pub fn build(self) -> String = self._data }\n")
+}
+
+pub fn defaultStdlibStringPath() -> String = "std/string.sy"
+
+// Port of stdlib usage: @soyuz/string extend + StringBuilder type-check.
+test fn testStdlibStringModuleTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/app/main.sy"
+    var index = emptyPathIndex()
+    installStdlibStringStub(index, stdlibDir)
+    index.fileContents.set(entry, "import ( { StringBuilder } from \"@soyuz/string\" )\nfn main() {\n\tval s = \"hello\"\n\tprint(s.len())\n\tprint(s.contains(\"ell\"))\n\tmatch s.toInt() {\n\t\tOk(n) => print(n)\n\t\tErr(_) => print(0)\n\t}\n\tvar b = StringBuilder {}\n\tb.append(\"x\")\n\tprint(b.build().len())\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect string module ok")
+    assertMsg(collected.files.size() == 3, "error.sy string.sy plus main")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "stdlib string module type-checks")
+}

@@ -1,0 +1,34 @@
+import (
+    { helloCodegenIrExportReady, helloCodegenIrContent, helloFullBuildAppliedLinkPlanReady, helloRunBuildManifestRoundTripReady, helloRunPlanReady, helloMinimalRunPlanReady, helloTestBuildReady } from @driver/export
+    { moduleIrHeaderMarker } from @codegen/gen_emit
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testHelloCodegenIrExportReady() {
+    assertMsg(helloCodegenIrExportReady(), "hello codegen ir export ready")
+    val ir = helloCodegenIrContent()
+    assertMsg(ir.len() > 0, "exported ir non-empty")
+    assertMsg(ir.contains(moduleIrHeaderMarker()), "exported ir has header marker")
+    assertMsg(ir.contains("c\"hello"), "exported ir has hello c string")
+}
+
+test fn testHelloFullBuildAppliedLinkPlanReady() {
+    assertMsg(helloFullBuildAppliedLinkPlanReady(), "hello full build applied link plan ready")
+}
+
+test fn testHelloRunBuildManifestRoundTripReady() {
+    assertMsg(helloRunBuildManifestRoundTripReady(), "hello run manifest round trip ready")
+}
+
+test fn testHelloRunPlanReady() {
+    assertMsg(helloRunPlanReady(), "hello run plan ready")
+}
+
+test fn testHelloMinimalRunPlanReady() {
+    assertMsg(helloMinimalRunPlanReady(), "hello minimal run plan ready")
+}
+
+test fn testHelloTestBuildReady() {
+    assertMsg(helloTestBuildReady(""), "hello test build ready without filter")
+    assertMsg(helloTestBuildReady("ok"), "hello test build ready with filter")
+}

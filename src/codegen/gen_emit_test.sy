@@ -1,0 +1,121 @@
+import (
+    { newGenerator } from @codegen/generator
+    { newBlock, setCurrentBlock, emitBrStub, newAlloca, emitStoreStub, emitLoadFromAlloca, stubLlvmValue } from @codegen/gen_ir
+    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub, emitRetLlvmValueStub, emitCallVoidStub, emitPrintfStringStub, registerCStrGlobal, emitCStrPtrStub, cStringByteLen } from @codegen/gen_emit
+    { llvmI64 } from @codegen/llvm_types
+    { TypeError, TypeWarning, FuncType, FuncDeclData, CheckResult, Type } from @checker/types
+    { Node } from @ast/ast
+    { assertMsg } from @soyuz/testing
+)
+
+fn emitEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: List[TypeError]{},
+    warnings: List[TypeWarning]{},
+    nodeTypes: List[Option[Type]]{},
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: List[FuncDeclData]{},
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+test fn testRenderModuleIrIncludesTrace() {
+    val g = newGenerator(emitEmptyCheckResult())
+    traceIr(g, "block entry")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasMain(ir), "main function in ir")
+    assertMsg(moduleIrHasTrace(ir), "trace section")
+    assertMsg(ir.contains(defaultTargetTriple()), "target triple")
+    assertMsg(ir.contains("block entry"), "traced block line")
+}
+
+test fn testNewBlockTracesIr() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val block = newBlock(g, "entry")
+    setCurrentBlock(g, block)
+    assertMsg(irTraceLineCount(g) >= 1, "newBlock records trace")
+    val ir = renderModuleIr(g, 0)
+    assertMsg(ir.contains("block entry"), "traced entry block in module ir")
+}
+
+test fn testRenderModuleIrIncludesBrInstruction() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    assertMsg(emitBrStub(g, "done"), "emit br stub")
+    assertMsg(emitRetI32Stub(g, 0), "emit ret stub")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "br label %done"), "br in rendered ir")
+    assertMsg(moduleIrHasInstruction(ir, "ret i32 0"), "ret in rendered ir")
+    assertMsg(irBodyLineCount(g) >= 4, "block labels and instructions recorded")
+}
+
+test fn testRenderModuleIrIncludesAllocaStoreInstructions() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val slot = newAlloca(g, llvmI64())
+    val stored = stubLlvmValue(g)
+    assertMsg(emitStoreStub(g, stored, slot), "emit store stub")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "alloca i64"), "alloca in rendered ir")
+    assertMsg(moduleIrHasInstruction(ir, "store i64"), "store in rendered ir")
+}
+
+test fn testRenderModuleIrIncludesLoadInstruction() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val slot = newAlloca(g, llvmI64())
+    val stored = stubLlvmValue(g)
+    assertMsg(emitStoreStub(g, stored, slot), "emit store stub")
+    val loaded = emitLoadFromAlloca(g, slot)
+    assertMsg(loaded.handle > stored.handle, "load result handle")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "load i64"), "load in rendered ir")
+}
+
+test fn testEmitRetLlvmValueStub() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val stored = stubLlvmValue(g)
+    assertMsg(emitRetLlvmValueStub(g, llvmI64(), stored), "emit ret value stub")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "ret i64"), "typed ret in rendered ir")
+}
+
+test fn testEmitCallVoidStub() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val arg = stubLlvmValue(g)
+    assertMsg(emitCallVoidStub(g, "soyuz_print_bool", llvmI64(), arg), "emit void call stub")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "call void @soyuz_print_bool"), "void call in rendered ir")
+}
+
+test fn testEmitPrintfStringStub() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    assertMsg(emitPrintfStringStub(g, stubLlvmValue(g)), "emit printf stub")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(moduleIrHasInstruction(ir, "call i32 (i8*, ...) @printf"), "printf call in rendered ir")
+    assertMsg(ir.contains("declare i32 @printf"), "printf declare in module ir")
+}
+
+test fn testRegisterCStrGlobalAndEmitPtr() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val globalName = registerCStrGlobal(g, "hello")
+    assertMsg(globalName == "str.1", "first c string global name")
+    val ptr = emitCStrPtrStub(g, globalName, cStringByteLen("hello"))
+    assertMsg(emitPrintfStringStub(g, ptr), "printf with c string ptr")
+    val ir = renderModuleIr(g, 1)
+    assertMsg(ir.contains("@str.1 = private unnamed_addr constant [6 x i8] c\"hello\\00\""), "c string global in ir")
+    assertMsg(moduleIrHasInstruction(ir, "getelementptr inbounds [6 x i8]"), "gep for c string ptr")
+}

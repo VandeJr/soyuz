@@ -1,0 +1,27 @@
+import (
+    { emptyPathIndex, joinPathFile, PathIndex } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { collectProgram, collectProgramSucceeded, checkCollectedProgram } from @module/graph
+    { assertMsg } from @soyuz/testing
+)
+
+fn installPreludeStubForTiposFeature(index: PathIndex, stdlibDir: String) {
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub interface Equals { }\nextend Int { pub fn equals(self, other: Int) -> Bool = self == other }\nextend Float { pub fn equals(self, other: Float) -> Bool = self == other }\nextend String { pub fn equals(self, other: String) -> Bool = self == other }\nextend Bool { pub fn equals(self, other: Bool) -> Bool = self == other }\n")
+}
+
+pub fn defaultFeatureTiposPath() -> String = "feature-tests/tipos.sy"
+
+// Port of feature-tests/tipos.sy — types subset without $(...) in embed string.
+test fn testFeatureTiposTypeCheck() {
+    val stdlibDir = "/tmp/stdlib"
+    val entry = "/tmp/feature/tipos.sy"
+    var index = emptyPathIndex()
+    installPreludeStubForTiposFeature(index, stdlibDir)
+    index.fileContents.set(entry, "record Ponto { x: Float y: Float }\nrecord Par[A, B] { primeiro: A segundo: B }\nenum Forma { Circulo(raio: Float) Retangulo(w: Float, h: Float) PontoF }\nfn area(f: Forma) -> Float { return match f { Circulo(r) => 3.14159 * r * r Retangulo(w, h) => w * h PontoF => 0.0 } }\nfn main() {\n\tval par: (Int, String) = (1, \"um\")\n\tval (n, s) = par\n\tval p = Ponto { x: 1.0, y: 2.0 }\n\tval c = Forma.Circulo(raio: 5.0)\n\tprint(area(c))\n\tval some: Option[Int] = Some(42)\n\tmatch some { Some(v) => print(v) None => print(0) }\n\tval xOpt: Option[Ponto] = Some(Ponto { x: 3.0, y: 4.0 })\n\tval xCoord = xOpt?.x\n\tval noneOpt: Option[Ponto] = None\n\tval display = noneOpt?.x ?: -1.0\n\tval info = Par { primeiro: \"nome\", segundo: 42 }\n\tprint(info.primeiro)\n}\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val collected = collectProgram(entry, r, index)
+    assertMsg(collectProgramSucceeded(collected), "collect tipos feature ok")
+    assertMsg(collected.files.size() >= 2, "prelude plus tipos")
+    val result = checkCollectedProgram(collected)
+    assertMsg(result.errors.size() == 0, "feature tipos type-checks")
+}

@@ -1,0 +1,56 @@
+import (
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+    { buildConfigForEntry, defaultRuntimeSrcDir, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript, expectedFullBuildManifestEntries } from @driver/build
+    { planFullBuild, fullBuildReady, fullBuildManifest, defaultFullBuildScripts, applyFullBuildManifest, fullBuildAppliedIndexReady, fullBuildAppliedLinkPlanReady } from @driver/pipeline
+    { helloFixtureTmpDir, planHelloFullBuild } from @driver/export
+    { manifestContainsPath, manifestContainsMarkers, manifestHasHelloCodegenIr, manifestEntryCount } from @runtime/manifest
+    { defaultLlFilePath } from @runtime/link
+    { moduleIrHasTrace, moduleIrHeaderMarker } from @codegen/gen_emit
+    { codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testPlanFullBuildHello() {
+    val plan = planHelloFullBuild()
+    assertMsg(fullBuildReady(plan), "full build plan ready")
+    assertMsg(plan.error.len() == 0, "no build error")
+    assertMsg(plan.codegen.funcCount >= 1, "codegen produced main")
+    assertMsg(manifestContainsPath(plan.artifacts.manifest, defaultLlFilePath(helloFixtureTmpDir())), "manifest includes ll")
+    assertMsg(manifestContainsMarkers(fullBuildManifest(plan)), "full build manifest markers")
+    assertMsg(moduleIrHasTrace(plan.codegen.irContent), "codegen ir has trace section")
+    assertMsg(plan.codegen.irContent.contains(moduleIrHeaderMarker()), "codegen ir header marker")
+    assertMsg(codegenPlanHasHelloPrint(plan.codegen), "hello print in codegen ir")
+    assertMsg(codegenPlanIsLinkableHello(plan.codegen), "linkable hello codegen ir")
+    assertMsg(manifestHasHelloCodegenIr(fullBuildManifest(plan)), "manifest embeds linkable hello ir")
+    assertMsg(manifestEntryCount(fullBuildManifest(plan)) == expectedFullBuildManifestEntries(), "full build manifest entry count")
+    val applied = applyFullBuildManifest(plan)
+    assertMsg(fullBuildAppliedIndexReady(plan, applied), "applied manifest index matches pipeline output")
+    assertMsg(fullBuildAppliedLinkPlanReady(plan, applied), "applied manifest rebuilds link plan")
+    val scripts = defaultFullBuildScripts()
+    assertMsg(plan.scripts.applyManifestScript == scripts.applyManifestScript, "apply script on plan")
+    assertMsg(plan.scripts.driverFullBuildCheckScript == defaultDriverFullBuildCheckScript(), "full build check script")
+    assertMsg(plan.scripts.exportDriverHelloIrScript == defaultExportDriverHelloIrScript(), "export hello ir script on plan")
+    assertMsg(plan.scripts.driverExportCodegenIrCheckScript == defaultDriverExportCodegenIrCheckScript(), "export codegen ir check script on plan")
+    assertMsg(plan.scripts.driverHelloIrLinkCheckScript == defaultDriverHelloIrLinkCheckScript(), "hello ir link check script on plan")
+    assertMsg(plan.scripts.driverAppliedManifestLinkCheckScript == defaultDriverAppliedManifestLinkCheckScript(), "applied manifest link check script on plan")
+    assertMsg(plan.scripts.driverRunPlanLinkCheckScript == defaultDriverRunPlanLinkCheckScript(), "run plan link check script on plan")
+    assertMsg(plan.scripts.exportHelloRunManifestScript == defaultExportHelloRunManifestScript(), "export hello run manifest script on plan")
+    assertMsg(plan.scripts.driverRunManifestRoundTripCheckScript == defaultDriverRunManifestRoundTripCheckScript(), "run manifest round trip check script on plan")
+    assertMsg(plan.scripts.driverRunPlanMaterializeCheckScript == defaultDriverRunPlanMaterializeCheckScript(), "run plan materialize check script on plan")
+    assertMsg(plan.scripts.driverBootstrapHelloRunCheckScript == defaultDriverBootstrapHelloRunCheckScript(), "bootstrap hello run check script on plan")
+}
+
+test fn testPlanFullBuildMissingRuntime() {
+    val entry = "/tmp/hello.sy"
+    val stdlibDir = "/tmp/stdlib"
+    val runtimeSrc = defaultRuntimeSrcDir("/ref/soyuz-go")
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "pub fn print(x: String) {}")
+    index.fileContents.set(entry, "fn main() {}\n")
+    val cfg = buildConfigForEntry(entry, "/tmp/out/app", false, "/tmp/build", runtimeSrc)
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val plan = planFullBuild(entry, cfg, r, index, emptyPathIndex())
+    assertMsg(!fullBuildReady(plan), "missing runtime blocks link plan")
+    assertMsg(plan.error.len() > 0, "error explains failure")
+}

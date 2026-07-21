@@ -1,0 +1,599 @@
+import (
+    { Node, FuncDeclData, IdentifierData, MemberExprData, CallExprData, TaskExprData, IntLiteralData, PipeExprData, AsyncPipeExprData, AsyncPipeQuestStepData } from @ast/ast
+    { Span } from @lexer/tokens
+    { CheckResult, Type, FuncType, ClassType, IntType } from @checker/types
+    { newGenerator } from @codegen/generator
+    { isTaskInstanceType, taskRuntimeEnqueue, taskRuntimeAwait } from @codegen/gen_gather
+    { isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskStaticAll, isTaskStaticFan, isTaskFanCall, isTaskStaticPipeline, isTaskPipelineCall, isTaskHandleCurrentCall, isTaskHandleCancelledMethodCall, isTaskHandleProgressMethodCall, isTaskHandleInstanceType, isTaskFanFnArg, taskFanFnArgsValid, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCancelMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isSelectTaskAwaitCall, taskRuntimeDetach, taskRuntimeCancel, taskRuntimeSetResult, taskHandleCurrentRuntime, taskHandleCancelledRuntime, taskHandleProgressRuntime, taskMallocBuiltin, taskFreeBuiltin, taskDropHandleRuntime, taskTupleAllocBuiltin, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskCancelStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectListenerStub, generateSelectTaskBridgeStub, generateTaskDropStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, taskPipelineBlockNamesRegistered, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub, asyncChainBlockNamesRegistered, generateTaskHandleCurrentStub, generateTaskHandleCancelledStub, generateTaskHandleProgressStub, taskHandleCurrentBlockNamesRegistered, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, taskNullStoreRecorded, emitTaskDrops, taskRuntimeSymbolRegistered, ownTaskVar, pushTaskScope, popTaskScope } from @codegen/gen_task
+    { newAlloca } from @codegen/gen_ir
+    { llvmI8Ptr } from @codegen/llvm_types
+    { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
+    { assertMsg } from @soyuz/testing
+)
+
+fn taskEmptyCheckResult() -> CheckResult = CheckResult {
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
+    specializations: Map[Int, FuncType]{},
+    funcVariants: Map[String, List[FuncDeclData]]{},
+    testFuncs: [],
+    captures: Map[Int, List[String]]{},
+    synthCallArgs: Map[Int, List[Node]]{},
+    curriedCalls: Map[Int, Node]{},
+    typeExtensions: Map[String, Map[String, List[FuncType]]]{}
+}
+
+fn taskEmptyClass(name: String) -> ClassType = ClassType {
+    name: name,
+    fields: Map[String, Type]{},
+    fieldPub: Map[String, Bool]{},
+    fieldInit: Map[String, Node]{},
+    methods: Map[String, List[FuncType]]{},
+    methodPub: Map[String, Bool]{},
+    implements: [],
+    generics: ["T"]
+}
+
+test fn testIsTaskCallInner() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val callee = Node.Identifier(1, span, IdentifierData { name: "double" })
+    val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
+    var args: List[Node] = []
+    args.append(arg)
+    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    assertMsg(isTaskCallInner(call), "CallExpr is task call inner")
+    val taskInner = Node.TaskExpr(4, span, TaskExprData { inner: call })
+    assertMsg(!isTaskCallInner(taskInner), "TaskExpr not direct call inner")
+}
+
+test fn testIsTaskPipeInner() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fnId = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
+    assertMsg(isTaskPipeInner(pipe), "PipeExpr is task pipe inner")
+    val callee = Node.Identifier(4, span, IdentifierData { name: "double" })
+    var args: List[Node] = []
+    args.append(nId)
+    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    assertMsg(!isTaskPipeInner(call), "CallExpr not pipe inner")
+}
+
+test fn testGenerateTaskPipeEnqueueStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskPipeEnqueueStub(g) {
+        None => assertMsg(false, "task pipe enqueue stub")
+        Some(_) => {
+            assertMsg(g.taskPipeMode, "pipe mode flag set")
+            assertMsg(g.taskEnqueueStub != None, "enqueue stub stored")
+            assertMsg(g.taskPipeInnerStub != None, "pipe inner stub stored")
+            assertMsg(g.taskPipeCaptureStub != None, "pipe capture stub stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+}
+
+test fn testIsTaskAwaitCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskAwaitMethodCall(awaitMember, g), "t.await on Task[Int]")
+    val detachMember = Node.MemberExpr(3, span, MemberExprData { object: tId, property: "detach" })
+    assertMsg(!isTaskAwaitMethodCall(detachMember, g), "t.detach not await")
+}
+
+test fn testIsTaskDetachCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val detachMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskDetachMethodCall(detachMember, g), "t.detach on Task[Int]")
+}
+
+test fn testIsTaskCancelMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val cancelMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskCancelMethodCall(cancelMember, g), "t.cancel on Task[Int]")
+    assertMsg(!isTaskCancelMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "detach" }), g), "t.detach not cancel")
+}
+
+test fn testIsTaskTapMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val tapMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "tap" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskTapMethodCall(tapMember, g), "t.tap on Task[Int]")
+    assertMsg(!isTaskTapMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "await" }), g), "t.await not tap")
+}
+
+test fn testGenerateTaskTapStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskTapStub(g) {
+        None => assertMsg(false, "task tap stub")
+        Some(_) => {
+            assertMsg(g.taskTapStub != None, "tap stub stored")
+            assertMsg(g.taskTapWrapperName != None, "tap wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    match g.taskTapWrapperName {
+        None => assertMsg(false, "tap wrapper name")
+        Some(name) => assertMsg(name == "__tap_wrapper_1", "tap wrapper counter used")
+    }
+}
+
+test fn testIsTaskAlwaysMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val alwaysMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "always" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    assertMsg(isTaskAlwaysMethodCall(alwaysMember, g), "t.always on Task[Int]")
+    assertMsg(!isTaskAlwaysMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "tap" }), g), "t.tap not always")
+}
+
+test fn testGenerateTaskAlwaysStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskAlwaysStub(g) {
+        None => assertMsg(false, "task always stub")
+        Some(_) => {
+            assertMsg(g.taskAlwaysStub != None, "always stub stored")
+            assertMsg(g.taskAlwaysWrapperName != None, "always wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    match g.taskAlwaysWrapperName {
+        None => assertMsg(false, "always wrapper name")
+        Some(name) => assertMsg(name == "__always_wrapper_1", "always wrapper counter used")
+    }
+}
+
+test fn testGenerateTaskEnqueueStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskEnqueueStub(g) {
+        None => assertMsg(false, "task enqueue stub")
+        Some(_) => {
+            assertMsg(g.taskEnqueueStub != None, "enqueue stub stored")
+            assertMsg(g.taskLastWrapperName != None, "wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskFreeBuiltin()), "free registered")
+    match g.taskLastWrapperName {
+        None => assertMsg(false, "wrapper name")
+        Some(name) => assertMsg(name == "__task_wrapper_1", "wrapper counter used")
+    }
+}
+
+test fn testGenerateTaskDetachStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskDetachStub(g) {
+        None => assertMsg(false, "task detach stub")
+        Some(_) => assertMsg(g.taskDetachStub != None, "detach stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+}
+
+test fn testGenerateTaskAwaitStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskAwaitStub(g) {
+        None => assertMsg(false, "task await stub")
+        Some(_) => assertMsg(g.taskAwaitStub != None, "await stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+}
+
+test fn testOwnTaskVarAndPopScope() {
+    val g = newGenerator(taskEmptyCheckResult())
+    pushTaskScope(g)
+    ownTaskVar(g, "t")
+    val owned = popTaskScope(g)
+    assertMsg(owned.size() == 1, "one task var owned")
+    assertMsg(isTaskInstanceType(Type.Specialized(Type.Class(taskEmptyClass("Task")), [IntType])), "task instance type")
+}
+
+test fn testNullifyTaskVarAfterConsume() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    assertMsg(nullifyTaskVarAfterConsume(g, tId), "null store on task var alloca")
+    assertMsg(taskNullStoreRecorded(g, "t"), "null store recorded for t")
+    assertMsg(nullifyTaskVarAfterConsume(g, Node.IntLiteral(2, span, IntLiteralData { value: "0" })), "non-identifier is no-op")
+}
+
+test fn testNullifyAfterTapStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    match generateTaskTapStub(g) {
+        None => assertMsg(false, "tap stub")
+        Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "tap nulls source handle")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t"), "tap ownership transfer recorded")
+}
+
+test fn testNullifyAfterAlwaysStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    match generateTaskAlwaysStub(g) {
+        None => assertMsg(false, "always stub")
+        Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "always nulls source handle")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t"), "always ownership transfer recorded")
+}
+
+test fn testNullifyAfterDetachStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    match generateTaskDetachStub(g) {
+        None => assertMsg(false, "detach stub")
+        Some(_) => assertMsg(nullifyTaskVarAfterConsume(g, tId), "detach nulls source handle")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t"), "detach ownership transfer recorded")
+}
+
+test fn testIsSelectTaskAwaitCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    var args: List[Node] = []
+    val awaitCall = Node.CallExpr(3, span, CallExprData { callee: awaitMember, args: args })
+    assertMsg(isSelectTaskAwaitCall(awaitCall), "t.await() is select task arm")
+    val recvMember = Node.MemberExpr(4, span, MemberExprData { object: tId, property: "recv" })
+    val recvCall = Node.CallExpr(5, span, CallExprData { callee: recvMember, args: args })
+    assertMsg(!isSelectTaskAwaitCall(recvCall), "ch.recv() not select task arm")
+}
+
+test fn testGenerateSelectListenerStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateSelectListenerStub(g) {
+        None => assertMsg(false, "select listener stub")
+        Some(_) => {
+            assertMsg(g.selectListenerStub != None, "listener stub stored")
+            assertMsg(g.selectListenerWrapperName != None, "listener wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
+    match g.selectListenerWrapperName {
+        None => assertMsg(false, "listener wrapper name")
+        Some(name) => assertMsg(name == "__sel_listener_1", "listener wrapper counter used")
+    }
+}
+
+test fn testGenerateSelectTaskBridgeStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateSelectTaskBridgeStub(g) {
+        None => assertMsg(false, "select task bridge stub")
+        Some(_) => assertMsg(g.selectTaskArmCount == 1, "task arm count stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered for bridge")
+    assertMsg(g.selectListenerStub != None, "listener stub created for bridge")
+}
+
+test fn testIsTaskAllCombinatorCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val allMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "all" })
+    val settledMember = Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "allSettled" })
+    val gatherMember = Node.MemberExpr(4, span, MemberExprData { object: taskId, property: "gather" })
+    assertMsg(isTaskStaticAll("Task", "all"), "Task.all static")
+    assertMsg(isTaskStaticAll("Task", "allSettled"), "Task.allSettled static")
+    assertMsg(isTaskAllCombinatorCall(allMember), "Task.all call")
+    assertMsg(isTaskAllCombinatorCall(settledMember), "Task.allSettled call")
+    assertMsg(!isTaskAllCombinatorCall(gatherMember), "Task.gather not all combinator")
+}
+
+test fn testGenerateTaskAllStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskAllStub(g, 2) {
+        None => assertMsg(false, "task all stub")
+        Some(_) => {
+            assertMsg(g.taskAllStub != None, "all stub stored")
+            assertMsg(g.taskAllArgCount == 2, "arg count stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+}
+
+test fn testNullifyTaskVarsAfterAll() {
+    val g = newGenerator(taskEmptyCheckResult())
+    g.vars.set("t1", newAlloca(g, llvmI8Ptr()))
+    g.vars.set("t2", newAlloca(g, llvmI8Ptr()))
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    var args: List[Node] = []
+    args.append(Node.Identifier(1, span, IdentifierData { name: "t1" }))
+    args.append(Node.Identifier(2, span, IdentifierData { name: "t2" }))
+    match generateTaskAllStub(g, 2) {
+        None => assertMsg(false, "task all stub")
+        Some(_) => assertMsg(nullifyTaskVarsAfterAll(g, args), "null all task handles after Task.all")
+    }
+    assertMsg(taskNullStoreRecorded(g, "t1"), "t1 nulled")
+    assertMsg(taskNullStoreRecorded(g, "t2"), "t2 nulled")
+}
+
+test fn testIsTaskFanCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val fanMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "fan" })
+    assertMsg(isTaskStaticFan("Task", "fan"), "Task.fan static")
+    assertMsg(isTaskFanCall(fanMember), "Task.fan call")
+    assertMsg(!isTaskFanCall(Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "all" })), "Task.all not fan")
+}
+
+test fn testTaskFanFnArgsValid() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val input = Node.IntLiteral(1, span, IntLiteralData { value: "5" })
+    val f1 = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val f2 = Node.Identifier(3, span, IdentifierData { name: "triple" })
+    var args: List[Node] = []
+    args.append(input)
+    args.append(f1)
+    args.append(f2)
+    assertMsg(taskFanFnArgsValid(args), "input plus two fn ids")
+    var badArgs: List[Node] = []
+    badArgs.append(input)
+    badArgs.append(input)
+    assertMsg(!taskFanFnArgsValid(badArgs), "second arg must be fn id")
+}
+
+test fn testGenerateTaskFanStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskFanStub(g, 2) {
+        None => assertMsg(false, "task fan stub")
+        Some(_) => {
+            assertMsg(g.taskFanStub != None, "fan stub stored")
+            assertMsg(g.taskFanFnCount == 2, "fn count stored")
+            assertMsg(g.taskLastWrapperName != None, "wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+}
+
+test fn testIsTaskPipelineCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
+    val pipeMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "pipe" })
+    assertMsg(isTaskStaticPipeline("Task", "pipe"), "Task.pipe static")
+    assertMsg(isTaskPipelineCall(pipeMember), "Task.pipe call")
+    assertMsg(!isTaskPipelineCall(Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "fan" })), "Task.fan not pipeline")
+}
+
+test fn testGenerateTaskPipelineStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskPipelineStub(g, 2) {
+        None => assertMsg(false, "task pipeline stub")
+        Some(_) => {
+            assertMsg(g.taskPipelineStub != None, "pipeline stub stored")
+            assertMsg(g.taskPipelineStageCount == 2, "stage count stored")
+            assertMsg(g.taskLastWrapperName != None, "stage wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeDetach()), "srt_detach registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeNew()), "srt_chan_new registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeSend()), "srt_chan_send registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeRecv()), "srt_chan_recv registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, channelRuntimeClose()), "srt_chan_close registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    assertMsg(taskPipelineBlockNamesRegistered(g), "pipe loop blocks registered")
+}
+
+test fn testEmitTaskDrops() {
+    val g = newGenerator(taskEmptyCheckResult())
+    var names: List[String] = []
+    names.append("t")
+    assertMsg(emitTaskDrops(g, []), "empty drop list ok")
+    assertMsg(emitTaskDrops(g, names), "emit task drops")
+    assertMsg(g.taskDropStub != None, "drop stub stored")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskDropHandleRuntime()), "srt_drop_task_handle registered")
+}
+
+test fn testAsyncPipeFnStepCount() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val fId = Node.Identifier(2, span, IdentifierData { name: "double" })
+    val gId = Node.Identifier(3, span, IdentifierData { name: "triple" })
+    var steps: List[Node] = []
+    steps.append(nId)
+    steps.append(fId)
+    assertMsg(asyncPipeFnStepCount(steps) == 1, "single fn step")
+    steps.append(gId)
+    assertMsg(asyncPipeFnStepCount(steps) == 2, "two fn steps")
+}
+
+test fn testAsyncPipeQuestStepCount() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
+    val validate = Node.Identifier(2, span, IdentifierData { name: "validate" })
+    val inc = Node.Identifier(3, span, IdentifierData { name: "inc" })
+    val questInc = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: inc })
+    var steps: List[Node] = []
+    steps.append(nId)
+    steps.append(validate)
+    steps.append(questInc)
+    assertMsg(asyncPipeQuestStepCount(steps) == 1, "one quest step")
+}
+
+test fn testGenerateAsyncPipeStubSingleStep() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateAsyncPipeStub(g, 1, 0) {
+        None => assertMsg(false, "async pipe stub single step")
+        Some(_) => {
+            assertMsg(g.asyncPipeStub != None, "async pipe stub stored")
+            assertMsg(g.asyncPipeStepCount == 1, "step count stored")
+            assertMsg(g.asyncChainWrapperName != None, "chain wrapper name stored")
+            assertMsg(g.taskLastWrapperName != None, "step wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeEnqueue()), "srt_enqueue registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeSetResult()), "srt_set_task_result registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskMallocBuiltin()), "malloc registered")
+    assertMsg(!taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "single step skips srt_await")
+}
+
+test fn testGenerateAsyncPipeStubMultiStep() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateAsyncPipeStub(g, 3, 0) {
+        None => assertMsg(false, "async pipe stub multi step")
+        Some(_) => {
+            assertMsg(g.asyncPipeStepCount == 3, "three steps stored")
+            assertMsg(g.asyncChainWrapperName != None, "chain wrapper name stored")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeAwait()), "srt_await registered for multi step")
+}
+
+test fn testGenerateAsyncPipeStubQuestBlocks() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateAsyncPipeStub(g, 2, 1) {
+        None => assertMsg(false, "async pipe stub quest")
+        Some(_) => {
+            assertMsg(g.asyncPipeQuestStepCount == 1, "quest step count stored")
+            assertMsg(asyncChainBlockNamesRegistered(g), "chain_err/chain_ok blocks registered")
+        }
+    }
+}
+
+test fn testIsTaskHandleCurrentCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
+    val currentMember = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
+    assertMsg(isTaskHandleCurrentCall(currentMember), "TaskHandle.current call")
+    assertMsg(!isTaskHandleCurrentCall(Node.MemberExpr(3, span, MemberExprData { object: taskHandleId, property: "cancelled" })), "not current")
+}
+
+test fn testGenerateTaskHandleCurrentStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskHandleCurrentStub(g) {
+        None => assertMsg(false, "task handle current stub")
+        Some(_) => {
+            assertMsg(g.taskHandleCurrentStub != None, "stub stored")
+            assertMsg(g.taskHandleCurrentPhiResult != None, "phi stored")
+            assertMsg(g.taskHandleCurrentSomeResult != None, "some result stored")
+            assertMsg(g.taskHandleCurrentNoneResult != None, "none result stored")
+            assertMsg(taskHandleCurrentBlockNamesRegistered(g), "some/none/merge blocks registered")
+        }
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCurrentRuntime()), "srt_task_handle_current registered")
+    assertMsg(taskRuntimeSymbolRegistered(g, taskTupleAllocBuiltin()), "soyuz_alloc registered")
+}
+
+test fn testIsTaskHandleCancelledMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandle = Type.Class(taskEmptyClass("TaskHandle"))
+    val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
+    val cancelledMember = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "cancelled" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskHandle))
+    cr.nodeTypes.append(Some(taskHandle))
+    val g = newGenerator(cr)
+    assertMsg(isTaskHandleCancelledMethodCall(cancelledMember, g), "handle.cancelled call")
+    assertMsg(!isTaskHandleCancelledMethodCall(Node.MemberExpr(3, span, MemberExprData { object: handleId, property: "current" }), g), "not cancelled")
+}
+
+test fn testGenerateTaskHandleCancelledStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskHandleCancelledStub(g) {
+        None => assertMsg(false, "task handle cancelled stub")
+        Some(_) => assertMsg(g.taskHandleCancelledStub != None, "stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskHandleCancelledRuntime()), "srt_task_cancelled registered")
+}
+
+test fn testIsTaskHandleProgressMethodCall() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskHandle = Type.Class(taskEmptyClass("TaskHandle"))
+    val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
+    val progressMember = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "progress" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskHandle))
+    cr.nodeTypes.append(Some(taskHandle))
+    val g = newGenerator(cr)
+    assertMsg(isTaskHandleProgressMethodCall(progressMember, g), "handle.progress call")
+    assertMsg(!isTaskHandleProgressMethodCall(Node.MemberExpr(3, span, MemberExprData { object: handleId, property: "cancelled" }), g), "not progress")
+}
+
+test fn testGenerateTaskHandleProgressStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskHandleProgressStub(g) {
+        None => assertMsg(false, "task handle progress stub")
+        Some(_) => assertMsg(g.taskHandleProgressStub != None, "stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskHandleProgressRuntime()), "srt_task_set_progress registered")
+}
+
+test fn testGenerateTaskCancelStub() {
+    val g = newGenerator(taskEmptyCheckResult())
+    match generateTaskCancelStub(g) {
+        None => assertMsg(false, "task cancel stub")
+        Some(_) => assertMsg(g.taskCancelStub != None, "stub stored")
+    }
+    assertMsg(taskRuntimeSymbolRegistered(g, taskRuntimeCancel()), "srt_cancel registered")
+}
+
+test fn testTaskCancelDoesNotNullHandle() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
+    val taskClass = taskEmptyClass("Task")
+    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
+    val cancelMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    var cr = taskEmptyCheckResult()
+    cr.nodeTypes.append(Some(taskInt))
+    cr.nodeTypes.append(Some(taskInt))
+    val g = newGenerator(cr)
+    g.vars.set("t", newAlloca(g, llvmI8Ptr()))
+    match generateTaskCancelStub(g) {
+        None => assertMsg(false, "cancel stub")
+        Some(_) => assertMsg(!taskNullStoreRecorded(g, "t"), "cancel must not null task handle")
+    }
+}

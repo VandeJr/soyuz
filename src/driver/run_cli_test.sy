@@ -1,0 +1,43 @@
+import (
+    { cliRunArgsDelimiter, cliRunReleaseFlag, cliRunEntryFromArgs, runCliHelloMinimalFixturePath, runCliDefaultExecPath, runCliLegacyPlanFromArgs, runCliLegacyPlanReady, runCliLegacyBootstrapCommand, defaultHelloMinimalRunArgv } from @driver/run_cli
+    { assertMsg } from @soyuz/testing
+)
+
+test fn testCliRunArgsParse() {
+    var args = List[String]{}
+    args.append(runCliHelloMinimalFixturePath())
+    assertMsg(cliRunEntryFromArgs(args) == runCliHelloMinimalFixturePath(), "entry from positional")
+
+    var withRelease = List[String]{}
+    withRelease.append(cliRunReleaseFlag())
+    withRelease.append(runCliHelloMinimalFixturePath())
+    assertMsg(cliRunEntryFromArgs(withRelease) == runCliHelloMinimalFixturePath(), "entry after release flag")
+
+    var withProgramArgs = List[String]{}
+    withProgramArgs.append(runCliHelloMinimalFixturePath())
+    withProgramArgs.append(cliRunArgsDelimiter())
+    withProgramArgs.append("extra")
+    assertMsg(cliRunEntryFromArgs(withProgramArgs) == runCliHelloMinimalFixturePath(), "entry before delimiter")
+}
+
+test fn testRunCliLegacyPlanFromArgs() {
+    var args = List[String]{}
+    args.append(runCliHelloMinimalFixturePath())
+    val plan = runCliLegacyPlanFromArgs(args)
+    assertMsg(runCliLegacyPlanReady(plan), "legacy plan ready")
+    assertMsg(plan.execPath == runCliDefaultExecPath(), "default exec path")
+}
+
+test fn testDefaultHelloMinimalRunArgv() {
+    val argv = defaultHelloMinimalRunArgv()
+    assertMsg(argv.size() == 3, "hello minimal run argv shape")
+    assertMsg(argv.get(1) == "run", "run command")
+}
+
+test fn testRunCliLegacyBootstrapCommand() {
+    var args = List[String]{}
+    args.append(runCliHelloMinimalFixturePath())
+    val cmd = runCliLegacyBootstrapCommand(args)
+    assertMsg(cmd.contains("soyuz run"), "bootstrap run prefix")
+    assertMsg(cmd.contains(runCliHelloMinimalFixturePath()), "bootstrap run entry")
+}

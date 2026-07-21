@@ -1,29 +1,15 @@
 import (
-    { tokenize } from @lexer/lexer
-    { printToken, TokenType } from @lexer/tokens
+    { cliProgramArgv } from @driver/cli_argv
+    { runStandaloneCli, standaloneCliBootstrapShellCommand } from @driver/main_standalone
+    { cliOsExecShell } from ./cli_main_exec
 )
 
-// CLI: tokeniza um arquivo .sy (default: src/lexer/lexer.sy)
-// Uso futuro: parse + check quando o bootstrap compilar @parser e @checker
-// Ver docs/INTEGRATION.md
 fn main() {
-    val path = "src/lexer/lexer.sy"
-    val source = readFile(path) ?: ""
-    if source == "" {
-        print("erro: não foi possível ler $(path)")
+    val argv = cliProgramArgv()
+    val bootstrap = standaloneCliBootstrapShellCommand(argv)
+    if bootstrap.len() > 0 {
+        print(cliOsExecShell(bootstrap))
         return
     }
-    val tokens = tokenize(source)
-    var i = 0
-    loop {
-        if i >= tokens.size() {
-            break
-        }
-        val t = tokens.get(i)
-        print("$(printToken(t.type)) $(t.lexeme)")
-        if t.type == TokenType.EOF {
-            break
-        }
-        i = i + 1
-    }
+    print(runStandaloneCli(argv))
 }
