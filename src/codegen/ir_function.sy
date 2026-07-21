@@ -1,0 +1,65 @@
+import (
+    { IrBuilder, irGlobalsText, irNewBlock, irParameter, irSetCurrentBlock, irSetGlobalPrefix, irText, newIrBuilder } from @codegen/ir_builder
+    { LlvmType, LlvmValue, llvmTypeIrSyntax } from @codegen/llvm_types
+)
+
+extern fn soyuz_str_concat(left: String, right: String) -> String
+
+pub class IrFunctionBuilder {
+    pub var name: String
+    pub var returnType: LlvmType
+    pub var builder: IrBuilder
+    pub var paramNames: List[String] = []
+    pub var paramTypes: List[LlvmType] = []
+    pub var params: List[LlvmValue] = []
+}
+
+pub fn newIrFunction(name: String, returnType: LlvmType, paramNames: List[String], paramTypes: List[LlvmType]) -> IrFunctionBuilder {
+    val builder = newIrBuilder()
+    irSetGlobalPrefix(builder, name)
+    val fnBuilder = IrFunctionBuilder { name: name, returnType: returnType, builder: builder }
+    if paramNames.size() != paramTypes.size() {
+        builder.errors.append("function $(name): nomes e tipos de parâmetros incompatíveis")
+        return fnBuilder
+    }
+    var index = 0
+    loop {
+        if index >= paramNames.size() { break }
+        val paramName = paramNames.get(index)
+        fnBuilder.paramNames.append(paramName)
+        fnBuilder.paramTypes.append(paramTypes.get(index))
+        fnBuilder.params.append(irParameter(builder, paramTypes.get(index), paramName))
+        index = index + 1
+    }
+    val entry = irNewBlock(builder, "entry")
+    irSetCurrentBlock(builder, entry)
+    return fnBuilder
+}
+
+pub fn irFunctionParam(fnBuilder: IrFunctionBuilder, index: Int) -> Option[LlvmValue] {
+    if index < 0 || index >= fnBuilder.params.size() { return None }
+    return Some(fnBuilder.params.get(index))
+}
+
+fn renderFunctionParams(fnBuilder: IrFunctionBuilder) -> String {
+    var result = ""
+    var index = 0
+    loop {
+        if index >= fnBuilder.paramNames.size() { break }
+        if index > 0 { result = "$(result), " }
+        result = "$(result)$(llvmTypeIrSyntax(fnBuilder.paramTypes.get(index))) %$(fnBuilder.paramNames.get(index))"
+        index = index + 1
+    }
+    return result
+}
+
+pub fn irRenderFunction(fnBuilder: IrFunctionBuilder) -> String {
+    return "define $(llvmTypeIrSyntax(fnBuilder.returnType)) @$(fnBuilder.name)($(renderFunctionParams(fnBuilder))) {\n$(irText(fnBuilder.builder))}\n"
+}
+
+pub fn irRenderModule(functions: List[IrFunctionBuilder]) -> String {
+    var result = "target triple = \"x86_64-unknown-linux-gnu\"\ndeclare i32 @printf(ptr, ...)\n"
+    for fnBuilder in functions { result = soyuz_str_concat(result, irGlobalsText(fnBuilder.builder)) }
+    for fnBuilder in functions { result = soyuz_str_concat(result, irRenderFunction(fnBuilder)) }
+    return result
+}

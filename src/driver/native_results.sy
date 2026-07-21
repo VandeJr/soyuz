@@ -1,0 +1,42 @@
+pub record NativeBuildResult {
+    success: Bool,
+    output: String,
+    diagnostics: List[String],
+    artifactPath: String
+}
+
+pub record NativeRunResult {
+    build: NativeBuildResult,
+    exitCode: Int,
+    stdout: String,
+    stderr: String
+}
+
+pub record NativeTestResult {
+    executed: Int,
+    passed: Int,
+    failed: Int,
+    output: String
+}
+
+pub fn nativeBuildSuccess(output: String, artifactPath: String) -> NativeBuildResult = NativeBuildResult {
+    success: true,
+    output: output,
+    diagnostics: [],
+    artifactPath: artifactPath
+}
+
+pub fn nativeBuildFailure(diagnostics: List[String]) -> NativeBuildResult = NativeBuildResult {
+    success: false,
+    output: "",
+    diagnostics: diagnostics,
+    artifactPath: ""
+}
+
+pub fn nativeRunSucceeded(result: NativeRunResult) -> Bool {
+    return result.build.success && result.exitCode == 0
+}
+
+pub fn nativeTestsSucceeded(result: NativeTestResult) -> Bool {
+    return result.executed > 0 && result.failed == 0 && result.passed == result.executed
+}

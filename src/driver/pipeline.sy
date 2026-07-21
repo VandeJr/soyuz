@@ -1,7 +1,7 @@
 import (
     { BuildConfig, BuildArtifacts, planPostCodegenBuild, buildArtifactsReady, linkConfigFromBuild, defaultRuntimeExportManifestScript, defaultDriverLinkStubCheckScript, defaultDriverFullBuildCheckScript, defaultExportDriverHelloIrScript, defaultDriverExportCodegenIrCheckScript, defaultDriverHelloIrLinkCheckScript, defaultDriverAppliedManifestLinkCheckScript, defaultDriverRunPlanLinkCheckScript, defaultExportHelloRunManifestScript, defaultDriverRunManifestRoundTripCheckScript, defaultDriverRunPlanMaterializeCheckScript, defaultDriverBootstrapHelloRunCheckScript } from @driver/build
     { FrontendBuildPlan, planFrontendBuild, frontendBuildReady } from @driver/frontend
-    { CodegenBuildPlan, planCodegenBuild, codegenBuildReady } from @driver/codegen
+    { CodegenBuildPlan, planCodegenBuild, planTypedCodegenBuild, codegenBuildReady } from @driver/codegen
     { Resolver } from @module/resolver
     { PathIndex, emptyPathIndex } from @module/paths
     { applyManifestToPathIndex, defaultExportManifestScript, defaultApplyManifestScript } from @runtime/manifest
@@ -105,6 +105,28 @@ pub fn planFullBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: Pa
     if !ready {
         err = fullBuildError(frontend, codegen, artifacts)
     }
+    return FullBuildPlan {
+        cfg: cfg,
+        frontend: frontend,
+        codegen: codegen,
+        artifacts: artifacts,
+        scripts: defaultFullBuildScripts(),
+        ready: ready,
+        error: err
+    }
+}
+
+// Native-driver equivalent of planFullBuild. Keeping it as an explicit entry
+// prevents an unsupported typed node from falling back to legacy codegen.
+pub fn planTypedFullBuild(entryFile: String, cfg: BuildConfig, r: Resolver, index: PathIndex, sourceIndex: PathIndex) -> FullBuildPlan {
+    val frontend = planFrontendBuild(entryFile, r, index)
+    val codegen = planTypedCodegenBuild(frontend, cfg)
+    var ir = ""
+    if codegenBuildReady(codegen) { ir = codegen.irContent }
+    val artifacts = planPostCodegenBuild(cfg, sourceIndex, ir)
+    val ready = frontendBuildReady(frontend) && codegenBuildReady(codegen) && buildArtifactsReady(artifacts)
+    var err = ""
+    if !ready { err = fullBuildError(frontend, codegen, artifacts) }
     return FullBuildPlan {
         cfg: cfg,
         frontend: frontend,

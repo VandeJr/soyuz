@@ -1,0 +1,6 @@
+task resultado: 30
+detach ok
+Task.all: 2 4
+gather ok
+channel recv: 99
+multi: 7 11

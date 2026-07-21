@@ -40,7 +40,8 @@ test fn testGenerateRecordDecl() {
         Some(t) => assertMsg(llvmTypesEqual(t, llvmI64()), "x field is i64")
     }
     val expected = llvmStructType("Point", [llvmI64(), llvmI64()])
-    assertMsg(llvmTypesEqual(g.structs.get("Point").typ, expected), "Point struct type")
+    val pointInfo = g.structs.get("Point")
+    assertMsg(llvmTypesEqual(pointInfo.typ, expected), "Point struct type")
 }
 
 test fn testGenerateEnumSimple() {
@@ -57,7 +58,8 @@ test fn testGenerateEnumSimple() {
         Some(tag) => assertMsg(tag == 1, "Verde tag is 1")
     }
     val expected = llvmStructType("Cor", [llvmI64(), llvmArrayType(llvmI8(), 64)])
-    assertMsg(llvmTypesEqual(g.enums.get("Cor").typ, expected), "Cor enum layout")
+    val corInfo = g.enums.get("Cor")
+    assertMsg(llvmTypesEqual(corInfo.typ, expected), "Cor enum layout")
 }
 
 test fn testGenerateEnumWithFields() {
@@ -180,7 +182,8 @@ test fn testGenerateClassDeclFields() {
         Some(t) => t
     }
     val expected = llvmStructType("Contador", [llvmI64(), strPtr])
-    assertMsg(llvmTypesEqual(g.classes.get("Contador").typ, expected), "Contador class layout")
+    val contadorInfo = g.classes.get("Contador")
+    assertMsg(llvmTypesEqual(contadorInfo.typ, expected), "Contador class layout")
 }
 
 test fn testGenerateTopLevelDeclClassNode() {
@@ -259,7 +262,9 @@ test fn testGenerateClassMethodOverloading() {
     assertMsg(generateClassDecl(g, decl), "overloaded class ok")
     assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 0, 2)), "incrementar_0")
     assertMsg(classHasMethodSymbol(g, "Contador", classMethodSymbolName("Contador", "incrementar", 1, 2)), "incrementar_1")
-    assertMsg(g.classes.get("Contador").methods.get("incrementar").size() == 2, "two overloads registered")
+    val contadorInfo = g.classes.get("Contador")
+    val incrementarMethods = contadorInfo.methods.get("incrementar")
+    assertMsg(incrementarMethods.size() == 2, "two overloads registered")
 }
 
 test fn testGenerateClassVtable() {
@@ -308,7 +313,8 @@ test fn testGenerateClassVtable() {
     assertMsg(classHasVtableSymbol(g, "Contador", vtableSymbolName("Contador", "Contavel")), "vtable symbol")
     assertMsg(classVtableSlotCount(g, "Contador", "Contavel") == 1, "one vtable slot")
     var hasVtable = false
-    for k in g.classes.get("Contador").vtables.keys() {
+    val contadorInfo = g.classes.get("Contador")
+    for k in contadorInfo.vtables.keys() {
         if k == "Contavel" { hasVtable = true }
     }
     assertMsg(hasVtable, "Contavel vtable registered")
@@ -340,5 +346,7 @@ test fn testGenerateExtendDeclInt() {
     assertMsg(extendHasMethodSymbol(g, "Int", extendMethodSymbolName("Int", "double")), "Int_double symbol")
     assertMsg(llvmTypesEqual(extendSelfLLVM(g, "Int"), llvmI64()), "Int self llvm type")
     assertMsg(g.pendingExtendBodies.size() == 1, "pending extend body")
-    assertMsg(g.extensionMethods.get("Int").get("double").size() == 1, "extension method registered")
+    val intMethods = g.extensionMethods.get("Int")
+    val doubleMethods = intMethods.get("double")
+    assertMsg(doubleMethods.size() == 1, "extension method registered")
 }

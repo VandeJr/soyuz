@@ -50,7 +50,7 @@ test fn testLoopStack() {
 
 test fn testIsControlFlowStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
-    val loopNode = Node.LoopStmt(1, span, LoopStmtData { body: Node.BlockStmt(2, span, BlockStmtData { statements: [] }) })
+    val loopNode = Node.LoopStmt(1, span, LoopStmtData { body: [Node.BlockStmt(2, span, BlockStmtData { statements: [] })] })
     assertMsg(isLoopStmt(loopNode), "loop stmt")
     assertMsg(isControlFlowStmt(loopNode), "loop is control flow")
     assertMsg(!isBreakOrContinue(loopNode), "loop is not break")
@@ -84,7 +84,7 @@ test fn testGenerateIfStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val cond = Node.IntLiteral(1, span, IntLiteralData { value: "1" })
     val thenBranch = Node.ReturnStmt(3, span, ReturnStmtData { value: None })
-    val ifNode = Node.IfStmt(4, span, IfStmtData { condition: cond, consequent: thenBranch, alternate: None })
+    val ifNode = Node.IfStmt(4, span, IfStmtData { condition: [cond], consequent: [thenBranch], alternate: None })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, BoolType)
     types.set(3, UnitType)
@@ -143,7 +143,7 @@ test fn testGenerateForStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val iterable = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "x", iterable: iterable, body: body })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "x", iterable: [iterable], body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, UnitType)
@@ -163,9 +163,9 @@ test fn testGenerateForRangeStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
     val from = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
     val to = Node.IntLiteral(4, span, IntLiteralData { value: "10" })
-    val range = Node.RangeExpr(5, span, RangeExprData { from: from, to: to, inclusive: true })
+    val range = Node.RangeExpr(5, span, RangeExprData { from: [from], to: [to], inclusive: true })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "i", iterable: range, body: body })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "i", iterable: [range], body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, UnitType)
@@ -203,7 +203,7 @@ test fn testGenerateForListStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
     val iterable = Node.Identifier(1, span, IdentifierData { name: "nums" })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "n", iterable: iterable, body: body })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "n", iterable: [iterable], body: [body] })
     val listClass = ClassType {
         name: "List",
         fields: Map[String, Type]{},
@@ -248,7 +248,7 @@ test fn testGenerateForMapStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
     val iterable = Node.Identifier(1, span, IdentifierData { name: "m" })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "k", iterable: iterable, body: body })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "k", iterable: [iterable], body: [body] })
     val mapClass = ClassType {
         name: "Map",
         fields: Map[String, Type]{},
@@ -286,7 +286,7 @@ test fn testGenerateForIteratorStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
     val iterable = Node.Identifier(1, span, IdentifierData { name: "it" })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "x", iterable: iterable, body: body })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "x", iterable: [iterable], body: [body] })
     val iterClass = ClassType {
         name: "Iterator",
         fields: Map[String, Type]{},
@@ -329,9 +329,9 @@ test fn testGenerateForRangeStmtExclusive() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 30 }
     val from = Node.IntLiteral(1, span, IntLiteralData { value: "0" })
     val to = Node.IntLiteral(4, span, IntLiteralData { value: "10" })
-    val range = Node.RangeExpr(5, span, RangeExprData { from: from, to: to, inclusive: false })
+    val range = Node.RangeExpr(5, span, RangeExprData { from: [from], to: [to], inclusive: false })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "i", iterable: range, body: body })
+    val forNode = Node.ForStmt(3, span, ForStmtData { binding: "i", iterable: [range], body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, UnitType)
@@ -359,7 +359,7 @@ test fn testGenerateLoopBreakWithValue() {
     val breakVal = Node.IntLiteral(5, span, IntLiteralData { value: "50" })
     val brk = Node.BreakStmt(4, span, BreakStmtData { value: Some(breakVal) })
     val body = Node.BlockStmt(3, span, BlockStmtData { statements: [brk] })
-    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, IntType)
     types.set(3, UnitType)
@@ -376,7 +376,7 @@ test fn testGenerateBreakValueRequiredInValueLoop() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 10 }
     val brk = Node.BreakStmt(4, span, BreakStmtData { value: None })
     val body = Node.BlockStmt(3, span, BlockStmtData { statements: [brk] })
-    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, IntType)
     types.set(3, UnitType)
@@ -405,7 +405,7 @@ test fn testGenerateWhileStmt() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val cond = Node.IntLiteral(1, span, IntLiteralData { value: "1" })
     val body = Node.BlockStmt(2, span, BlockStmtData { statements: [] })
-    val whileNode = Node.WhileStmt(3, span, WhileStmtData { condition: cond, body: body })
+    val whileNode = Node.WhileStmt(3, span, WhileStmtData { condition: [cond], body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, BoolType)
     types.set(2, UnitType)
@@ -453,7 +453,7 @@ test fn testGenerateIfElseBothBranches() {
     val cond = Node.IntLiteral(1, span, IntLiteralData { value: "1" })
     val thenBranch = Node.ReturnStmt(3, span, ReturnStmtData { value: None })
     val elseBranch = Node.ReturnStmt(5, span, ReturnStmtData { value: None })
-    val ifNode = Node.IfStmt(4, span, IfStmtData { condition: cond, consequent: thenBranch, alternate: Some(elseBranch) })
+    val ifNode = Node.IfStmt(4, span, IfStmtData { condition: [cond], consequent: [thenBranch], alternate: Some(elseBranch) })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, BoolType)
     types.set(3, UnitType)
@@ -474,7 +474,7 @@ test fn testGenerateIfElseBothBranches() {
 test fn testGenerateValueLoopBlocksAndResultLoad() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val body = Node.BlockStmt(3, span, BlockStmtData { statements: [] })
-    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, IntType)
     types.set(3, UnitType)
@@ -497,7 +497,7 @@ test fn testGenerateValueLoopBreakStoresValue() {
     val breakVal = Node.IntLiteral(5, span, IntLiteralData { value: "50" })
     val brk = Node.BreakStmt(4, span, BreakStmtData { value: Some(breakVal) })
     val body = Node.BlockStmt(3, span, BlockStmtData { statements: [brk] })
-    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, IntType)
     types.set(3, UnitType)
@@ -514,7 +514,7 @@ test fn testGenerateValueLoopBreakStoresValue() {
 test fn testGenerateUnitLoopNoResultLoad() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val body = Node.BlockStmt(3, span, BlockStmtData { statements: [] })
-    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, UnitType)
     types.set(3, UnitType)
@@ -577,7 +577,7 @@ test fn testContinueBranchesToLoopCond() {
 test fn testGenerateLoopEndsOnAfterBlock() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val body = Node.BlockStmt(3, span, BlockStmtData { statements: [] })
-    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: body })
+    val loopNode = Node.LoopStmt(2, span, LoopStmtData { body: [body] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, UnitType)
     types.set(3, UnitType)
@@ -608,7 +608,7 @@ test fn testBlockEmitsTaskDropOnScopeExit() {
     val taskClass = controlTaskClass("Task")
     val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
     val callee = Node.Identifier(1, span, IdentifierData { name: "work" })
-    val call = Node.CallExpr(2, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(2, span, CallExprData { callee: [callee], args: [] })
     val taskExpr = Node.TaskExpr(3, span, TaskExprData { inner: call })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
@@ -659,7 +659,7 @@ test fn testBlockEmitsArcReleaseOnScopeExit() {
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "7" })
     var args: List[Node] = []
     args.append(initArg)
-    val arcNewCall = Node.CallExpr(4, span, CallExprData { callee: newMember, args: args })
+    val arcNewCall = Node.CallExpr(4, span, CallExprData { callee: [newMember], args: args })
     val varDecl = Node.VarDecl(5, span, VarDeclData {
         namePos: span,
         isPub: false,
@@ -698,7 +698,7 @@ test fn testBlockEmitsSyncGuardUnlockOnScopeExit() {
     val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
     val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
     val lockCallee = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
-    val lockCall = Node.CallExpr(3, span, CallExprData { callee: lockCallee, args: [] })
+    val lockCall = Node.CallExpr(3, span, CallExprData { callee: [lockCallee], args: [] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
         isPub: false,
@@ -737,7 +737,7 @@ test fn testBlockEmitsWriteGuardUnlockOnScopeExit() {
     val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
     val writeCallee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
-    val writeCall = Node.CallExpr(3, span, CallExprData { callee: writeCallee, args: [] })
+    val writeCall = Node.CallExpr(3, span, CallExprData { callee: [writeCallee], args: [] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
         isPub: false,
@@ -776,7 +776,7 @@ test fn testBlockEmitsReadGuardUnlockOnScopeExit() {
     val readGuardInt = Type.Specialized(Type.Class(readGuardClass), [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
     val readCallee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
-    val readCall = Node.CallExpr(3, span, CallExprData { callee: readCallee, args: [] })
+    val readCall = Node.CallExpr(3, span, CallExprData { callee: [readCallee], args: [] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
         isPub: false,

@@ -2,8 +2,8 @@ import (
     { FuncDeclData, Node } from @ast/ast
     { CheckResult, FuncType } from @checker/types
     { newGenerator } from @codegen/generator
-    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrToBlockStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, defaultLlvmValue, emitStoreStub, emitGepStub, emitLoadStub } from @codegen/gen_ir
-    { llvmI64, llvmStructType } from @codegen/llvm_types
+    { blockNameWithSuffix, uniqueBlockName, newBlock, setCurrentBlock, currentBlockHandle, currentBlockTerminated, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitCondBrValue, emitBrToBlockStub, blockNameRegistered, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, defaultLlvmValue, emitStoreStub, emitLoadFromAlloca, emitStructGep, emitGepStub, emitLoadStub, typedLlvmValue, lookupValueType, irErrorCount } from @codegen/gen_ir
+    { LlvmValue, llvmI1, llvmI64, llvmF64, llvmVoid, llvmStructType, llvmPointerType, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
 )
 
@@ -48,6 +48,10 @@ test fn testNewAllocaAssignsUniqueHandles() {
     val first = newAlloca(g, llvmI64())
     val second = newAlloca(g, llvmI64())
     assertMsg(first.handle != second.handle, "alloca handles are unique")
+    match lookupValueType(g, first.handle) {
+        None => assertMsg(false, "alloca type metadata")
+        Some(ty) => assertMsg(llvmTypesEqual(ty, llvmPointerType(llvmI64())), "alloca is pointer to value type")
+    }
 }
 
 test fn testSnapshotRestoreVars() {
@@ -114,6 +118,65 @@ test fn testEmitBrToBlockStub() {
         None => assertMsg(false, "expected current block")
         Some(handle) => assertMsg(handle == target.handle, "current at branch target")
     }
+    assertMsg(currentBlockTerminated(g) == false, "branch target remains open")
+}
+
+test fn testTypedConditionalBranch() {
+    val g = newGenerator(irTestCheckResult())
+    val entry = newBlock(g, "entry")
+    val thenBlock = newBlock(g, "then")
+    val elseBlock = newBlock(g, "else")
+    setCurrentBlock(g, entry)
+    val cond = typedLlvmValue(g, llvmI1(), "test-condition")
+    assertMsg(emitCondBrValue(g, cond, thenBlock, elseBlock), "i1 conditional branch emitted")
+    assertMsg(currentBlockTerminated(g), "conditional branch terminates source block")
+}
+
+test fn testStoreRejectsIncompatibleAndUntypedValues() {
+    val g = newGenerator(irTestCheckResult())
+    val slot = newAlloca(g, llvmI64())
+    val wrong = typedLlvmValue(g, llvmF64(), "test-f64")
+    assertMsg(!emitStoreStub(g, wrong, slot), "mismatched store rejected")
+    assertMsg(!emitStoreStub(g, LlvmValue { handle: 999 }, slot), "untyped store rejected")
+    assertMsg(irErrorCount(g) == 2, "both store errors recorded")
+}
+
+test fn testLoadRejectsNonPointer() {
+    val g = newGenerator(irTestCheckResult())
+    val scalar = typedLlvmValue(g, llvmI64(), "test-scalar")
+    val loaded = emitLoadFromAlloca(g, scalar)
+    match lookupValueType(g, loaded.handle) {
+        None => assertMsg(false, "invalid load has metadata")
+        Some(ty) => assertMsg(llvmTypesEqual(ty, llvmVoid()), "invalid load has void type")
+    }
+    assertMsg(irErrorCount(g) == 1, "invalid load error recorded")
+}
+
+test fn testStructGepPreservesFieldType() {
+    val g = newGenerator(irTestCheckResult())
+    val pairTy = llvmStructType("Pair", [llvmI64(), llvmF64()])
+    val pair = newAlloca(g, pairTy)
+    match emitStructGep(g, pair, pairTy, 1) {
+        None => assertMsg(false, "valid struct gep")
+        Some(fieldPtr) => match lookupValueType(g, fieldPtr.handle) {
+            None => assertMsg(false, "gep result type metadata")
+            Some(ty) => assertMsg(llvmTypesEqual(ty, llvmPointerType(llvmF64())), "gep points to selected field type")
+        }
+    }
+}
+
+test fn testPhiRejectsMixedTypes() {
+    val g = newGenerator(irTestCheckResult())
+    clearMatchPhiIncomings(g)
+    val firstBlock = newBlock(g, "first")
+    val secondBlock = newBlock(g, "second")
+    recordMatchPhiIncoming(g, typedLlvmValue(g, llvmI64(), "first-value"), firstBlock)
+    recordMatchPhiIncoming(g, typedLlvmValue(g, llvmF64(), "second-value"), secondBlock)
+    match emitPhiStub(g) {
+        None => assertMsg(true, "mixed phi rejected")
+        Some(_) => assertMsg(false, "mixed phi must not be emitted")
+    }
+    assertMsg(irErrorCount(g) == 1, "phi mismatch error recorded")
 }
 
 test fn testDefaultLlvmValueScalars() {
@@ -133,4 +196,9 @@ test fn testEmitGepLoadStubs() {
     val load = emitLoadStub(g)
     assertMsg(gep.handle != load.handle, "gep and load get unique handles")
     assertMsg(g.valueHandleCounter >= handlesBefore + 2, "stubs bump value counter")
+    assertMsg(irErrorCount(g) == 2, "untyped operations record internal errors")
+    match lookupValueType(g, gep.handle) {
+        None => assertMsg(false, "invalid gep metadata")
+        Some(ty) => assertMsg(llvmTypesEqual(ty, llvmVoid()), "untyped gep never defaults to i64")
+    }
 }

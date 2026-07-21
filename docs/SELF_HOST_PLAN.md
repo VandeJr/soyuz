@@ -60,8 +60,8 @@ Status: `pending` | `in_progress` | `done`
 | **S8** | Module system | `internal/module/*.go` | `src/module/` — `soyuz.toml`, resolver, graph, prelude | Imports `@pkg/path` resolvem; testes `module_test.go` portados | `done` |
 | **S9** | Runtime e link | `internal/runtime/embed.go`, `src/*.c` | `src/runtime/` — FFI/embed, driver de link (clang) | `soyuz run` executa hello-world mínimo | `done` |
 | **S10** | Stdlib | `std/lib/*.sy` | `std/` — prelude, collections, string, os, fs, async, error, path | Checker resolve prelude; programas de `feature-tests/` compilam | `done` |
-| **S11** | CLI driver | `cmd/main.go` | `main.sy` — `build`, `run`, `test`, `new` | `soyuz test test_runner.sy` roda lexer+parser+checker+codegen | `done` |
-| **S12** | Fixed-point bootstrap | `internal/compile/*_test.go` | Script `tools/bootstrap-verify.sh` | vN e vN+1 produzem IR/binário equivalente; Go dispensável | `in_progress` |
+| **S11** | CLI driver | `cmd/main.go` | `main.sy` — `build`, `run`, `test`, `new` | `soyuz test test_runner.sy` roda lexer; parser/checker/codegen aguardam suporte nativo | `in_progress` |
+| **S12** | Fixed-point bootstrap | `internal/compile/*_test.go` | `tools/bootstrap-verify.sh` + `tools/selfhost-verify.sh` | vN, vN+1 e vN+2 executam sem `soyuz-go`; Go dispensável | `in_progress` |
 
 ### Ordem sugerida
 
@@ -100,6 +100,13 @@ soyuz build   # entry=validate.sy, type=library
 
 # Testes runtime (expandir conforme milestones)
 soyuz test test_runner.sy
+
+# Gate independente (falha enquanto main.sy ainda delegar ao bootstrap)
+bash tools/selfhost-verify.sh --keep-artifacts
+
+# Corpus de recursos e bloqueios conhecidos
+bash tools/feature-corpus-verify.sh
+bash tools/selfhost-regression-check.sh
 ```
 
 ## Conclusão

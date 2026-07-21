@@ -1,0 +1,9 @@
+identidade int: 42
+identidade str: oi
+trocar: 1 um
+par: nome 42
+caixa: 100
+caixa depois: 200
+map ok
+filter ok
+reduce: 15

@@ -11,7 +11,7 @@ import (
     { pushArcScope, popArcScope, emitArcDrops } from @codegen/gen_arc
     { pushSyncGuardScope, popSyncGuardScope, emitSyncGuardDrops } from @codegen/gen_sync
     { mapTypeToLLVM } from @codegen/gen_types
-    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, stubLlvmValue, snapshotVars, restoreVars } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, emitBrToBlockStub, emitCondBrToBlockStub, defaultLlvmValue, emitStoreStub, emitLoadStub, emitLoadFromAlloca, emitBreakValueStoreStub, legacyI64Stub, snapshotVars, restoreVars } from @codegen/gen_ir
     { emitRetI32Stub, emitRetLlvmValueStub } from @codegen/gen_emit
     { LlvmType, LlvmBasicBlock, LlvmValue, llvmVoid, llvmTypesEqual } from @codegen/llvm_types
 )
@@ -117,13 +117,13 @@ fn finishIfBranchFromNode(g: Generator, mergeBlock: LlvmBasicBlock, branch: Node
 }
 
 fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResult] {
-    if !exprGeneratesOk(g, data.condition) { return None }
+    if !exprGeneratesOk(g, data.condition.get(0)) { return None }
     val thenBlock = newBlock(g, "then")
     val elseBlock = newBlock(g, "else")
     val mergeBlock = newBlock(g, "if_merge")
     if !emitCondBrToBlockStub(g, thenBlock, elseBlock) { return None }
     setCurrentBlock(g, thenBlock)
-    if !finishIfBranchFromNode(g, mergeBlock, data.consequent) { return None }
+    if !finishIfBranchFromNode(g, mergeBlock, data.consequent.get(0)) { return None }
     setCurrentBlock(g, elseBlock)
     return match data.alternate {
         None => {
@@ -141,7 +141,7 @@ fn generateIfStmt(g: Generator, node: Node, data: IfStmtData) -> Option[StmtResu
 
 fn emitWhileCondStub(g: Generator, condition: Node, bodyBlock: LlvmBasicBlock, afterBlock: LlvmBasicBlock) -> Bool {
     if !exprGeneratesOk(g, condition) { return false }
-    g.whileCondValue = Some(stubLlvmValue(g))
+    g.whileCondValue = Some(legacyI64Stub(g))
     return emitCondBrToBlockStub(g, bodyBlock, afterBlock)
 }
 
@@ -151,10 +151,10 @@ fn generateWhileStmt(g: Generator, node: Node, data: WhileStmtData) -> Option[St
     val afterBlock = newBlock(g, "while_after")
     emitBrToBlockStub(g, condBlock)
     setCurrentBlock(g, condBlock)
-    if !emitWhileCondStub(g, data.condition, bodyBlock, afterBlock) { return None }
+    if !emitWhileCondStub(g, data.condition.get(0), bodyBlock, afterBlock) { return None }
     pushLoop(g, LoopCtx { cond: condBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     setCurrentBlock(g, bodyBlock)
-    if !finishLoopBodyFromNode(g, condBlock, data.body) { return None }
+    if !finishLoopBodyFromNode(g, condBlock, data.body.get(0)) { return None }
     popLoop(g)
     setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
@@ -199,14 +199,14 @@ fn generateLoopStmt(g: Generator, node: Node, data: LoopStmtData) -> Option[Stmt
         val resultAlloca = newAlloca(g, resultLlvm)
         storeLoopResultDefault(g, resultLlvm, resultAlloca)
         pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: Some(resultAlloca), resultLlvm: resultLlvm })
-        if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
+        if !finishLoopBodyFromNode(g, bodyBlock, data.body.get(0)) { return None }
         popLoop(g)
         setCurrentBlock(g, afterBlock)
         setLoopResultLoad(g, resultAlloca)
         return stmtResultFromNode(g, node, NoTerminator)
     }
     pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
-    if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
+    if !finishLoopBodyFromNode(g, bodyBlock, data.body.get(0)) { return None }
     popLoop(g)
     setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
@@ -249,7 +249,7 @@ fn emitForRangeIncrStub(g: Generator) -> Bool {
         Some(alloca) => {
             val cur = emitLoadFromAlloca(g, alloca)
             g.forRangeIncrLoad = Some(cur)
-            val next = stubLlvmValue(g)
+            val next = legacyI64Stub(g)
             emitStoreStub(g, next, alloca)
             g.forRangeIncrStore = Some(next)
             true
@@ -259,10 +259,10 @@ fn emitForRangeIncrStub(g: Generator) -> Bool {
 
 fn generateForRangeStmt(g: Generator, node: Node, binding: String, rangeData: RangeExprData, body: Node) -> Option[StmtResult] {
     clearForRangeStubs(g)
-    if !exprGeneratesOk(g, rangeData.from) { return None }
-    if !exprGeneratesOk(g, rangeData.to) { return None }
-    val fromVal = stubLlvmValue(g)
-    val toVal = stubLlvmValue(g)
+    if !exprGeneratesOk(g, rangeData.from.get(0)) { return None }
+    if !exprGeneratesOk(g, rangeData.to.get(0)) { return None }
+    val fromVal = legacyI64Stub(g)
+    val toVal = legacyI64Stub(g)
     g.forRangeFromValue = Some(fromVal)
     g.forRangeToValue = Some(toVal)
     if !registerForRangeBinding(g, binding, fromVal) { return None }
@@ -313,7 +313,7 @@ fn emitForListIncrStub(g: Generator) -> Bool {
         Some(alloca) => {
             val cur = emitLoadFromAlloca(g, alloca)
             g.forListIncrLoad = Some(cur)
-            val next = stubLlvmValue(g)
+            val next = legacyI64Stub(g)
             emitStoreStub(g, next, alloca)
             g.forListIncrStore = Some(next)
             true
@@ -329,7 +329,7 @@ fn runForListInLoop(g: Generator, node: Node, data: ForStmtData, elemType: Type)
     val bindAlloc = newAlloca(g, mapTypeToLLVM(g, elemType))
     g.vars.set(data.binding, bindAlloc)
     g.forListBindingAlloca = Some(bindAlloc)
-    g.forListSizeLoad = Some(stubLlvmValue(g))
+    g.forListSizeLoad = Some(legacyI64Stub(g))
     val condBlock = newBlock(g, forListCondBlockName())
     val bodyBlock = newBlock(g, forListBodyBlockName())
     val incrBlock = newBlock(g, forListIncrBlockName())
@@ -339,9 +339,9 @@ fn runForListInLoop(g: Generator, node: Node, data: ForStmtData, elemType: Type)
     if !emitForListCondStub(g, bodyBlock, afterBlock) { return None }
     pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     setCurrentBlock(g, bodyBlock)
-    g.forListGetStub = Some(stubLlvmValue(g))
-    emitStoreStub(g, stubLlvmValue(g), bindAlloc)
-    if !finishLoopBodyFromNode(g, incrBlock, data.body) { return None }
+    g.forListGetStub = Some(legacyI64Stub(g))
+    emitStoreStub(g, legacyI64Stub(g), bindAlloc)
+    if !finishLoopBodyFromNode(g, incrBlock, data.body.get(0)) { return None }
     popLoop(g)
     setCurrentBlock(g, incrBlock)
     if !emitForListIncrStub(g) { return None }
@@ -353,14 +353,14 @@ fn runForListInLoop(g: Generator, node: Node, data: ForStmtData, elemType: Type)
 
 fn generateForListStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
     clearForListStubs(g)
-    if !exprGeneratesOk(g, data.iterable) { return None }
+    if !exprGeneratesOk(g, data.iterable.get(0)) { return None }
     return runForListInLoop(g, node, data, elemType)
 }
 
 fn generateForMapStmt(g: Generator, node: Node, data: ForStmtData, mapType: Type, keyType: Type) -> Option[StmtResult] {
     clearForListStubs(g)
-    if !exprGeneratesOk(g, data.iterable) { return None }
-    match generateMapKeysStub(g, stubLlvmValue(g), mapType) {
+    if !exprGeneratesOk(g, data.iterable.get(0)) { return None }
+    match generateMapKeysStub(g, legacyI64Stub(g), mapType) {
         None => None
         Some(_keysList) => runForListInLoop(g, node, data, keyType)
     }
@@ -384,19 +384,19 @@ fn emitForIteratorCondStub(g: Generator, bodyBlock: LlvmBasicBlock, afterBlock: 
 }
 
 fn emitForIteratorIncrStub(g: Generator) -> Bool {
-    val next = stubLlvmValue(g)
+    val next = legacyI64Stub(g)
     g.forIteratorIndexStore = Some(next)
     return true
 }
 
 fn generateForIteratorStmt(g: Generator, node: Node, data: ForStmtData, elemType: Type) -> Option[StmtResult] {
     clearForIteratorStubs(g)
-    if !exprGeneratesOk(g, data.iterable) { return None }
+    if !exprGeneratesOk(g, data.iterable.get(0)) { return None }
     ensureRuntimeCollectionStructs(g)
     val savedVars = snapshotVars(g)
-    g.forIteratorListLoad = Some(stubLlvmValue(g))
-    g.forIteratorIndexLoad = Some(stubLlvmValue(g))
-    g.forIteratorSizeLoad = Some(stubLlvmValue(g))
+    g.forIteratorListLoad = Some(legacyI64Stub(g))
+    g.forIteratorIndexLoad = Some(legacyI64Stub(g))
+    g.forIteratorSizeLoad = Some(legacyI64Stub(g))
     val bindAlloc = newAlloca(g, mapTypeToLLVM(g, elemType))
     g.vars.set(data.binding, bindAlloc)
     g.forIteratorBindingAlloca = Some(bindAlloc)
@@ -409,9 +409,9 @@ fn generateForIteratorStmt(g: Generator, node: Node, data: ForStmtData, elemType
     if !emitForIteratorCondStub(g, bodyBlock, afterBlock) { return None }
     pushLoop(g, LoopCtx { cond: incrBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
     setCurrentBlock(g, bodyBlock)
-    g.forIteratorGetStub = Some(stubLlvmValue(g))
-    emitStoreStub(g, stubLlvmValue(g), bindAlloc)
-    if !finishLoopBodyFromNode(g, incrBlock, data.body) { return None }
+    g.forIteratorGetStub = Some(legacyI64Stub(g))
+    emitStoreStub(g, legacyI64Stub(g), bindAlloc)
+    if !finishLoopBodyFromNode(g, incrBlock, data.body.get(0)) { return None }
     popLoop(g)
     setCurrentBlock(g, incrBlock)
     if !emitForIteratorIncrStub(g) { return None }
@@ -422,20 +422,20 @@ fn generateForIteratorStmt(g: Generator, node: Node, data: ForStmtData, elemType
 }
 
 fn generateForStmtGeneric(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] {
-    if !exprGeneratesOk(g, data.iterable) { return None }
+    if !exprGeneratesOk(g, data.iterable.get(0)) { return None }
     val bodyBlock = newBlock(g, "for_body")
     val afterBlock = newBlock(g, "for_after")
     emitBrToBlockStub(g, bodyBlock)
     pushLoop(g, LoopCtx { cond: bodyBlock, after: afterBlock, resultAlloca: noneLlvmValueOption(), resultLlvm: llvmVoid() })
-    if !finishLoopBodyFromNode(g, bodyBlock, data.body) { return None }
+    if !finishLoopBodyFromNode(g, bodyBlock, data.body.get(0)) { return None }
     popLoop(g)
     setCurrentBlock(g, afterBlock)
     return stmtResultFromNode(g, node, NoTerminator)
 }
 
-fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] = match data.iterable {
-    RangeExpr(_, _, rangeData) => generateForRangeStmt(g, node, data.binding, rangeData, data.body)
-    _ => match checkerTypeForNode(g, nodeId(data.iterable)) {
+fn generateForStmt(g: Generator, node: Node, data: ForStmtData) -> Option[StmtResult] = match data.iterable.get(0) {
+    RangeExpr(_, _, rangeData) => generateForRangeStmt(g, node, data.binding, rangeData, data.body.get(0))
+    _ => match checkerTypeForNode(g, nodeId(data.iterable.get(0))) {
         None => generateForStmtGeneric(g, node, data)
         Some(t) => {
             if isListType(t) {
@@ -473,23 +473,23 @@ fn emitFuncReturnStub(g: Generator, hasValue: Bool, value: LlvmValue) -> Bool {
     val retTy = mapTypeToLLVM(g, g.currentReturnType)
     val retVal = match hasValue {
         true => value
-        false => stubLlvmValue(g)
+        false => legacyI64Stub(g)
     }
     return emitRetLlvmValueStub(g, retTy, retVal)
 }
 
 pub fn emitImplicitFuncReturn(g: Generator) -> Bool {
-    return emitFuncReturnStub(g, false, stubLlvmValue(g))
+    return emitFuncReturnStub(g, false, legacyI64Stub(g))
 }
 
 fn generateReturnStmt(g: Generator, node: Node, data: ReturnStmtData) -> Option[StmtResult] {
     match data.value {
         None => {
-            if !emitFuncReturnStub(g, false, stubLlvmValue(g)) { return None }
+            if !emitFuncReturnStub(g, false, legacyI64Stub(g)) { return None }
         }
         Some(v) => {
             if !exprGeneratesOk(g, v) { return None }
-            if !emitFuncReturnStub(g, true, stubLlvmValue(g)) { return None }
+            if !emitFuncReturnStub(g, true, legacyI64Stub(g)) { return None }
         }
     }
     return stmtResultFromNode(g, node, ReturnTerm)
@@ -562,6 +562,7 @@ pub fn generateStmtNode(g: Generator, node: Node) -> Option[StmtResult] = match 
     ReturnStmt(_, _, data) => generateReturnStmt(g, node, data)
     BreakStmt(_, _, data) => generateBreakStmt(g, node, data)
     ContinueStmt(_, _) => generateContinueStmt(g, node)
+    ExprStmt(_, _, data) => stmtFromExpr(g, data.expr.get(0))
     _ => stmtFromExpr(g, node)
 }
 
@@ -592,9 +593,7 @@ fn recordBreakValueStore(g: Generator, ctx: LoopCtx) {
 }
 
 fn stubLoopResultLoad(g: Generator, alloca: LlvmValue) -> LlvmValue {
-    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
-    g.valueHandleCounter = g.valueHandleCounter + 1
-    return value
+    return emitLoadFromAlloca(g, alloca)
 }
 
 pub fn loopCtxResultAlloca(ctx: LoopCtx) -> Option[LlvmValue] {

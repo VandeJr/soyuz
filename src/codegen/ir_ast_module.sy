@@ -1,0 +1,80 @@
+import (
+    { FuncDeclData, Node } from @ast/ast
+    { IrFunctionSignature, irCompileFunctionDeclWithSignatures, irFunctionSignatureFromDecl } from @codegen/ir_ast_function
+    { irCallVoid, irI32Constant, irReturn } from @codegen/ir_builder
+    { IrFunctionBuilder, irRenderModule, newIrFunction } from @codegen/ir_function
+    { llvmI32 } from @codegen/llvm_types
+)
+
+pub record IrAstModuleResult {
+    success: Bool,
+    functionCount: Int,
+    ir: String,
+    diagnostics: List[String]
+}
+
+fn collectFunctionDecls(body: List[Node]) -> List[FuncDeclData] {
+    var declarations: List[FuncDeclData] = []
+    for node in body {
+        match node {
+            FuncDecl(_, _, data) => declarations.append(data)
+            _ => {}
+        }
+    }
+    return declarations
+}
+
+fn collectSignatures(declarations: List[FuncDeclData], diagnostics: List[String]) -> List[IrFunctionSignature] {
+    var signatures: List[IrFunctionSignature] = []
+    for declaration in declarations {
+        match irFunctionSignatureFromDecl(declaration) {
+            None => diagnostics.append("assinatura LLVM não suportada: $(declaration.name)")
+            Some(signature) => signatures.append(signature)
+        }
+    }
+    return signatures
+}
+
+fn appendEntrypointWrapper(declarations: List[FuncDeclData], functions: List[IrFunctionBuilder], diagnostics: List[String]) {
+    for declaration in declarations {
+        if declaration.name == "main" && declaration.returnType == None {
+            val wrapper = newIrFunction("main", llvmI32(), [], [])
+            if !irCallVoid(wrapper.builder, "soyuz_main", [], []) {
+                diagnostics.append("falha ao chamar soyuz_main")
+                return
+            }
+            if !irReturn(wrapper.builder, llvmI32(), irI32Constant(wrapper.builder, 0)) {
+                diagnostics.append("falha ao retornar do entrypoint")
+                return
+            }
+            functions.append(wrapper)
+            return
+        }
+    }
+}
+
+pub fn irCompileAstModule(body: List[Node]) -> IrAstModuleResult {
+    var diagnostics: List[String] = []
+    val declarations = collectFunctionDecls(body)
+    val signatures = collectSignatures(declarations, diagnostics)
+    if diagnostics.size() > 0 {
+        return IrAstModuleResult { success: false, functionCount: 0, ir: "", diagnostics: diagnostics }
+    }
+    var functions: List[IrFunctionBuilder] = []
+    for declaration in declarations {
+        match irCompileFunctionDeclWithSignatures(declaration, signatures) {
+            None => diagnostics.append("falha ao gerar função: $(declaration.name)")
+            Some(fnBuilder) => functions.append(fnBuilder)
+        }
+    }
+    appendEntrypointWrapper(declarations, functions, diagnostics)
+    if diagnostics.size() > 0 {
+        return IrAstModuleResult { success: false, functionCount: functions.size(), ir: "", diagnostics: diagnostics }
+    }
+    return IrAstModuleResult {
+        success: true,
+        functionCount: functions.size(),
+        ir: irRenderModule(functions),
+        diagnostics: diagnostics
+    }
+}

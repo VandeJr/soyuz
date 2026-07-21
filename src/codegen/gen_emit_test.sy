@@ -1,8 +1,8 @@
 import (
     { newGenerator } from @codegen/generator
-    { newBlock, setCurrentBlock, emitBrStub, newAlloca, emitStoreStub, emitLoadFromAlloca, stubLlvmValue } from @codegen/gen_ir
-    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub, emitRetLlvmValueStub, emitCallVoidStub, emitPrintfStringStub, registerCStrGlobal, emitCStrPtrStub, cStringByteLen } from @codegen/gen_emit
-    { llvmI64 } from @codegen/llvm_types
+    { newBlock, setCurrentBlock, emitBrStub, newAlloca, emitStoreStub, emitLoadFromAlloca, legacyI64Stub } from @codegen/gen_ir
+    { renderModuleIr, moduleIrHasMain, moduleIrHasTrace, irTraceLineCount, traceIr, defaultTargetTriple, emitIrLine, irBodyLineCount, moduleIrHasInstruction, emitRetI32Stub, emitRetLlvmValueStub, emitCallVoidStub, emitCallValueStub, emitPrintfStringStub, registerCStrGlobal, emitCStrPtrStub, cStringByteLen } from @codegen/gen_emit
+    { llvmI64, llvmF64, LlvmValue } from @codegen/llvm_types
     { TypeError, TypeWarning, FuncType, FuncDeclData, CheckResult, Type } from @checker/types
     { Node } from @ast/ast
     { assertMsg } from @soyuz/testing
@@ -57,7 +57,7 @@ test fn testRenderModuleIrIncludesAllocaStoreInstructions() {
     val entry = newBlock(g, "entry")
     setCurrentBlock(g, entry)
     val slot = newAlloca(g, llvmI64())
-    val stored = stubLlvmValue(g)
+    val stored = legacyI64Stub(g)
     assertMsg(emitStoreStub(g, stored, slot), "emit store stub")
     val ir = renderModuleIr(g, 1)
     assertMsg(moduleIrHasInstruction(ir, "alloca i64"), "alloca in rendered ir")
@@ -69,7 +69,7 @@ test fn testRenderModuleIrIncludesLoadInstruction() {
     val entry = newBlock(g, "entry")
     setCurrentBlock(g, entry)
     val slot = newAlloca(g, llvmI64())
-    val stored = stubLlvmValue(g)
+    val stored = legacyI64Stub(g)
     assertMsg(emitStoreStub(g, stored, slot), "emit store stub")
     val loaded = emitLoadFromAlloca(g, slot)
     assertMsg(loaded.handle > stored.handle, "load result handle")
@@ -81,7 +81,7 @@ test fn testEmitRetLlvmValueStub() {
     val g = newGenerator(emitEmptyCheckResult())
     val entry = newBlock(g, "entry")
     setCurrentBlock(g, entry)
-    val stored = stubLlvmValue(g)
+    val stored = legacyI64Stub(g)
     assertMsg(emitRetLlvmValueStub(g, llvmI64(), stored), "emit ret value stub")
     val ir = renderModuleIr(g, 1)
     assertMsg(moduleIrHasInstruction(ir, "ret i64"), "typed ret in rendered ir")
@@ -91,7 +91,7 @@ test fn testEmitCallVoidStub() {
     val g = newGenerator(emitEmptyCheckResult())
     val entry = newBlock(g, "entry")
     setCurrentBlock(g, entry)
-    val arg = stubLlvmValue(g)
+    val arg = legacyI64Stub(g)
     assertMsg(emitCallVoidStub(g, "soyuz_print_bool", llvmI64(), arg), "emit void call stub")
     val ir = renderModuleIr(g, 1)
     assertMsg(moduleIrHasInstruction(ir, "call void @soyuz_print_bool"), "void call in rendered ir")
@@ -101,10 +101,41 @@ test fn testEmitPrintfStringStub() {
     val g = newGenerator(emitEmptyCheckResult())
     val entry = newBlock(g, "entry")
     setCurrentBlock(g, entry)
-    assertMsg(emitPrintfStringStub(g, stubLlvmValue(g)), "emit printf stub")
+    val globalName = registerCStrGlobal(g, "hello")
+    val ptr = emitCStrPtrStub(g, globalName, cStringByteLen("hello"))
+    assertMsg(emitPrintfStringStub(g, ptr), "emit printf stub")
     val ir = renderModuleIr(g, 1)
     assertMsg(moduleIrHasInstruction(ir, "call i32 (i8*, ...) @printf"), "printf call in rendered ir")
     assertMsg(ir.contains("declare i32 @printf"), "printf declare in module ir")
+}
+
+test fn testRetRejectsIncompatibleAndDuplicateTerminator() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val value = legacyI64Stub(g)
+    assertMsg(!emitRetLlvmValueStub(g, llvmF64(), value), "incompatible return rejected")
+    assertMsg(emitRetLlvmValueStub(g, llvmI64(), value), "compatible return accepted")
+    assertMsg(!emitRetI32Stub(g, 0), "second terminator rejected")
+}
+
+test fn testCallRejectsUntypedArgument() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    assertMsg(!emitCallVoidStub(g, "takes_i64", llvmI64(), LlvmValue { handle: 999 }), "untyped call argument rejected")
+}
+
+test fn testTypedCallValueEmitsResult() {
+    val g = newGenerator(emitEmptyCheckResult())
+    val entry = newBlock(g, "entry")
+    setCurrentBlock(g, entry)
+    val arg = legacyI64Stub(g)
+    match emitCallValueStub(g, "identity", llvmI64(), llvmI64(), arg) {
+        None => assertMsg(false, "typed call result")
+        Some(result) => assertMsg(result.handle > arg.handle, "call allocates typed result")
+    }
+    assertMsg(moduleIrHasInstruction(renderModuleIr(g, 1), "call i64 @identity"), "typed call emitted")
 }
 
 test fn testRegisterCStrGlobalAndEmitPtr() {

@@ -94,7 +94,7 @@ test fn testBootstrapVerifyMetadata() {
     assertMsg(bootstrapVerifyNativeTestStepReady(), "native test step metadata ready")
     assertMsg(bootstrapVerifyNativeTestStepName().contains("test"), "native test step name")
     assertMsg(argvIsNativeTest(nativeCompileTestRunnerArgv()), "test runner argv native")
-    assertMsg(nativeCompileTestOutputFromArgv(nativeCompileTestRunnerArgv()).contains(bootstrapVerifyTestMarker()), "test runner native marker")
+    assertMsg(nativeCompileTestOutputFromArgv(nativeCompileTestRunnerArgv()) == "", "native test does not fake success")
     assertMsg(bootstrapVerifyNativeRunStepReady(), "native run step metadata ready")
     assertMsg(bootstrapVerifyNativeRunStepName().contains("run"), "native run step name")
     assertMsg(argvIsNativeRun(nativeCompileHelloMinimalRunArgv()), "hello run argv native")

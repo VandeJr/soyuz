@@ -15,7 +15,7 @@ import (
 
 fn buildPipeCall(left: Node, right: Node) -> CallExprData = match right {
     CallExpr(_, _, rc) => CallExprData { callee: rc.callee, args: [left].concat(rc.args) }
-    _ => CallExprData { callee: right, args: [left] }
+    _ => CallExprData { callee: [right], args: [left] }
 }
 
 fn listExpectedElemType(c: Checker) -> Type = match c.context.expectedType {
@@ -46,7 +46,7 @@ fn forInBindingType(c: Checker, iterable: Node) -> Type = match iterable {
 }
 
 fn taskAwaitInnerType(c: Checker, ch: Node) -> Type = match ch {
-    CallExpr(_, _, call) => match call.callee {
+    CallExpr(_, _, call) => match call.callee.get(0) {
         MemberExpr(_, _, me) => match c.checkNode(me.object) {
             Specialized(Class(ct), params) if ct.name == "Task" && params.size() > 0 => params.get(0)
             _ => Unknown
@@ -203,8 +203,8 @@ pub fn checkIdentifier(c: Checker, data: IdentifierData, node: Node) -> Type = m
 }
 
 pub fn checkBinaryExpr(c: Checker, data: BinaryExprData, node: Node) -> Type {
-    val left = c.checkNode(data.left)
-    val right = c.checkNode(data.right)
+    val left = c.checkNode(data.left.get(0))
+    val right = c.checkNode(data.right.get(0))
     return match data.operator {
         "+" => checkNumericBinary(c, data.operator, node, left, right)
         "-" => checkNumericBinary(c, data.operator, node, left, right)
@@ -229,7 +229,7 @@ pub fn checkBinaryExpr(c: Checker, data: BinaryExprData, node: Node) -> Type {
 }
 
 pub fn checkUnaryExpr(c: Checker, data: UnaryExprData, node: Node) -> Type {
-    val operand = c.checkNode(data.operand)
+    val operand = c.checkNode(data.operand.get(0))
     return match data.operator {
         "-" => {
             if typeToString(operand) != "Int" {
@@ -252,9 +252,9 @@ pub fn checkUnaryExpr(c: Checker, data: UnaryExprData, node: Node) -> Type {
 }
 
 pub fn checkAssignExpr(c: Checker, data: AssignExprData, node: Node) -> Type {
-    val leftType = c.checkNode(data.left)
-    val rightType = c.checkNode(data.right)
-    match data.left {
+    val leftType = c.checkNode(data.left.get(0))
+    val rightType = c.checkNode(data.right.get(0))
+    match data.left.get(0) {
         Identifier(_, _, id) => match c.scope.resolve(id.name) {
             Some(sym) if sym.isReadonly => { checkerErrorf(c, nodePos(node), "cannot assign to immutable variable (val): $(id.name)", []) }
             _ => {}
@@ -296,10 +296,10 @@ pub fn checkBlock(c: Checker, node: Node) -> Type = match node {
 pub fn checkForStmt(c: Checker, data: ForStmtData) -> Type {
     val parent = c.scope
     c.scope = newScope(Some(parent))
-    val bindingType = forInBindingType(c, data.iterable)
+    val bindingType = forInBindingType(c, data.iterable.get(0))
     c.scope.define(data.binding, bindingType, false)
     c.loopDepth = c.loopDepth + 1
-    checkBlock(c, data.body)
+    checkBlock(c, data.body.get(0))
     c.loopDepth = c.loopDepth - 1
     c.scope = parent
     return UnitType
@@ -307,8 +307,8 @@ pub fn checkForStmt(c: Checker, data: ForStmtData) -> Type {
 
 pub fn checkWhileStmt(c: Checker, data: WhileStmtData) -> Type {
     c.loopDepth = c.loopDepth + 1
-    c.checkNode(data.condition)
-    checkBlock(c, data.body)
+    c.checkNode(data.condition.get(0))
+    checkBlock(c, data.body.get(0))
     c.loopDepth = c.loopDepth - 1
     return UnitType
 }
@@ -316,7 +316,7 @@ pub fn checkWhileStmt(c: Checker, data: WhileStmtData) -> Type {
 pub fn checkLoopStmt(c: Checker, data: LoopStmtData) -> Type {
     c.loopDepth = c.loopDepth + 1
     c.loopBreakTypes.append(Unknown)
-    checkBlock(c, data.body)
+    checkBlock(c, data.body.get(0))
     val result = c.loopBreakTypes.get(c.loopBreakTypes.size() - 1)
     c.loopBreakTypes = c.loopBreakTypes.slice(0, c.loopBreakTypes.size() - 1)
     c.loopDepth = c.loopDepth - 1
@@ -583,7 +583,7 @@ pub fn checkPipeQuestExpr(c: Checker, data: PipeQuestExprData, node: Node) -> Ty
         return Unknown
     }
     val call = buildPipeCall(data.left, data.right)
-    val calleeType = c.checkNode(call.callee)
+    val calleeType = c.checkNode(call.callee.get(0))
     match calleeType {
         Func(ft) => {
             if ft.params.size() > 0 && innerType != Unknown && !isAssignable(c, ft.params.get(0), innerType) && !isAssignable(c, innerType, ft.params.get(0)) {
@@ -723,7 +723,7 @@ pub fn checkSelectExpr(c: Checker, data: SelectExprData) -> Type {
 }
 
 fn isTaskAwaitCall(node: Node) -> Bool = match node {
-    CallExpr(_, _, call) => match call.callee {
+    CallExpr(_, _, call) => match call.callee.get(0) {
         MemberExpr(_, _, me) => me.property == "await"
         _ => false
     }
@@ -795,14 +795,14 @@ fn checkRecordLiteralFields(c: Checker, data: RecordLiteralData, node: Node, fie
 }
 
 pub fn checkCallExpr(c: Checker, data: CallExprData, node: Node) -> Type {
-    match data.callee {
+    match data.callee.get(0) {
         SafeNavExpr(_, _, sn) => return checkSafeNavCall(c, data, node, sn)
         MemberExpr(_, _, me) => {
             val objType = match getNodeType(c, nodeId(me.object)) { Some(t) => t, None => c.checkNode(me.object) }
             return checkMethodCall(c, data, node, me, objType)
         }
         _ => {
-            val calleeType = c.checkNode(data.callee)
+            val calleeType = c.checkNode(data.callee.get(0))
             return match calleeType {
                 Func(ft) => {
                     var callFt = ft
@@ -827,7 +827,7 @@ pub fn checkCallExpr(c: Checker, data: CallExprData, node: Node) -> Type {
                     callFt.returnType
                 }
                 _ => {
-                    checkerErrorf(c, nodePos(data.callee), "attempt to call a value that is not a function: $(typeToString(calleeType))", [])
+                    checkerErrorf(c, nodePos(data.callee.get(0)), "attempt to call a value that is not a function: $(typeToString(calleeType))", [])
                     Unknown
                 }
             }
@@ -855,7 +855,7 @@ fn checkSafeNavCall(c: Checker, data: CallExprData, node: Node, sn: SafeNavExprD
             }
             return wrapOptionType(c, ft.returnType)
         }
-        _ => { checkerErrorf(c, nodePos(data.callee), "attempt to call a value that is not a function: $(typeToString(memberType))", []); Unknown }
+        _ => { checkerErrorf(c, nodePos(data.callee.get(0)), "attempt to call a value that is not a function: $(typeToString(memberType))", []); Unknown }
     }
 }
 
@@ -1221,7 +1221,7 @@ fn checkGenericMethodCall(c: Checker, data: CallExprData, node: Node, me: Member
         Some(ft) => checkMethodCallWithFuncType(c, data, node, ft)
         None => {
             val memberType = resolveMemberType(c, objType, me.property, span)
-            checkerErrorf(c, nodePos(data.callee), "attempt to call a value that is not a function: $(typeToString(memberType))", [])
+            checkerErrorf(c, nodePos(data.callee.get(0)), "attempt to call a value that is not a function: $(typeToString(memberType))", [])
             return Unknown
         }
     }

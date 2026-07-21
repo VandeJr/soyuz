@@ -72,19 +72,21 @@ fi
 echo "→ bootstrap-verify library fixed-point (S12 step 1) OK"
 
 TEST_MARKER="testes passaram"
+EXPECTED_TEST_COUNT=5
+
+assert_test_count() {
+  local output=$1 label=$2
+  if ! grep -Eq "✓[[:space:]]+$EXPECTED_TEST_COUNT testes passaram" <<<"$output"; then
+    echo "$label não executou exatamente $EXPECTED_TEST_COUNT testes: $output" >&2
+    return 1
+  fi
+}
 
 BOOTSTRAP_TEST="$(soyuz test test_runner.sy 2>&1 || true)"
 STANDALONE_TEST="$("$OUT" test test_runner.sy 2>&1 || true)"
 
-if ! grep -q "$TEST_MARKER" <<<"$BOOTSTRAP_TEST"; then
-  echo "bootstrap soyuz test sem marcador de sucesso: $BOOTSTRAP_TEST" >&2
-  exit 1
-fi
-
-if ! grep -q "$TEST_MARKER" <<<"$STANDALONE_TEST"; then
-  echo "standalone output test sem marcador de sucesso: $STANDALONE_TEST" >&2
-  exit 1
-fi
+assert_test_count "$BOOTSTRAP_TEST" "bootstrap soyuz test" || exit 1
+assert_test_count "$STANDALONE_TEST" "standalone output test" || exit 1
 
 echo "→ bootstrap-verify test_runner fixed-point (S12 step 2) OK"
 
@@ -225,10 +227,7 @@ fi
 echo "→ bootstrap-verify vN rebuilds vN+1 (S12 step 6) OK"
 
 VN1_TEST="$("$OUT2" test test_runner.sy 2>&1 || true)"
-if ! grep -q "$TEST_MARKER" <<<"$VN1_TEST"; then
-  echo "vN+1 test sem marcador de sucesso: $VN1_TEST" >&2
-  exit 1
-fi
+assert_test_count "$VN1_TEST" "vN+1 test" || exit 1
 
 VN1_RUN="$("$OUT2" run "$HELLO" 2>&1 || true)"
 if ! grep -q "$HELLO_MARKER" <<<"$VN1_RUN"; then
@@ -267,10 +266,7 @@ fi
 echo "→ bootstrap-verify vN+1 rebuilds vN+2 (S12 step 8) OK"
 
 VN2_TEST="$("$OUT3" test test_runner.sy 2>&1 || true)"
-if ! grep -q "$TEST_MARKER" <<<"$VN2_TEST"; then
-  echo "vN+2 test sem marcador de sucesso: $VN2_TEST" >&2
-  exit 1
-fi
+assert_test_count "$VN2_TEST" "vN+2 test" || exit 1
 
 VN2_RUN="$("$OUT3" run "$HELLO" 2>&1 || true)"
 if ! grep -q "$HELLO_MARKER" <<<"$VN2_RUN"; then
@@ -497,17 +493,16 @@ export PATH="$FAKE_BIN_DIR:$PATH"
 NATIVE_TEST="$("$OUT" test test_runner.sy 2>&1 || true)"
 export PATH="$PATH_SAVE"
 
-if ! grep -q "$TEST_MARKER" <<<"$NATIVE_TEST"; then
-  echo "native test falhou com soyuz fake no PATH: $NATIVE_TEST" >&2
+if grep -q "$TEST_MARKER" <<<"$NATIVE_TEST"; then
+  echo "test reportou falso sucesso sem executar o bootstrap: $NATIVE_TEST" >&2
+  exit 1
+fi
+if ! grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_TEST"; then
+  echo "test sem pipeline nativa não expôs a dependência do bootstrap: $NATIVE_TEST" >&2
   exit 1
 fi
 
-if grep -q 'bootstrap soyuz should not run' <<<"$NATIVE_TEST"; then
-  echo "test ainda delega ao bootstrap soyuz" >&2
-  exit 1
-fi
-
-echo "→ bootstrap-verify native test runner (S12 step 19) OK"
+echo "→ bootstrap-verify test fallback audit (S12 step 19) OK"
 
 export PATH="$FAKE_BIN_DIR:$PATH"
 

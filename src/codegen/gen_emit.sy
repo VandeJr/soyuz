@@ -1,14 +1,51 @@
 import (
     { Generator } from @codegen/generator
-    { LlvmValue, LlvmType, llvmTypeIrSyntax, llvmI8Ptr } from @codegen/llvm_types
+    { LlvmValue, LlvmType, LlvmValueInfo, LlvmValueKind, llvmVoid, llvmTypeIrSyntax, llvmI8Ptr, llvmTypesEqual } from @codegen/llvm_types
 )
 
 pub fn llvmValueReg(v: LlvmValue) -> String = "%v$(v.handle)"
 
-fn newIrValueHandle(g: Generator) -> LlvmValue {
+fn newIrValueHandle(g: Generator, ty: LlvmType, kind: LlvmValueKind, origin: String) -> LlvmValue {
     val value = LlvmValue { handle: g.valueHandleCounter + 1 }
     g.valueHandleCounter = g.valueHandleCounter + 1
+    g.valueTypes.set(value.handle, ty)
+    g.valueInfo.set(value.handle, LlvmValueInfo { ty: ty, kind: kind, origin: origin })
     return value
+}
+
+fn valueTypeKnown(g: Generator, value: LlvmValue) -> Bool {
+    for handle in g.valueTypes.keys() {
+        if handle == value.handle { return true }
+    }
+    return false
+}
+
+fn valueTypeOrVoid(g: Generator, value: LlvmValue) -> LlvmType {
+    for handle in g.valueTypes.keys() {
+        if handle == value.handle { return g.valueTypes.get(handle) }
+    }
+    return llvmVoid()
+}
+
+fn recordEmitError(g: Generator, message: String) {
+    g.irErrors.append(message)
+}
+
+fn terminateForReturn(g: Generator, origin: String) -> Bool = match g.current {
+    None => {
+        recordEmitError(g, "$(origin): nenhuma basic block corrente")
+        false
+    }
+    Some(block) => {
+        for handle in g.terminatedBlocks.keys() {
+            if handle == block.handle && g.terminatedBlocks.get(handle) == 1 {
+                recordEmitError(g, "$(origin): basic block já terminada")
+                return false
+            }
+        }
+        g.terminatedBlocks.set(block.handle, 1)
+        true
+    }
 }
 
 pub fn defaultTargetTriple() -> String = "x86_64-unknown-linux-gnu"
@@ -56,13 +93,27 @@ pub fn renderModuleIr(g: Generator, funcCount: Int) -> String {
 pub fn moduleIrHasInstruction(ir: String, instruction: String) -> Bool = ir.contains(instruction)
 
 pub fn emitRetI32Stub(g: Generator, value: Int) -> Bool {
+    if !terminateForReturn(g, "ret") { return false }
     emitIrLine(g, "  ret i32 $(value)")
     return true
 }
 
-pub fn emitRetLlvmValueStub(g: Generator, retTy: LlvmType, value: LlvmValue) -> Bool {
+fn emitKnownTypedRet(g: Generator, retTy: LlvmType, value: LlvmValue, actualTy: LlvmType) -> Bool {
+    if !llvmTypesEqual(actualTy, retTy) {
+        recordEmitError(g, "ret: tipo incompatível $(llvmTypeIrSyntax(actualTy)) -> $(llvmTypeIrSyntax(retTy))")
+        return false
+    }
+    if !terminateForReturn(g, "ret") { return false }
     emitIrLine(g, "  ret $(llvmTypeIrSyntax(retTy)) $(llvmValueReg(value))")
     return true
+}
+
+pub fn emitRetLlvmValueStub(g: Generator, retTy: LlvmType, value: LlvmValue) -> Bool {
+    if !valueTypeKnown(g, value) {
+        recordEmitError(g, "ret: valor sem tipo")
+        return false
+    }
+    return emitKnownTypedRet(g, retTy, value, valueTypeOrVoid(g, value))
 }
 
 fn renderModuleBuiltinDecls() -> String {
@@ -93,28 +144,68 @@ pub fn registerCStrGlobal(g: Generator, text: String) -> String {
 }
 
 pub fn emitCStrPtrStub(g: Generator, globalName: String, byteLen: Int) -> LlvmValue {
-    val ptr = newIrValueHandle(g)
-    g.valueTypes.set(ptr.handle, llvmI8Ptr())
+    val ptr = newIrValueHandle(g, llvmI8Ptr(), LlvmValueKind.GlobalAddress, "c-string-gep")
     emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds [$(byteLen) x i8], [$(byteLen) x i8]* @$(globalName), i64 0, i64 0")
     return ptr
 }
 
 fn emitPrintfFmtPtrStub(g: Generator) -> LlvmValue {
-    val ptr = newIrValueHandle(g)
-    g.valueTypes.set(ptr.handle, llvmI8Ptr())
+    val ptr = newIrValueHandle(g, llvmI8Ptr(), LlvmValueKind.GlobalAddress, "printf-format-gep")
     emitIrLine(g, "  $(llvmValueReg(ptr)) = getelementptr inbounds [4 x i8], [4 x i8]* @fmt_print_str, i64 0, i64 0")
     return ptr
 }
 
-pub fn emitPrintfStringStub(g: Generator, strArg: LlvmValue) -> Bool {
+fn emitKnownTypedPrintfString(g: Generator, strArg: LlvmValue, argTy: LlvmType) -> Bool {
+    if !llvmTypesEqual(argTy, llvmI8Ptr()) {
+        recordEmitError(g, "printf: esperado i8*, recebido $(llvmTypeIrSyntax(argTy))")
+        return false
+    }
     val fmt = emitPrintfFmtPtrStub(g)
     emitIrLine(g, "  call i32 (i8*, ...) @printf(i8* $(llvmValueReg(fmt)), i8* $(llvmValueReg(strArg)))")
     return true
 }
 
-pub fn emitCallVoidStub(g: Generator, funcName: String, argTy: LlvmType, arg: LlvmValue) -> Bool {
+pub fn emitPrintfStringStub(g: Generator, strArg: LlvmValue) -> Bool {
+    if !valueTypeKnown(g, strArg) {
+        recordEmitError(g, "printf: argumento sem tipo")
+        return false
+    }
+    return emitKnownTypedPrintfString(g, strArg, valueTypeOrVoid(g, strArg))
+}
+
+fn emitKnownTypedCallVoid(g: Generator, funcName: String, argTy: LlvmType, arg: LlvmValue, actualTy: LlvmType) -> Bool {
+    if !llvmTypesEqual(actualTy, argTy) {
+        recordEmitError(g, "call $(funcName): tipo incompatível")
+        return false
+    }
     emitIrLine(g, "  call void @$(funcName)($(llvmTypeIrSyntax(argTy)) $(llvmValueReg(arg)))")
     return true
+}
+
+pub fn emitCallVoidStub(g: Generator, funcName: String, argTy: LlvmType, arg: LlvmValue) -> Bool {
+    if !valueTypeKnown(g, arg) {
+        recordEmitError(g, "call $(funcName): argumento sem tipo")
+        return false
+    }
+    return emitKnownTypedCallVoid(g, funcName, argTy, arg, valueTypeOrVoid(g, arg))
+}
+
+fn emitKnownTypedCallValue(g: Generator, funcName: String, retTy: LlvmType, argTy: LlvmType, arg: LlvmValue, actualTy: LlvmType) -> Option[LlvmValue] {
+    if !llvmTypesEqual(actualTy, argTy) {
+        recordEmitError(g, "call $(funcName): tipo incompatível")
+        return None
+    }
+    val result = newIrValueHandle(g, retTy, LlvmValueKind.Temporary, "call $(funcName)")
+    emitIrLine(g, "  $(llvmValueReg(result)) = call $(llvmTypeIrSyntax(retTy)) @$(funcName)($(llvmTypeIrSyntax(argTy)) $(llvmValueReg(arg)))")
+    return Some(result)
+}
+
+pub fn emitCallValueStub(g: Generator, funcName: String, retTy: LlvmType, argTy: LlvmType, arg: LlvmValue) -> Option[LlvmValue] {
+    if !valueTypeKnown(g, arg) {
+        recordEmitError(g, "call $(funcName): argumento sem tipo")
+        return None
+    }
+    return emitKnownTypedCallValue(g, funcName, retTy, argTy, arg, valueTypeOrVoid(g, arg))
 }
 
 pub fn moduleIrHasMain(ir: String) -> Bool = ir.contains("define i32 @main()")

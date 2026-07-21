@@ -1,0 +1,7 @@
+val: Soyuz v1 x=42 pi=3.140000 ok=1
+var contador=42
+shadowing: USR-42
+inferência: 10 3.140000 1 texto
+lista criada ok
+escopo bloco: 20
+total: 60

@@ -472,7 +472,8 @@ fn appendExtensionMethod(g: Generator, typeName: String, methodName: String, llv
 
 fn extendSelfLLVMDefault(g: Generator, typeName: String) -> LlvmType {
     if structsMapHasStruct(g.structs, typeName) {
-        return llvmPointerType(g.structs.get(typeName).typ)
+        val info = g.structs.get(typeName)
+        return llvmPointerType(info.typ)
     }
     return llvmI8Ptr()
 }
@@ -561,7 +562,8 @@ pub fn enumVariantTag(g: Generator, enumName: String, variantName: String) -> Op
     val ei = g.enums.get(enumName)
     for k in ei.variants.keys() {
         if k == variantName {
-            return Some(ei.variants.get(variantName).tag)
+            val variant = ei.variants.get(variantName)
+            return Some(variant.tag)
         }
     }
     return None
@@ -569,7 +571,8 @@ pub fn enumVariantTag(g: Generator, enumName: String, variantName: String) -> Op
 
 pub fn enumVariantCount(g: Generator, enumName: String) -> Int {
     if !structsMapHasEnum(g.enums, enumName) { return 0 }
-    return g.enums.get(enumName).variants.size()
+    val info = g.enums.get(enumName)
+    return info.variants.size()
 }
 
 pub fn recordFieldIndex(g: Generator, recordName: String, fieldName: String) -> Option[Int] {
@@ -586,6 +589,9 @@ pub fn recordFieldIndex(g: Generator, recordName: String, fieldName: String) -> 
 pub fn recordFieldLlvmType(g: Generator, recordName: String, fieldName: String) -> Option[LlvmType] {
     return match recordFieldIndex(g, recordName, fieldName) {
         None => None
-        Some(idx) => llvmStructFieldAt(g.structs.get(recordName).typ, idx)
+        Some(idx) => {
+            val info = g.structs.get(recordName)
+            llvmStructFieldAt(info.typ, idx)
+        }
     }
 }

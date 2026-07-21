@@ -5,7 +5,7 @@ import (
     { Generator } from @codegen/generator
     { SyncGuardEntry } from @codegen/types
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue } from @codegen/gen_ir
+    { legacyI64Stub } from @codegen/gen_ir
 )
 
 pub fn mutexRuntimeNew() -> String {
@@ -304,21 +304,21 @@ pub fn syncRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
 
 pub fn generateMutexNewStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, mutexRuntimeNew())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.mutexNewStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateMutexLockStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, mutexRuntimeLock())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.mutexLockStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateSyncGuardReadStub(g: Generator, kind: String) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, syncGuardRuntimeGet(kind))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.syncGuardReadStub = Some(stub)
     g.syncGuardLastKind = Some(kind)
     return Some(stub)
@@ -326,7 +326,7 @@ pub fn generateSyncGuardReadStub(g: Generator, kind: String) -> Option[LlvmValue
 
 pub fn generateSyncGuardWriteStub(g: Generator, kind: String) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, syncGuardRuntimeSet(kind))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.syncGuardWriteStub = Some(stub)
     g.syncGuardLastKind = Some(kind)
     return Some(stub)
@@ -334,56 +334,56 @@ pub fn generateSyncGuardWriteStub(g: Generator, kind: String) -> Option[LlvmValu
 
 pub fn generateRwLockNewStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, rwlockRuntimeNew())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.rwLockNewStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateRwLockReadStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, rwlockRuntimeRead())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.rwLockReadStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateRwLockWriteStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, rwlockRuntimeWrite())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.rwLockWriteStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateAtomicNewStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeNew())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.atomicNewStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateAtomicStoreStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeStore())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.atomicStoreStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateAtomicLoadStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeLoad())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.atomicLoadStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateAtomicAddStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeAdd())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.atomicAddStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateAtomicCasStub(g: Generator) -> Option[LlvmValue] {
     registerSyncRuntimeSymbol(g, atomicRuntimeCas())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.atomicCasStub = Some(stub)
     return Some(stub)
 }
@@ -417,7 +417,7 @@ pub fn emitSyncGuardDrops(g: Generator, guards: List[SyncGuardEntry]) -> Bool {
     for entry in guards {
         registerSyncRuntimeSymbol(g, entry.unlockFn)
     }
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.syncGuardUnlockStub = Some(stub)
     return true
 }

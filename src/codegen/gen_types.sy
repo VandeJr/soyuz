@@ -3,7 +3,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { StructInfo, EnumInfo, VariantInfo } from @codegen/types
-    { LlvmType, llvmVoid, llvmI1, llvmI8, llvmI32, llvmI64, llvmF64, llvmI8Ptr, llvmPointerType, llvmStructType, llvmArrayType, llvmTypeName, llvmTypesEqual } from @codegen/llvm_types
+    { LlvmType, llvmVoid, llvmI1, llvmI8, llvmI32, llvmI64, llvmF64, llvmI8Ptr, llvmPointerType, llvmStructType, llvmArrayType, llvmTypeName, llvmTypeIsPointer, llvmPointerPointeeEquals, llvmTypesEqual } from @codegen/llvm_types
 )
 
 fn mapHasStructInfo(m: Map[String, StructInfo], key: String) -> Bool {
@@ -31,6 +31,11 @@ fn mapHasLlvmTypeSub(m: Map[String, LlvmType], key: String) -> Bool {
     return false
 }
 
+fn unknownLlvmType(g: Generator, origin: String) -> LlvmType {
+    g.irErrors.append("type mapping: $(origin)")
+    return llvmVoid()
+}
+
 pub fn ensureSoyuzStringLlvmTypes(g: Generator) {
     if g.soyuzStringType != None { return }
     val strTy = llvmStructType("SoyuzString", [llvmI64()])
@@ -53,22 +58,24 @@ fn mapBasicNameToLlvm(g: Generator, name: String) -> LlvmType = match name {
     "String" => mapStringLlvmType(g)
     "Char" => llvmI32()
     "Unit" => llvmVoid()
-    _ => llvmI64()
+    _ => mapNamedAggregate(g, name)
 }
 
 fn mapNamedAggregate(g: Generator, name: String) -> LlvmType {
     if mapHasStructInfo(g.structs, name) {
-        return llvmPointerType(g.structs.get(name).typ)
+        val info = g.structs.get(name)
+        return llvmPointerType(info.typ)
     }
     if mapHasEnumInfo(g.enums, name) {
-        return llvmPointerType(g.enums.get(name).typ)
+        val info = g.enums.get(name)
+        return llvmPointerType(info.typ)
     }
-    return llvmI64()
+    return unknownLlvmType(g, "tipo nomeado desconhecido $(name)")
 }
 
 fn mapTupleElements(g: Generator, elements: List[Type]) -> LlvmType {
     if elements.size() == 0 {
-        return llvmI64()
+        return llvmVoid()
     }
     var fields: List[LlvmType] = []
     for e in elements {
@@ -101,7 +108,7 @@ fn mapSpecializedType(g: Generator, base: Type, params: List[Type]) -> LlvmType 
     Enum(data) => mapSpecializedEnum(g, data.name, params)
     Class(data) => mapClassByName(g, data.name)
     Record(name, _, _) => mapSpecializedRecord(g, name, params)
-    _ => llvmI64()
+    _ => unknownLlvmType(g, "base especializada não suportada")
 }
 
 fn mapSpecializedEnum(g: Generator, name: String, params: List[Type]) -> LlvmType = match name {
@@ -135,11 +142,11 @@ pub fn mapTypeToLLVM(g: Generator, t: Type) -> LlvmType = match t {
     Tuple(elements) => mapTupleElements(g, elements)
     Specialized(base, params) => mapSpecializedType(g, base, params)
     Class(data) => mapClassByName(g, data.name)
-    TypeParam(_) => llvmI64()
+    TypeParam(name) => unknownLlvmType(g, "parâmetro de tipo não resolvido $(name)")
 }
 
 pub fn mapSoyuzTypeToLLVM(g: Generator, te: Option[TypeExpr]) -> LlvmType = match te {
-    None => llvmI64()
+    None => unknownLlvmType(g, "TypeExpr ausente")
     Some(expr) => mapSoyuzTypeExpr(g, expr)
 }
 
@@ -167,13 +174,13 @@ fn mapSoyuzGenericType(g: Generator, name: String, params: List[TypeExpr]) -> Ll
             val sub = buildSubFromTypeExprs(g, decl.generics, params)
             return llvmPointerType(getOrCreateSpecializedEnum(g, decl, sub).typ)
         }
-        return llvmI64()
+        return unknownLlvmType(g, "tipo genérico desconhecido $(name)")
     }
 }
 
 fn mapSoyuzTupleType(g: Generator, elements: List[TypeExpr]) -> LlvmType {
     if elements.size() == 0 {
-        return llvmI64()
+        return llvmVoid()
     }
     var fields: List[LlvmType] = []
     for e in elements {
@@ -211,7 +218,8 @@ fn buildSubFromTypeExprs(g: Generator, generics: List[GenericParam], params: Lis
     var i = 0
     loop {
         if i >= generics.size() || i >= params.size() { break }
-        sub.set(generics.get(i).name, mapSoyuzTypeExpr(g, params.get(i)))
+        val generic = generics.get(i)
+        sub.set(generic.name, mapSoyuzTypeExpr(g, params.get(i)))
         i = i + 1
     }
     return sub
@@ -222,7 +230,8 @@ fn buildSubFromCheckerTypes(g: Generator, generics: List[GenericParam], params: 
     var i = 0
     loop {
         if i >= generics.size() || i >= params.size() { break }
-        sub.set(generics.get(i).name, mapTypeToLLVM(g, params.get(i)))
+        val generic = generics.get(i)
+        sub.set(generic.name, mapTypeToLLVM(g, params.get(i)))
         i = i + 1
     }
     return sub
@@ -247,14 +256,9 @@ pub fn getOrCreateSpecializedRecord(g: Generator, decl: RecordDeclData, sub: Map
     return si
 }
 
-fn normalizeEnumFieldType(fieldTy: LlvmType, enumTy: LlvmType) -> LlvmType = match fieldTy.kind {
-    Pointer(elem) => {
-        if llvmTypesEqual(elem, enumTy) {
-            return llvmI8Ptr()
-        }
-        return fieldTy
-    }
-    _ => fieldTy
+fn normalizeEnumFieldType(fieldTy: LlvmType, enumTy: LlvmType) -> LlvmType {
+    if llvmTypeIsPointer(fieldTy) && llvmPointerPointeeEquals(fieldTy, enumTy) { return llvmI8Ptr() }
+    return fieldTy
 }
 
 pub fn getOrCreateSpecializedEnum(g: Generator, decl: EnumDeclData, sub: Map[String, LlvmType]) -> EnumInfo {

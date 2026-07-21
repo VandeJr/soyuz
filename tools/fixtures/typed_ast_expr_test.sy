@@ -1,0 +1,104 @@
+import (
+    { AssignExprData, BinaryExprData, BoolLiteralData, CallExprData, FuncDeclData, FuncParam, IdentifierData, IntLiteralData, Node, Pattern, TypeExpr, UnaryExprData, VarDeclData, VarKind } from @ast/ast
+    { irText, irValueHasType, newIrBuilder } from @codegen/ir_builder
+    { irCompileExpr, irCompileVarDecl } from @codegen/ir_ast_expr
+    { irCompileFunctionDecl } from @codegen/ir_ast_function
+    { irRegisterFunction, newIrExprScope } from @codegen/ir_expr
+    { irRenderFunction } from @codegen/ir_function
+    { llvmI64 } from @codegen/llvm_types
+    { Span } from @lexer/tokens
+    { assertMsg } from @soyuz/testing
+)
+
+fn astTestSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+
+fn intNode(id: Int, value: String) -> Node = Node.IntLiteral(id, astTestSpan(), IntLiteralData { value: value })
+
+fn idNode(id: Int, name: String) -> Node = Node.Identifier(id, astTestSpan(), IdentifierData { name: name })
+
+test fn astLiteralsVariablesAndAssignmentEmitRealIr() {
+    val ir = newIrBuilder()
+    val scope = newIrExprScope(ir)
+    val declaration = VarDeclData {
+        namePos: astTestSpan(), isPub: false, kind: VarKind.Var, name: "counter",
+        pattern: None, typeExpr: None, init: Some(intNode(1, "40"))
+    }
+    assertMsg(irCompileVarDecl(scope, declaration), "AST var declaration")
+    val add = Node.BinaryExpr(4, astTestSpan(), BinaryExprData {
+        operator: "+", left: [idNode(2, "counter")], right: [intNode(3, "2")]
+    })
+    val assign = Node.AssignExpr(6, astTestSpan(), AssignExprData { left: [idNode(5, "counter")], right: [add] })
+    match irCompileExpr(scope, assign) {
+        None => assertMsg(false, "AST assignment")
+        Some(value) => assertMsg(irValueHasType(ir, value, llvmI64()), "assignment result type")
+    }
+    val text = irText(ir)
+    assertMsg(text.contains("store i64 40"), "literal declaration store")
+    assertMsg(text.contains("add i64"), "AST binary instruction")
+}
+
+test fn astCallsRequireAndUseTypedSignatures() {
+    val ir = newIrBuilder()
+    val scope = newIrExprScope(ir)
+    val call = Node.CallExpr(3, astTestSpan(), CallExprData {
+        callee: [idNode(1, "add")], args: [intNode(2, "20"), intNode(3, "22")]
+    })
+    assertMsg(irCompileExpr(scope, call) == None, "unknown call has no i64 fallback")
+    assertMsg(irRegisterFunction(scope, "add", llvmI64(), [llvmI64(), llvmI64()]), "register typed signature")
+    match irCompileExpr(scope, call) {
+        None => assertMsg(false, "typed AST call")
+        Some(value) => assertMsg(irValueHasType(ir, value, llvmI64()), "typed call result")
+    }
+    assertMsg(irText(ir).contains("call i64 @add(i64 20, i64 22)"), "typed AST call instruction")
+}
+
+test fn astFunctionDeclarationsBindParamsAndReturnBody() {
+    val span = astTestSpan()
+    val intType = TypeExpr.Named(10, span, "Int")
+    val leftParam = FuncParam {
+        span: span, pattern: Pattern.Binding(11, span, "left"),
+        typeExpr: Some(intType), defaultExpr: None
+    }
+    val rightParam = FuncParam {
+        span: span, pattern: Pattern.Binding(12, span, "right"),
+        typeExpr: Some(intType), defaultExpr: None
+    }
+    val body = Node.BinaryExpr(15, span, BinaryExprData {
+        operator: "+", left: [idNode(13, "left")], right: [idNode(14, "right")]
+    })
+    val declaration = FuncDeclData {
+        namePos: span, isPub: false, name: "add", generics: [], params: [leftParam, rightParam],
+        whenGuard: None, returnType: Some(intType), body: Some(body), isExprBody: true,
+        isTest: false, isIgnore: false
+    }
+    match irCompileFunctionDecl(declaration) {
+        None => assertMsg(false, "AST function declaration")
+        Some(fnBuilder) => {
+            val text = irRenderFunction(fnBuilder)
+            assertMsg(text.contains("define i64 @add(i64 %left, i64 %right)"), "AST function signature")
+            assertMsg(text.contains("add i64"), "AST function body")
+            assertMsg(text.contains("ret i64"), "AST function return")
+        }
+    }
+}
+
+test fn astUnaryOperatorsRemainTyped() {
+    val ir = newIrBuilder()
+    val scope = newIrExprScope(ir)
+    val negative = Node.UnaryExpr(2, astTestSpan(), UnaryExprData {
+        operator: "-", operand: [intNode(1, "7")]
+    })
+    val inverted = Node.UnaryExpr(4, astTestSpan(), UnaryExprData {
+        operator: "!", operand: [Node.BoolLiteral(3, astTestSpan(), BoolLiteralData { value: true })]
+    })
+    match irCompileExpr(scope, negative) {
+        None => assertMsg(false, "typed integer negation")
+        Some(value) => assertMsg(irValueHasType(ir, value, llvmI64()), "negation remains i64")
+    }
+    match irCompileExpr(scope, inverted) {
+        None => assertMsg(false, "typed boolean not")
+        Some(_) => {}
+    }
+    assertMsg(irText(ir).contains("sub i64 0, 7"), "integer negation instruction")
+    assertMsg(irText(ir).contains("icmp eq i1 true, false"), "boolean not instruction")
+}

@@ -1,116 +1,120 @@
-// Semantic LLVM type model (IR emission uses opaque handles in sibling records).
-
-pub enum LlvmTypeKind {
-    Void
-    I1
-    I8
-    I32
-    I64
-    F64
-    I8Ptr
-    Pointer(elem: LlvmType)
-    Array(elem: LlvmType, count: Int)
-    Struct(name: String, fields: List[LlvmType])
-}
+// Flat semantic LLVM type model. Recursive LLVM shapes are represented through
+// canonical syntax and list indirection, avoiding recursive-by-value layouts in
+// the bootstrap compiler.
 
 pub record LlvmType {
-    kind: LlvmTypeKind
+    tag: Int,
+    ir: String,
+    display: String,
+    pointeeIr: String,
+    fields: List[LlvmType]
 }
 
-pub fn llvmVoid() -> LlvmType = LlvmType { kind: LlvmTypeKind.Void }
-pub fn llvmI1() -> LlvmType = LlvmType { kind: LlvmTypeKind.I1 }
-pub fn llvmI8() -> LlvmType = LlvmType { kind: LlvmTypeKind.I8 }
-pub fn llvmI32() -> LlvmType = LlvmType { kind: LlvmTypeKind.I32 }
-pub fn llvmI64() -> LlvmType = LlvmType { kind: LlvmTypeKind.I64 }
-pub fn llvmF64() -> LlvmType = LlvmType { kind: LlvmTypeKind.F64 }
-pub fn llvmI8Ptr() -> LlvmType = LlvmType { kind: LlvmTypeKind.I8Ptr }
+fn typeTagVoid() -> Int = 0
+fn typeTagI1() -> Int = 1
+fn typeTagI8() -> Int = 2
+fn typeTagI32() -> Int = 3
+fn typeTagI64() -> Int = 4
+fn typeTagF64() -> Int = 5
+fn typeTagPointer() -> Int = 6
+fn typeTagArray() -> Int = 7
+fn typeTagStruct() -> Int = 8
 
-pub fn llvmPointerType(elem: LlvmType) -> LlvmType = LlvmType { kind: LlvmTypeKind.Pointer(elem) }
+fn flatType(tag: Int, ir: String, display: String) -> LlvmType = LlvmType {
+    tag: tag,
+    ir: ir,
+    display: display,
+    pointeeIr: "",
+    fields: []
+}
 
-pub fn llvmStructType(name: String, fields: List[LlvmType]) -> LlvmType = LlvmType { kind: LlvmTypeKind.Struct(name, fields) }
+pub fn llvmVoid() -> LlvmType = flatType(typeTagVoid(), "void", "void")
+pub fn llvmI1() -> LlvmType = flatType(typeTagI1(), "i1", "i1")
+pub fn llvmI8() -> LlvmType = flatType(typeTagI8(), "i8", "i8")
+pub fn llvmI32() -> LlvmType = flatType(typeTagI32(), "i32", "i32")
+pub fn llvmI64() -> LlvmType = flatType(typeTagI64(), "i64", "i64")
+pub fn llvmF64() -> LlvmType = flatType(typeTagF64(), "double", "f64")
 
-pub fn llvmArrayType(elem: LlvmType, count: Int) -> LlvmType = LlvmType { kind: LlvmTypeKind.Array(elem, count) }
+pub fn llvmPointerType(elem: LlvmType) -> LlvmType = LlvmType {
+    tag: typeTagPointer(),
+    ir: "$(elem.ir)*",
+    display: "ptr_$(elem.display)",
+    pointeeIr: elem.ir,
+    fields: []
+}
 
-pub fn llvmStructFieldAt(t: LlvmType, index: Int) -> Option[LlvmType] = match t.kind {
-    Struct(_, fields) => {
-        if index >= fields.size() { return None }
-        return Some(fields.get(index))
+pub fn llvmI8Ptr() -> LlvmType = llvmPointerType(llvmI8())
+
+fn renderStructFields(fields: List[LlvmType]) -> String {
+    var result = ""
+    var index = 0
+    for field in fields {
+        if index > 0 { result = "$(result), " }
+        result = "$(result)$(field.ir)"
+        index = index + 1
     }
-    _ => None
+    return result
 }
 
-pub fn llvmTypesEqual(a: LlvmType, b: LlvmType) -> Bool = match (a.kind, b.kind) {
-    (Void, Void) => true
-    (I1, I1) => true
-    (I8, I8) => true
-    (I32, I32) => true
-    (I64, I64) => true
-    (F64, F64) => true
-    (I8Ptr, I8Ptr) => true
-    (Pointer(ea), Pointer(eb)) => llvmTypesEqual(ea, eb)
-    (Array(ea, ca), Array(eb, cb)) => ca == cb && llvmTypesEqual(ea, eb)
-    (Struct(na, fa), Struct(nb, fb)) => na == nb && llvmTypeFieldListsEqual(fa, fb)
-    _ => false
-}
-
-fn llvmTypeFieldListsEqual(a: List[LlvmType], b: List[LlvmType]) -> Bool {
-    if a.size() != b.size() { return false }
-    var i = 0
-    loop {
-        if i >= a.size() { break }
-        if !llvmTypesEqual(a.get(i), b.get(i)) { return false }
-        i = i + 1
+pub fn llvmStructType(name: String, fields: List[LlvmType]) -> LlvmType {
+    var ir = "%$(name)"
+    var display = name
+    if name == "" {
+        ir = "{ $(renderStructFields(fields)) }"
+        display = "tuple"
     }
-    return true
+    return LlvmType { tag: typeTagStruct(), ir: ir, display: display, pointeeIr: "", fields: fields }
 }
 
-pub fn llvmTypeName(t: LlvmType) -> String = match t.kind {
-    Void => "void"
-    I1 => "i1"
-    I8 => "i8"
-    I32 => "i32"
-    I64 => "i64"
-    F64 => "f64"
-    I8Ptr => "i8*"
-    Pointer(elem) => "ptr_$(llvmTypeName(elem))"
-    Array(elem, count) => "arr$(count)_$(llvmTypeName(elem))"
-    Struct(name, _) => name
+pub fn llvmArrayType(elem: LlvmType, count: Int) -> LlvmType = LlvmType {
+    tag: typeTagArray(),
+    ir: "[$(count) x $(elem.ir)]",
+    display: "arr$(count)_$(elem.display)",
+    pointeeIr: "",
+    fields: []
 }
 
-// LLVM IR type syntax for instruction emission (incremental; full struct defs come later).
-pub fn llvmTypeIrSyntax(t: LlvmType) -> String = match t.kind {
-    Void => "void"
-    I1 => "i1"
-    I8 => "i8"
-    I32 => "i32"
-    I64 => "i64"
-    F64 => "double"
-    I8Ptr => "i8*"
-    Pointer(elem) => "$(llvmTypeIrSyntax(elem))*"
-    Array(elem, count) => "[$(count) x $(llvmTypeIrSyntax(elem))]"
-    Struct(name, _) => "%$(name)"
+pub fn llvmStructFieldAt(t: LlvmType, index: Int) -> Option[LlvmType] {
+    if t.tag != typeTagStruct() { return None }
+    if index < 0 || index >= t.fields.size() { return None }
+    return Some(t.fields.get(index))
 }
 
-pub fn isHeapLlvmType(t: LlvmType) -> Bool = match t.kind {
-    Pointer(elem) => match elem.kind {
-        Struct(_, _) => true
-        _ => false
-    }
-    _ => false
+pub fn llvmStructHasField(t: LlvmType, index: Int) -> Bool {
+    return t.tag == typeTagStruct() && index >= 0 && index < t.fields.size()
 }
 
-pub fn llvmTypeHasDefaultZero(t: LlvmType) -> Bool = match t.kind {
-    I1 => true
-    I8 => true
-    I32 => true
-    I64 => true
-    F64 => true
-    I8Ptr => true
-    Pointer(_) => true
-    _ => false
+pub fn llvmStructFieldOrVoid(t: LlvmType, index: Int) -> LlvmType {
+    if !llvmStructHasField(t, index) { return llvmVoid() }
+    return t.fields.get(index)
 }
 
-// Opaque handles for IR values (wired in later milestones).
+pub fn llvmTypesEqual(a: LlvmType, b: LlvmType) -> Bool = a.ir == b.ir
+
+pub fn llvmTypeName(t: LlvmType) -> String = t.display
+
+pub fn llvmTypeIrSyntax(t: LlvmType) -> String = t.ir
+
+pub fn llvmTypeIsPointer(t: LlvmType) -> Bool = t.tag == typeTagPointer()
+
+pub fn llvmPointerPointeeEquals(pointerTy: LlvmType, elemTy: LlvmType) -> Bool {
+    return llvmTypeIsPointer(pointerTy) && pointerTy.pointeeIr == elemTy.ir
+}
+
+pub fn llvmTypeIsStruct(t: LlvmType) -> Bool = t.tag == typeTagStruct()
+
+pub fn isHeapLlvmType(t: LlvmType) -> Bool {
+    return llvmTypeIsPointer(t) && t.pointeeIr.startsWith("%")
+}
+
+pub fn llvmTypeHasDefaultZero(t: LlvmType) -> Bool {
+    if t.tag == typeTagI1() { return true }
+    if t.tag == typeTagI8() { return true }
+    if t.tag == typeTagI32() { return true }
+    if t.tag == typeTagI64() { return true }
+    if t.tag == typeTagF64() { return true }
+    return llvmTypeIsPointer(t)
+}
 
 pub record LlvmModule {
     handle: Int
@@ -122,6 +126,21 @@ pub record LlvmBasicBlock {
 
 pub record LlvmValue {
     handle: Int
+}
+
+pub enum LlvmValueKind {
+    Temporary
+    Alloca
+    Constant
+    Parameter
+    GlobalAddress
+    Invalid
+}
+
+pub record LlvmValueInfo {
+    ty: LlvmType,
+    kind: LlvmValueKind,
+    origin: String
 }
 
 pub record LlvmFunc {

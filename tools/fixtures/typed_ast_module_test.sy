@@ -1,0 +1,98 @@
+import (
+    { BinaryExprData, BlockStmtData, BoolLiteralData, BreakStmtData, CallExprData, ExprStmtData, FuncDeclData, FuncParam, IdentifierData, IfStmtData, IntLiteralData, LoopStmtData, Node, Pattern, ReturnStmtData, StringLiteralData, TypeExpr, UnaryExprData, WhileStmtData } from @ast/ast
+    { irCompileAstModule } from @codegen/ir_ast_module
+    { Span } from @lexer/tokens
+    { assertMsg } from @soyuz/testing
+)
+
+fn moduleSpan() -> Span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+
+fn moduleIntType(id: Int) -> TypeExpr = TypeExpr.Named(id, moduleSpan(), "Int")
+
+fn moduleParam(id: Int, name: String) -> FuncParam = FuncParam {
+    span: moduleSpan(), pattern: Pattern.Binding(id, moduleSpan(), name),
+    typeExpr: Some(moduleIntType(id + 100)), defaultExpr: None
+}
+
+fn moduleId(id: Int, name: String) -> Node = Node.Identifier(id, moduleSpan(), IdentifierData { name: name })
+
+fn moduleInt(id: Int, value: String) -> Node = Node.IntLiteral(id, moduleSpan(), IntLiteralData { value: value })
+
+fn moduleFunction(name: String, params: List[FuncParam], body: Node) -> Node = Node.FuncDecl(1, moduleSpan(), FuncDeclData {
+    namePos: moduleSpan(), isPub: false, name: name, generics: [], params: params,
+    whenGuard: None, returnType: Some(moduleIntType(200)), body: Some(body), isExprBody: true,
+    isTest: false, isIgnore: false
+})
+
+fn moduleUnitFunction(name: String, body: Node) -> Node = Node.FuncDecl(1, moduleSpan(), FuncDeclData {
+    namePos: moduleSpan(), isPub: false, name: name, generics: [], params: [],
+    whenGuard: None, returnType: None, body: Some(body), isExprBody: true,
+    isTest: false, isIgnore: false
+})
+
+test fn astModuleUsesTwoPassTypedCalls() {
+    val addBody = Node.BinaryExpr(4, moduleSpan(), BinaryExprData {
+        operator: "+", left: [moduleId(2, "a")], right: [moduleId(3, "b")]
+    })
+    val addBlock = Node.BlockStmt(16, moduleSpan(), BlockStmtData {
+        statements: [Node.ReturnStmt(15, moduleSpan(), ReturnStmtData { value: Some(addBody) })]
+    })
+    val callBody = Node.CallExpr(8, moduleSpan(), CallExprData {
+        callee: [moduleId(5, "add")], args: [moduleInt(6, "20"), moduleInt(7, "22")]
+    })
+    var functions: List[Node] = []
+    functions.append(moduleFunction("caller", [], callBody))
+    functions.append(moduleFunction("add", [moduleParam(9, "a"), moduleParam(10, "b")], addBlock))
+    val printBody = Node.CallExpr(13, moduleSpan(), CallExprData {
+        callee: [moduleId(11, "print")],
+        args: [Node.StringLiteral(12, moduleSpan(), StringLiteralData { value: "hello" })]
+    })
+    val mainBlock = Node.BlockStmt(18, moduleSpan(), BlockStmtData {
+        statements: [Node.ExprStmt(17, moduleSpan(), ExprStmtData { expr: [printBody] })]
+    })
+    functions.append(moduleUnitFunction("main", mainBlock))
+    val negative = Node.UnaryExpr(21, moduleSpan(), UnaryExprData { operator: "-", operand: [moduleId(20, "value")] })
+    val condition = Node.BinaryExpr(24, moduleSpan(), BinaryExprData {
+        operator: "<", left: [moduleId(22, "value")], right: [moduleInt(23, "0")]
+    })
+    val thenReturn = Node.ReturnStmt(25, moduleSpan(), ReturnStmtData { value: Some(negative) })
+    val elseReturn = Node.ReturnStmt(26, moduleSpan(), ReturnStmtData { value: Some(moduleId(27, "value")) })
+    val conditional = Node.IfStmt(28, moduleSpan(), IfStmtData {
+        condition: [condition], consequent: [thenReturn], alternate: Some(elseReturn)
+    })
+    val absBlock = Node.BlockStmt(29, moduleSpan(), BlockStmtData { statements: [conditional] })
+    functions.append(moduleFunction("abs", [moduleParam(30, "value")], absBlock))
+    val result = irCompileAstModule(functions)
+    assertMsg(result.success, "AST module compiles")
+    assertMsg(result.functionCount == 5, "four functions plus entrypoint emitted")
+    assertMsg(result.ir.contains("define i64 @caller()"), "caller emitted")
+    assertMsg(result.ir.contains("call i64 @add(i64 20, i64 22)"), "forward call resolved")
+    assertMsg(result.ir.contains("define i64 @add(i64 %a, i64 %b)"), "callee emitted")
+    assertMsg(result.ir.contains("define void @soyuz_main()"), "Soyuz main emitted")
+    assertMsg(result.ir.contains("define i32 @main()"), "C entrypoint emitted")
+    assertMsg(result.ir.contains("call void @soyuz_main()"), "entrypoint calls Soyuz main")
+    assertMsg(result.ir.contains("call i32 (ptr, ...) @printf"), "native print emitted")
+    assertMsg(result.ir.contains("define i64 @abs(i64 %value)"), "conditional function emitted")
+    assertMsg(result.ir.contains("br i1"), "conditional branch emitted")
+}
+
+test fn astModuleEmitsWhileLoopBreakAndContinue() {
+    val continueBody = Node.BlockStmt(301, moduleSpan(), BlockStmtData {
+        statements: [Node.ContinueStmt(302, moduleSpan())]
+    })
+    val whileNode = Node.WhileStmt(303, moduleSpan(), WhileStmtData {
+        condition: [Node.BoolLiteral(304, moduleSpan(), BoolLiteralData { value: false })],
+        body: [continueBody]
+    })
+    val breakBody = Node.BlockStmt(305, moduleSpan(), BlockStmtData {
+        statements: [Node.BreakStmt(306, moduleSpan(), BreakStmtData { value: None })]
+    })
+    val loopNode = Node.LoopStmt(307, moduleSpan(), LoopStmtData { body: [breakBody] })
+    val body = Node.BlockStmt(308, moduleSpan(), BlockStmtData { statements: [whileNode, loopNode] })
+    val result = irCompileAstModule([moduleUnitFunction("main", body)])
+    assertMsg(result.success, "while and loop compile")
+    assertMsg(result.ir.contains("while.condition:"), "while condition emitted")
+    assertMsg(result.ir.contains("br label %while.condition"), "continue targets while condition")
+    assertMsg(result.ir.contains("loop.body:"), "loop body emitted")
+    assertMsg(result.ir.contains("br label %loop.after"), "break targets loop exit")
+}

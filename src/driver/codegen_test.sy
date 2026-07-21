@@ -3,7 +3,7 @@ import (
     { newResolverWithStdlib } from @module/resolver
     { planFrontendBuild } from @driver/frontend
     { buildConfigForEntry, defaultRuntimeSrcDir } from @driver/build
-    { planCodegenBuild, codegenBuildReady, stubModuleIr, codegenPlanHasMain, codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
+    { planCodegenBuild, planTypedCodegenBuild, codegenBuildReady, stubModuleIr, codegenPlanHasMain, codegenPlanHasHelloPrint, codegenPlanIsLinkableHello } from @driver/codegen
     { planHelloCodegenBuild } from @driver/export
     { assertMsg } from @soyuz/testing
 )
@@ -35,4 +35,21 @@ test fn testPlanCodegenBuildRequiresFrontend() {
     val cfg = buildConfigForEntry(entry, "/tmp/app", false, "/tmp/build", defaultRuntimeSrcDir("/ref"))
     val codegen = planCodegenBuild(frontend, cfg)
     assertMsg(!codegenBuildReady(codegen), "frontend failure blocks codegen")
+}
+
+test fn testTypedCodegenBuildUsesCollectedAst() {
+    val entry = "/tmp/add.sy"
+    val stdlibDir = "/tmp/stdlib"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "")
+    index.fileContents.set(entry, "fn add(a: Int, b: Int) -> Int = a + b\nfn caller() -> Int = add(20, 22)\n")
+    val r = newResolverWithStdlib(entry, stdlibDir)
+    val frontend = planFrontendBuild(entry, r, index)
+    val cfg = buildConfigForEntry(entry, "/tmp/app", false, "/tmp/build", defaultRuntimeSrcDir("/ref"))
+    val codegen = planTypedCodegenBuild(frontend, cfg)
+    assertMsg(codegenBuildReady(codegen), "typed codegen plan ready")
+    assertMsg(codegen.funcCount == 2, "typed module function count")
+    assertMsg(codegen.irContent.contains("define i64 @add(i64 %a, i64 %b)"), "typed add emitted")
+    assertMsg(codegen.irContent.contains("call i64 @add(i64 20, i64 22)"), "typed caller emitted")
+    assertMsg(!codegen.irContent.contains("soyuz module ir"), "legacy renderer bypassed")
 }

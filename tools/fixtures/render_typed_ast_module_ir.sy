@@ -1,0 +1,88 @@
+import (
+    { AssignExprData, BinaryExprData, BlockStmtData, BoolLiteralData, BreakStmtData, CallExprData, ExprStmtData, ForStmtData, FuncDeclData, IdentifierData, IfStmtData, IntLiteralData, LoopStmtData, Named, Node, RangeExprData, ReturnStmtData, StringLiteralData, VarDeclData, VarKind, WhileStmtData } from @ast/ast
+    { irCompileAstModule } from @codegen/ir_ast_module
+    { Span } from @lexer/tokens
+)
+
+fn main() {
+    val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 1 }
+    val totalDecl = Node.VarDecl(20, span, VarDeclData {
+        namePos: span, isPub: false, kind: VarKind.Var, name: "total",
+        pattern: None, typeExpr: None,
+        init: Some(Node.IntLiteral(21, span, IntLiteralData { value: "0" }))
+    })
+    val range = Node.RangeExpr(22, span, RangeExprData {
+        from: [Node.IntLiteral(23, span, IntLiteralData { value: "0" })],
+        to: [Node.IntLiteral(24, span, IntLiteralData { value: "4" })],
+        inclusive: false
+    })
+    val addTotal = Node.BinaryExpr(25, span, BinaryExprData {
+        operator: "+",
+        left: [Node.Identifier(26, span, IdentifierData { name: "total" })],
+        right: [Node.Identifier(27, span, IdentifierData { name: "i" })]
+    })
+    val assignTotal = Node.AssignExpr(28, span, AssignExprData {
+        left: [Node.Identifier(29, span, IdentifierData { name: "total" })],
+        right: [addTotal]
+    })
+    val rangeLoop = Node.ForStmt(30, span, ForStmtData {
+        binding: "i", iterable: [range],
+        body: [Node.BlockStmt(31, span, BlockStmtData {
+            statements: [Node.ExprStmt(32, span, ExprStmtData { expr: [assignTotal] })]
+        })]
+    })
+    val inclusiveRange = Node.RangeExpr(41, span, RangeExprData {
+        from: [Node.IntLiteral(42, span, IntLiteralData { value: "0" })],
+        to: [Node.IntLiteral(43, span, IntLiteralData { value: "0" })],
+        inclusive: true
+    })
+    val inclusiveLoop = Node.ForStmt(44, span, ForStmtData {
+        binding: "i", iterable: [inclusiveRange],
+        body: [Node.BlockStmt(45, span, BlockStmtData {
+            statements: [Node.ExprStmt(46, span, ExprStmtData { expr: [assignTotal] })]
+        })]
+    })
+    val returnTotal = Node.ReturnStmt(33, span, ReturnStmtData {
+        value: Some(Node.Identifier(34, span, IdentifierData { name: "total" }))
+    })
+    val sumRange = Node.FuncDecl(35, span, FuncDeclData {
+        namePos: span, isPub: false, name: "sumRange", generics: [], params: [],
+        whenGuard: None, returnType: Some(Named(36, span, "Int")),
+        body: Some(Node.BlockStmt(37, span, BlockStmtData { statements: [totalDecl, rangeLoop, inclusiveLoop, returnTotal] })),
+        isExprBody: false, isTest: false, isIgnore: false
+    })
+    val printCall = Node.CallExpr(3, span, CallExprData {
+        callee: [Node.Identifier(1, span, IdentifierData { name: "print" })],
+        args: [Node.StringLiteral(2, span, StringLiteralData { value: "native hello" })]
+    })
+    val wrongCall = Node.CallExpr(6, span, CallExprData {
+        callee: [Node.Identifier(4, span, IdentifierData { name: "print" })],
+        args: [Node.StringLiteral(5, span, StringLiteralData { value: "wrong" })]
+    })
+    val sumCall = Node.CallExpr(7, span, CallExprData {
+        callee: [Node.Identifier(38, span, IdentifierData { name: "sumRange" })], args: []
+    })
+    val sumIsSix = Node.BinaryExpr(39, span, BinaryExprData {
+        operator: "==", left: [sumCall], right: [Node.IntLiteral(40, span, IntLiteralData { value: "6" })]
+    })
+    val conditional = Node.IfStmt(10, span, IfStmtData {
+        condition: [sumIsSix],
+        consequent: [Node.ExprStmt(8, span, ExprStmtData { expr: [printCall] })],
+        alternate: Some(Node.ExprStmt(9, span, ExprStmtData { expr: [wrongCall] }))
+    })
+    val neverLoop = Node.WhileStmt(12, span, WhileStmtData {
+        condition: [Node.BoolLiteral(13, span, BoolLiteralData { value: false })],
+        body: [Node.ContinueStmt(14, span)]
+    })
+    val oneShotLoop = Node.LoopStmt(15, span, LoopStmtData {
+        body: [Node.BreakStmt(16, span, BreakStmtData { value: None })]
+    })
+    val body = Node.BlockStmt(11, span, BlockStmtData { statements: [neverLoop, oneShotLoop, conditional] })
+    val mainDecl = Node.FuncDecl(4, span, FuncDeclData {
+        namePos: span, isPub: false, name: "main", generics: [], params: [],
+        whenGuard: None, returnType: None, body: Some(body), isExprBody: false,
+        isTest: false, isIgnore: false
+    })
+    val result = irCompileAstModule([sumRange, mainDecl])
+    if result.success { print(result.ir) }
+}

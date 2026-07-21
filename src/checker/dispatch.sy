@@ -81,8 +81,8 @@ pub fn checkerDispatchNode(c: Checker, node: Node) -> Type = match node {
     BreakStmt(_, _, data) => checkBreakStmt(c, data, node)
     ContinueStmt(_, _) => checkContinueStmt(c, node)
     IfStmt(_, _, data) => {
-        c.checkNode(data.condition)
-        checkBlock(c, data.consequent)
+        c.checkNode(data.condition.get(0))
+        checkBlock(c, data.consequent.get(0))
         match data.alternate {
             Some(alt) => c.checkNode(alt)
             None => UnitType
@@ -90,9 +90,9 @@ pub fn checkerDispatchNode(c: Checker, node: Node) -> Type = match node {
         UnitType
     }
     ExprStmt(_, _, data) => {
-        val t = c.checkNode(data.expr)
+        val t = c.checkNode(data.expr.get(0))
         if isTaskType(c, t) {
-            checkerWarnf(c, nodePos(data.expr), "W0300", "Task não consumida — use .await() ou .detach()")
+            checkerWarnf(c, nodePos(data.expr.get(0)), "W0300", "Task não consumida — use .await() ou .detach()")
         }
         t
     }

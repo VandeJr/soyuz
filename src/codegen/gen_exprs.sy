@@ -1,10 +1,11 @@
 import (
-    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData, RecordLiteralData, RecordLiteralField, TaskExprData, SelectExprData, SelectArm, AsyncPipeExprData } from @ast/ast
+    { Node, BinaryExprData, UnaryExprData, IdentifierData, CallExprData, NamedArgData, IndexExprData, VarDeclData, VarKind, AssignExprData, MatchExprData, MatchArm, LiteralPatternValue, MemberExprData, RecordLiteralData, RecordLiteralField, TaskExprData, SelectExprData, SelectArm, AsyncPipeExprData } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { Type, FuncType } from @checker/types
     { Generator } from @codegen/generator
     { VariantInfo } from @codegen/types
-    { LlvmType } from @codegen/llvm_types
+    { LlvmType, LlvmValue } from @codegen/llvm_types
+    { irAllocaForValue, irBinary, irBoolConstant, irCompare, irFloatConstant, irIntConstant, irLoad, irStore, irStringLiteral } from @codegen/ir_builder
     { mapTypeToLLVM } from @codegen/gen_types
     { isChannelNewCall, isChannelSendCall, isChannelRecvCall, isChannelTryRecvCall, isChannelCloseCall, isChannelIsClosedCall, extractChannelFromRecvCall, selectRecvArmCount, selectHasDefaultArm, generateChannelNewStub, generateChannelSendStub, generateChannelRecvStub, generateChannelCloseStub, generateChannelIsClosedStub, generateSelectStub } from @codegen/gen_channel
     { isMutexNewCall, isMutexLockCall, isRwLockNewCall, isRwLockReadCall, isRwLockWriteCall, isAtomicNewCall, isAtomicStoreCall, isAtomicLoadCall, isAtomicAddCall, isAtomicCasCall, syncGuardValueAccess, syncGuardUnlockFn, ownSyncGuard, generateMutexNewStub, generateMutexLockStub, generateRwLockNewStub, generateRwLockReadStub, generateRwLockWriteStub, generateAtomicNewStub, generateAtomicStoreStub, generateAtomicLoadStub, generateAtomicAddStub, generateAtomicCasStub, generateSyncGuardReadStub, generateSyncGuardWriteStub } from @codegen/gen_sync
@@ -13,7 +14,7 @@ import (
     { isTaskInstanceType, isTaskAwaitMethodCall, isTaskDetachMethodCall, isTaskCancelMethodCall, isTaskTapMethodCall, isTaskAlwaysMethodCall, isTaskHandleCancelledMethodCall, isTaskHandleProgressMethodCall, isSelectTaskAwaitCall, isTaskCallInner, isTaskPipeInner, isTaskAllCombinatorCall, isTaskFanCall, isTaskPipelineCall, isTaskHandleCurrentCall, taskFanFnArgsValid, ownTaskVar, nullifyTaskVarAfterConsume, nullifyTaskVarsAfterAll, generateTaskEnqueueStub, generateTaskPipeEnqueueStub, generateTaskDetachStub, generateTaskCancelStub, generateTaskAwaitStub, generateTaskTapStub, generateTaskAlwaysStub, generateSelectTaskBridgeStub, generateTaskAllStub, generateTaskFanStub, generateTaskPipelineStub, generateTaskHandleCurrentStub, generateTaskHandleCancelledStub, generateTaskHandleProgressStub, asyncPipeFnStepCount, asyncPipeQuestStepCount, generateAsyncPipeStub } from @codegen/gen_task
     { MatchArmPlan, buildMatchArmPlans, matchMergeBlockName, matchPatternDispatchNoSubject, matchPatternDispatchWithSubject, EnumVariantLookup, enumVariantForPatternWithSubject, enumVariantForPatternNoSubject } from @codegen/gen_patterns
     { structInfoRegistered } from @codegen/gen_structs
-    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, stubLlvmValue } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, emitBrStub, clearMatchPhiIncomings, recordMatchPhiIncoming, matchPhiIncomingCount, emitPhiStub, legacyI64Stub } from @codegen/gen_ir
     { emitPrintfStringStub, registerCStrGlobal, emitCStrPtrStub, cStringByteLen } from @codegen/gen_emit
 )
 
@@ -32,7 +33,9 @@ pub enum MaybeConst {
 
 pub record ExprResult {
     llvmType: LlvmType,
-    maybeConst: MaybeConst
+    maybeConst: MaybeConst,
+    llvmValue: LlvmValue,
+    hasLlvmValue: Bool
 }
 
 pub fn typeConstantNames() -> Map[String, String] {
@@ -142,12 +145,12 @@ pub fn evalConstBinaryOp(op: String, left: ConstValue, right: ConstValue) -> Opt
     _ => None
 }
 
-fn evalConstBinary(data: BinaryExprData) -> Option[ConstValue] = match (evalConstExpr(data.left), evalConstExpr(data.right)) {
+fn evalConstBinary(data: BinaryExprData) -> Option[ConstValue] = match (evalConstExpr(data.left.get(0)), evalConstExpr(data.right.get(0))) {
     (Some(l), Some(r)) => evalConstBinaryOp(data.operator, l, r)
     _ => None
 }
 
-fn evalConstUnary(data: UnaryExprData) -> Option[ConstValue] = match evalConstExpr(data.operand) {
+fn evalConstUnary(data: UnaryExprData) -> Option[ConstValue] = match evalConstExpr(data.operand.get(0)) {
     Some(v) => evalConstUnaryOp(data.operator, v)
     None => None
 }
@@ -185,12 +188,68 @@ pub fn checkerTypeForNode(g: Generator, id: Int) -> Option[Type] {
     return g.check.nodeTypes.get(id)
 }
 
+fn llvmValueFromConst(g: Generator, value: ConstValue) -> Option[LlvmValue] = match value {
+    IntVal(v) => Some(irIntConstant(g.nativeIr, v))
+    FloatVal(v) => Some(irFloatConstant(g.nativeIr, v))
+    BoolVal(v) => Some(irBoolConstant(g.nativeIr, v))
+    StringVal(v) => Some(irStringLiteral(g.nativeIr, v))
+    CharVal(_) => None
+}
+
+fn valueFromMaybeConst(g: Generator, mc: MaybeConst) -> Option[LlvmValue] = match mc {
+    NoConst => None
+    HasValue(value) => llvmValueFromConst(g, value)
+}
+
 fn exprResultFromNode(g: Generator, node: Node, mc: MaybeConst) -> Option[ExprResult] {
     val id = nodeId(node)
     return match checkerTypeForNode(g, id) {
         None => None
-        Some(t) => Some(ExprResult { llvmType: mapTypeToLLVM(g, t), maybeConst: mc })
+        Some(t) => {
+            var value = LlvmValue { handle: 0 }
+            var hasValue = false
+            match valueFromMaybeConst(g, mc) {
+                None => {}
+                Some(generated) => {
+                    value = generated
+                    hasValue = true
+                    if !hasValue {}
+                }
+            }
+            Some(ExprResult { llvmType: mapTypeToLLVM(g, t), maybeConst: mc, llvmValue: value, hasLlvmValue: hasValue })
+        }
     }
+}
+
+fn exprResultWithValueFromNode(g: Generator, node: Node, value: LlvmValue) -> Option[ExprResult] {
+    return match checkerTypeForNode(g, nodeId(node)) {
+        None => None
+        Some(t) => Some(ExprResult {
+            llvmType: mapTypeToLLVM(g, t),
+            maybeConst: MaybeConst.NoConst,
+            llvmValue: value,
+            hasLlvmValue: true
+        })
+    }
+}
+
+fn nativeVariableKnown(g: Generator, name: String) -> Bool {
+    for registered in g.nativeVars.keys() {
+        if registered == name { return true }
+    }
+    return false
+}
+
+fn nativeVariableIsMutable(g: Generator, name: String) -> Bool {
+    for registered in g.nativeMutableVars.keys() {
+        if registered == name { return g.nativeMutableVars.get(registered) == 1 }
+    }
+    return false
+}
+
+fn varKindIsMutable(kind: VarKind) -> Bool = match kind {
+    Val => false
+    Var => true
 }
 
 fn foldConstValues(op: String, left: MaybeConst, right: MaybeConst) -> Option[ConstValue] = match (left, right) {
@@ -203,13 +262,39 @@ fn generateLiteralExprResult(g: Generator, node: Node) -> Option[ExprResult] = m
     Some(cv) => exprResultFromNode(g, node, HasValue(cv))
 }
 
-fn combineBinaryExprResult(g: Generator, node: Node, op: String, l: ExprResult, r: ExprResult) -> Option[ExprResult] = match foldConstValues(op, l.maybeConst, r.maybeConst) {
-    None => exprResultFromNode(g, node, NoConst)
-    Some(cv) => exprResultFromNode(g, node, HasValue(cv))
+fn binaryValue(g: Generator, op: String, left: ExprResult, right: ExprResult) -> Option[LlvmValue] {
+    if !left.hasLlvmValue || !right.hasLlvmValue { return None }
+    if isComparisonBinaryOp(op) { return irCompare(g.nativeIr, op, left.llvmValue, right.llvmValue) }
+    return irBinary(g.nativeIr, op, left.llvmValue, right.llvmValue)
+}
+
+fn resultWithBinaryValue(g: Generator, ty: LlvmType, folded: MaybeConst, op: String, left: ExprResult, right: ExprResult) -> ExprResult {
+    var value = LlvmValue { handle: 0 }
+    var hasValue = false
+    match binaryValue(g, op, left, right) {
+        None => {}
+        Some(generated) => {
+            value = generated
+            hasValue = true
+            if !hasValue {}
+        }
+    }
+    return ExprResult { llvmType: ty, maybeConst: folded, llvmValue: value, hasLlvmValue: hasValue }
+}
+
+fn combineBinaryExprResult(g: Generator, node: Node, op: String, l: ExprResult, r: ExprResult) -> Option[ExprResult] {
+    val folded = match foldConstValues(op, l.maybeConst, r.maybeConst) {
+        None => MaybeConst.NoConst
+        Some(cv) => MaybeConst.HasValue(cv)
+    }
+    return match checkerTypeForNode(g, nodeId(node)) {
+        None => None
+        Some(t) => Some(resultWithBinaryValue(g, mapTypeToLLVM(g, t), folded, op, l, r))
+    }
 }
 
 fn generateBinaryExprResult(g: Generator, node: Node, data: BinaryExprData) -> Option[ExprResult] {
-    return match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
+    return match (generateExprNode(g, data.left.get(0)), generateExprNode(g, data.right.get(0))) {
         (Some(l), Some(r)) => combineBinaryExprResult(g, node, data.operator, l, r)
         _ => None
     }
@@ -221,7 +306,7 @@ fn foldUnaryConst(op: String, mc: MaybeConst) -> Option[ConstValue] = match mc {
 }
 
 fn generateUnaryExprResult(g: Generator, node: Node, data: UnaryExprData) -> Option[ExprResult] {
-    return match generateExprNode(g, data.operand) {
+    return match generateExprNode(g, data.operand.get(0)) {
         None => None
         Some(operand) => match foldUnaryConst(data.operator, operand.maybeConst) {
             None => exprResultFromNode(g, node, NoConst)
@@ -263,7 +348,7 @@ fn generatePrintCallStub(g: Generator, args: List[Node]) -> Bool {
         }
         _ => match generateExprNode(g, args.get(0)) {
             None => false
-            Some(_) => emitPrintfStringStub(g, stubLlvmValue(g))
+            Some(_) => emitPrintfStringStub(g, legacyI64Stub(g))
         }
     }
 }
@@ -280,7 +365,7 @@ fn appendEnumConstructorArgLoadStubs(g: Generator, count: Int) -> Bool {
     var i = 0
     loop {
         if i >= count { break }
-        loads.append(stubLlvmValue(g))
+        loads.append(legacyI64Stub(g))
         i = i + 1
     }
     g.constructorArgLoads = loads
@@ -289,9 +374,9 @@ fn appendEnumConstructorArgLoadStubs(g: Generator, count: Int) -> Bool {
 
 fn emitEnumConstructorExprStubs(g: Generator, vi: VariantInfo, argCount: Int) -> Bool {
     clearEnumConstructorExprStubs(g)
-    g.constructorTagLoad = Some(stubLlvmValue(g))
+    g.constructorTagLoad = Some(legacyI64Stub(g))
     if vi.payloadType != None {
-        g.constructorPayloadPtr = Some(stubLlvmValue(g))
+        g.constructorPayloadPtr = Some(legacyI64Stub(g))
     }
     return appendEnumConstructorArgLoadStubs(g, argCount)
 }
@@ -303,14 +388,15 @@ fn clearRecordLiteralStubs(g: Generator) {
 
 fn appendRecordLiteralFieldStore(g: Generator) -> Bool {
     var stores = g.recordLiteralFieldStores
-    stores.append(stubLlvmValue(g))
+    stores.append(legacyI64Stub(g))
     g.recordLiteralFieldStores = stores
     return true
 }
 
 fn generateRecordLiteralFieldsLoop(g: Generator, fields: List[RecordLiteralField], index: Int) -> Bool {
     if index >= fields.size() { return true }
-    return match generateExprNode(g, fields.get(index).value) {
+    val field = fields.get(index)
+    return match generateExprNode(g, field.value) {
         None => false
         Some(_) => {
             if !appendRecordLiteralFieldStore(g) { return false }
@@ -324,7 +410,7 @@ fn generateRecordLiteralResult(g: Generator, node: Node, data: RecordLiteralData
     if !structInfoRegistered(g, data.name) { return None }
     clearRecordLiteralStubs(g)
     if !generateRecordLiteralFieldsLoop(g, data.fields, 0) { return None }
-    g.recordLiteralAlloc = Some(stubLlvmValue(g))
+    g.recordLiteralAlloc = Some(legacyI64Stub(g))
     return exprResultFromNode(g, node, NoConst)
 }
 
@@ -384,11 +470,11 @@ fn generateMemberExprResult(g: Generator, node: Node, data: MemberExprData) -> O
 }
 
 fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Option[ExprResult] {
-    if isPrintBuiltinCall(data.callee) {
+    if isPrintBuiltinCall(data.callee.get(0)) {
         if !generatePrintCallStub(g, data.args) { return None }
         return exprResultFromNode(g, node, NoConst)
     }
-    if isArcNewCall(data.callee) {
+    if isArcNewCall(data.callee.get(0)) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateArcNewStub(g) {
@@ -396,9 +482,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isArcCloneCall(data.callee, g) {
+    if isArcCloneCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateArcCloneStub(g) {
@@ -409,9 +495,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isArcGetCall(data.callee, g) {
+    if isArcGetCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateArcGetStub(g) {
@@ -422,9 +508,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isArcRefcountCall(data.callee, g) {
+    if isArcRefcountCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateArcRefcountStub(g) {
@@ -435,7 +521,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isChannelNewCall(data.callee) {
+    if isChannelNewCall(data.callee.get(0)) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateChannelNewStub(g) {
@@ -443,7 +529,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isMutexNewCall(data.callee) {
+    if isMutexNewCall(data.callee.get(0)) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateMutexNewStub(g) {
@@ -451,7 +537,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isRwLockNewCall(data.callee) {
+    if isRwLockNewCall(data.callee.get(0)) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateRwLockNewStub(g) {
@@ -459,7 +545,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isAtomicNewCall(data.callee) {
+    if isAtomicNewCall(data.callee.get(0)) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateAtomicNewStub(g) {
@@ -467,10 +553,10 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isAtomicStoreCall(data.callee, g) {
+    if isAtomicStoreCall(data.callee.get(0), g) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateAtomicStoreStub(g) {
@@ -481,9 +567,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isAtomicLoadCall(data.callee, g) {
+    if isAtomicLoadCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateAtomicLoadStub(g) {
@@ -494,10 +580,10 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isAtomicAddCall(data.callee, g) {
+    if isAtomicAddCall(data.callee.get(0), g) {
         if data.args.size() != 1 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateAtomicAddStub(g) {
@@ -508,10 +594,10 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isAtomicCasCall(data.callee, g) {
+    if isAtomicCasCall(data.callee.get(0), g) {
         if data.args.size() != 2 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateAtomicCasStub(g) {
@@ -522,9 +608,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isRwLockReadCall(data.callee, g) {
+    if isRwLockReadCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateRwLockReadStub(g) {
@@ -535,9 +621,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isRwLockWriteCall(data.callee, g) {
+    if isRwLockWriteCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateRwLockWriteStub(g) {
@@ -548,9 +634,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isMutexLockCall(data.callee, g) {
+    if isMutexLockCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateMutexLockStub(g) {
@@ -561,9 +647,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isChannelSendCall(data.callee, g) {
+    if isChannelSendCall(data.callee.get(0), g) {
         if data.args.size() != 1 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateAllCallArgs(g, data.args) {
@@ -577,9 +663,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isChannelRecvCall(data.callee, g) {
+    if isChannelRecvCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateChannelRecvStub(g, false) {
@@ -590,9 +676,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isChannelTryRecvCall(data.callee, g) {
+    if isChannelTryRecvCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateChannelRecvStub(g, true) {
@@ -603,9 +689,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isChannelCloseCall(data.callee, g) {
+    if isChannelCloseCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateChannelCloseStub(g) {
@@ -616,9 +702,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isChannelIsClosedCall(data.callee, g) {
+    if isChannelIsClosedCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateChannelIsClosedStub(g) {
@@ -629,9 +715,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskHandleCancelledMethodCall(data.callee, g) {
+    if isTaskHandleCancelledMethodCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateTaskHandleCancelledStub(g) {
@@ -642,9 +728,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskHandleProgressMethodCall(data.callee, g) {
+    if isTaskHandleProgressMethodCall(data.callee.get(0), g) {
         if data.args.size() != 1 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => {
@@ -658,9 +744,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskTapMethodCall(data.callee, g) {
+    if isTaskTapMethodCall(data.callee.get(0), g) {
         if data.args.size() != 1 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => {
@@ -677,9 +763,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskAlwaysMethodCall(data.callee, g) {
+    if isTaskAlwaysMethodCall(data.callee.get(0), g) {
         if data.args.size() != 1 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => {
@@ -696,9 +782,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskDetachMethodCall(data.callee, g) {
+    if isTaskDetachMethodCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateTaskDetachStub(g) {
@@ -712,9 +798,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskCancelMethodCall(data.callee, g) {
+    if isTaskCancelMethodCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateTaskCancelStub(g) {
@@ -725,9 +811,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskAwaitMethodCall(data.callee, g) {
+    if isTaskAwaitMethodCall(data.callee.get(0), g) {
         if data.args.size() != 0 { return None }
-        return match data.callee {
+        return match data.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => None
                 Some(_) => match generateTaskAwaitStub(g) {
@@ -741,7 +827,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             _ => None
         }
     }
-    if isTaskAllCombinatorCall(data.callee) {
+    if isTaskAllCombinatorCall(data.callee.get(0)) {
         if data.args.size() == 0 { return None }
         if !generateAllCallArgs(g, data.args) { return None }
         return match generateTaskAllStub(g, data.args.size()) {
@@ -752,7 +838,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             }
         }
     }
-    if isTaskFanCall(data.callee) {
+    if isTaskFanCall(data.callee.get(0)) {
         if data.args.size() < 2 { return None }
         if !taskFanFnArgsValid(data.args) { return None }
         if !generateAllCallArgs(g, data.args) { return None }
@@ -761,7 +847,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isTaskPipelineCall(data.callee) {
+    if isTaskPipelineCall(data.callee.get(0)) {
         if data.args.size() < 2 { return None }
         if !taskFanFnArgsValid(data.args) { return None }
         if !generateAllCallArgs(g, data.args) { return None }
@@ -770,14 +856,14 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isTaskHandleCurrentCall(data.callee) {
+    if isTaskHandleCurrentCall(data.callee.get(0)) {
         if data.args.size() != 0 { return None }
         return match generateTaskHandleCurrentStub(g) {
             None => None
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
     }
-    if isTaskGatherCall(data.callee) {
+    if isTaskGatherCall(data.callee.get(0)) {
         if data.args.size() != 2 { return None }
         if !isTaskGatherFnArg(data.args.get(1)) { return None }
         if !generateAllCallArgs(g, data.args) { return None }
@@ -787,9 +873,9 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
         }
     }
     if !generateAllCallArgs(g, data.args) { return None }
-    return match data.callee {
+    return match data.callee.get(0) {
         Identifier(_, _, idData) => match enumVariantForPatternNoSubject(g, idData.name) {
-            None => match generateExprNode(g, data.callee) {
+            None => match generateExprNode(g, data.callee.get(0)) {
                 None => None
                 Some(_) => exprResultFromNode(g, node, NoConst)
             }
@@ -799,7 +885,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
             }
         }
         MemberExpr(_, _, memberData) => match enumVariantLookupFromMember(g, memberData.object, memberData.property) {
-            None => match generateExprNode(g, data.callee) {
+            None => match generateExprNode(g, data.callee.get(0)) {
                 None => None
                 Some(_) => exprResultFromNode(g, node, NoConst)
             }
@@ -808,7 +894,7 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
                 exprResultFromNode(g, node, NoConst)
             }
         }
-        _ => match generateExprNode(g, data.callee) {
+        _ => match generateExprNode(g, data.callee.get(0)) {
             None => None
             Some(_) => exprResultFromNode(g, node, NoConst)
         }
@@ -816,7 +902,10 @@ fn generateCallExprResult(g: Generator, node: Node, data: CallExprData) -> Optio
 }
 
 fn generateIdentifierExprResult(g: Generator, node: Node, data: IdentifierData) -> Option[ExprResult] = match enumVariantLookupFromFuncTypeConstructor(g, nodeId(node), data.name) {
-    None => exprResultFromNode(g, node, NoConst)
+    None => {
+        if !nativeVariableKnown(g, data.name) { return exprResultFromNode(g, node, NoConst) }
+        exprResultWithValueFromNode(g, node, irLoad(g.nativeIr, g.nativeVars.get(data.name)))
+    }
     Some(lookup) => {
         if !emitEnumConstructorExprStubs(g, lookup.variantInfo, 0) { return None }
         exprResultFromNode(g, node, NoConst)
@@ -830,6 +919,23 @@ fn generateIndexExprResult(g: Generator, node: Node, data: IndexExprData) -> Opt
     }
 }
 
+fn bindNativeVariable(g: Generator, data: VarDeclData, initial: ExprResult) -> Bool {
+    if !initial.hasLlvmValue { return true }
+    return match irAllocaForValue(g.nativeIr, initial.llvmValue) {
+        None => false
+        Some(slot) => {
+            if !irStore(g.nativeIr, initial.llvmValue, slot) { return false }
+            g.nativeVars.set(data.name, slot)
+            if varKindIsMutable(data.kind) {
+                g.nativeMutableVars.set(data.name, 1)
+            } else {
+                g.nativeMutableVars.set(data.name, 0)
+            }
+            true
+        }
+    }
+}
+
 fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[ExprResult] {
     match data.pattern {
         Some(_) => None
@@ -837,7 +943,8 @@ fn generateVarDeclResult(g: Generator, node: Node, data: VarDeclData) -> Option[
             None => exprResultFromNode(g, node, NoConst)
             Some(init) => match generateExprNode(g, init) {
                 None => None
-                Some(_) => {
+                Some(initial) => {
+                    if !bindNativeVariable(g, data, initial) { return None }
                     match checkerTypeForNode(g, nodeId(node)) {
                         None => exprResultFromNode(g, node, NoConst)
                         Some(t) => {
@@ -873,11 +980,22 @@ fn tryGenerateSyncGuardWriteAssign(g: Generator, node: Node, memberData: MemberE
 }
 
 fn generateAssignExprResult(g: Generator, node: Node, data: AssignExprData) -> Option[ExprResult] {
-    return match tryGenerateSyncGuardWriteAssignFromLeft(g, node, data.left, data.right) {
+    return match tryGenerateSyncGuardWriteAssignFromLeft(g, node, data.left.get(0), data.right.get(0)) {
         Some(r) => Some(r)
-        None => match (generateExprNode(g, data.left), generateExprNode(g, data.right)) {
-            (Some(_), Some(_)) => exprResultFromNode(g, node, NoConst)
-            _ => None
+        None => match data.left.get(0) {
+            Identifier(_, _, identifier) => match generateExprNode(g, data.right.get(0)) {
+                None => None
+                Some(right) => {
+                    if !nativeVariableKnown(g, identifier.name) || !nativeVariableIsMutable(g, identifier.name) { return None }
+                    if !right.hasLlvmValue { return None }
+                    if !irStore(g.nativeIr, right.llvmValue, g.nativeVars.get(identifier.name)) { return None }
+                    exprResultWithValueFromNode(g, node, right.llvmValue)
+                }
+            }
+            _ => match (generateExprNode(g, data.left.get(0)), generateExprNode(g, data.right.get(0))) {
+                (Some(_), Some(_)) => exprResultFromNode(g, node, NoConst)
+                _ => None
+            }
         }
     }
 }
@@ -890,7 +1008,7 @@ fn advanceMatchArmAfterPattern(g: Generator, plan: MatchArmPlan) -> Bool = match
     Some(expr) => match generateExprNode(g, expr) {
         None => false
         Some(_) => {
-            g.matchGuardCondValue = Some(stubLlvmValue(g))
+            g.matchGuardCondValue = Some(legacyI64Stub(g))
             emitCondBrStub(g, plan.bodyBlockName, plan.nextBlockName)
         }
     }
@@ -1006,7 +1124,7 @@ fn generateTaskExprResult(g: Generator, node: Node, data: TaskExprData) -> Optio
 
 fn generateSelectTaskAwaitArm(g: Generator, arm: SelectArm, awaitCall: Node) -> Bool {
     match awaitCall {
-        CallExpr(_, _, callData) => match callData.callee {
+        CallExpr(_, _, callData) => match callData.callee.get(0) {
             MemberExpr(_, _, memberData) => match generateExprNode(g, memberData.object) {
                 None => return false
                 Some(_) => {

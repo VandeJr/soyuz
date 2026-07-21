@@ -1,0 +1,82 @@
+import (
+    { builderErrorCount, builderSucceeded, irAlloca, irBranch, irCallOne, irCondBranch, irCurrentBlockTerminated, irLoad, irNewBlock, irPhi, irReturn, irSetCurrentBlock, irStore, irStructGep, irText, irTypedValue, irValueHasType, newIrBuilder } from @codegen/ir_builder
+    { LlvmValue, llvmF64, llvmI1, llvmI64, llvmPointerType, llvmStructType, llvmVoid } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+test fn typedStoreLoadAndGep() {
+    val ir = newIrBuilder()
+    val slot = irAlloca(ir, llvmI64())
+    val value = irTypedValue(ir, llvmI64(), "test-value")
+    assertMsg(irStore(ir, value, slot), "typed store")
+    val loaded = irLoad(ir, slot)
+    assertMsg(irValueHasType(ir, loaded, llvmI64()), "load result type")
+
+    val pairTy = llvmStructType("Pair", [llvmI64(), llvmF64()])
+    val pair = irAlloca(ir, pairTy)
+    match irStructGep(ir, pair, pairTy, 1) {
+        None => assertMsg(false, "struct gep")
+        Some(field) => assertMsg(irValueHasType(ir, field, llvmPointerType(llvmF64())), "gep field type")
+    }
+    assertMsg(irText(ir).contains("store i64"), "store instruction")
+    assertMsg(irText(ir).contains("load i64"), "load instruction")
+    assertMsg(irText(ir).contains("getelementptr inbounds %Pair"), "gep instruction")
+}
+
+test fn rejectsUnknownAndIncompatibleValues() {
+    val ir = newIrBuilder()
+    val slot = irAlloca(ir, llvmI64())
+    assertMsg(!irStore(ir, irTypedValue(ir, llvmF64(), "wrong"), slot), "mismatched store rejected")
+    assertMsg(!irStore(ir, LlvmValue { handle: 999 }, slot), "unknown store rejected")
+    val invalid = irLoad(ir, irTypedValue(ir, llvmI64(), "not-pointer"))
+    assertMsg(irValueHasType(ir, invalid, llvmVoid()), "invalid load is not i64")
+    assertMsg(builderErrorCount(ir) == 3, "all invariant violations recorded")
+    assertMsg(!builderSucceeded(ir), "builder reports failure")
+}
+
+test fn typedCallsBranchesPhiAndReturns() {
+    val ir = newIrBuilder()
+    val entry = irNewBlock(ir, "entry")
+    val thenBlock = irNewBlock(ir, "then")
+    val elseBlock = irNewBlock(ir, "else")
+    val doneBlock = irNewBlock(ir, "done")
+    assertMsg(irSetCurrentBlock(ir, entry), "set entry")
+    val condition = irTypedValue(ir, llvmI1(), "condition")
+    assertMsg(irCondBranch(ir, condition, thenBlock, elseBlock), "typed cond branch")
+    assertMsg(irCurrentBlockTerminated(ir), "source terminated")
+
+    val left = irTypedValue(ir, llvmI64(), "left")
+    val right = irTypedValue(ir, llvmI64(), "right")
+    assertMsg(irSetCurrentBlock(ir, thenBlock), "set then")
+    assertMsg(irBranch(ir, doneBlock), "then branch")
+    assertMsg(irSetCurrentBlock(ir, elseBlock), "set else")
+    assertMsg(irBranch(ir, doneBlock), "else branch")
+    assertMsg(irSetCurrentBlock(ir, doneBlock), "set done")
+    match irPhi(ir, [left, right], [thenBlock, elseBlock]) {
+        None => assertMsg(false, "compatible phi")
+        Some(phi) => {
+            match irCallOne(ir, "identity", llvmI64(), llvmI64(), phi) {
+                None => assertMsg(false, "typed call")
+                Some(callResult) => assertMsg(irReturn(ir, llvmI64(), callResult), "typed return")
+            }
+        }
+    }
+    assertMsg(!irReturn(ir, llvmI64(), left), "duplicate terminator rejected")
+    val text = irText(ir)
+    assertMsg(text.contains("br i1"), "conditional branch instruction")
+    assertMsg(text.contains("phi i64"), "phi instruction")
+    assertMsg(text.contains("call i64 @identity"), "call instruction")
+    assertMsg(text.contains("ret i64"), "return instruction")
+}
+
+test fn repeatedBlockNamesAreMadeUnique() {
+    val ir = newIrBuilder()
+    val first = irNewBlock(ir, "loop.body")
+    val second = irNewBlock(ir, "loop.body")
+    assertMsg(irSetCurrentBlock(ir, first), "first repeated block")
+    assertMsg(irBranch(ir, second), "branch to suffixed block")
+    assertMsg(irSetCurrentBlock(ir, second), "second repeated block")
+    assertMsg(irText(ir).contains("loop.body:"), "original block name retained")
+    assertMsg(irText(ir).contains("loop.body.2:"), "repeated block gets suffix")
+    assertMsg(irText(ir).contains("br label %loop.body.2"), "branch uses unique name")
+}

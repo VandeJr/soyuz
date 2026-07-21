@@ -1,0 +1,154 @@
+import (
+    { AssignExprData, BinaryExprData, CallExprData, Node, UnaryExprData, VarDeclData, VarKind } from @ast/ast
+    { irBinary, irBoolConstant, irCall, irCallVoid, irCompare, irFloatConstant, irIntConstant, irPrintString, irStringLiteral, irUnitValue, irValueHasType } from @codegen/ir_builder
+    { IrExprScope, irAssignVariable, irDeclareVariable, irFunctionParamTypes, irFunctionReturnType, irReadVariable } from @codegen/ir_expr
+    { LlvmValue, llvmF64, llvmI1, llvmI64, llvmTypesEqual, llvmVoid } from @codegen/llvm_types
+)
+
+fn astDigitValue(text: String) -> Int {
+    if text == "0" { return 0 }
+    if text == "1" { return 1 }
+    if text == "2" { return 2 }
+    if text == "3" { return 3 }
+    if text == "4" { return 4 }
+    if text == "5" { return 5 }
+    if text == "6" { return 6 }
+    if text == "7" { return 7 }
+    if text == "8" { return 8 }
+    if text == "9" { return 9 }
+    return -1
+}
+
+fn parseAstPositiveInt(text: String, index: Int, value: Int) -> Option[Int] {
+    if index >= text.len() { return Some(value) }
+    val digit = astDigitValue(text.substring(index, index + 1))
+    if digit < 0 { return None }
+    return parseAstPositiveInt(text, index + 1, value * 10 + digit)
+}
+
+fn parseAstInt(text: String) -> Option[Int] {
+    if text.len() == 0 { return None }
+    if text.substring(0, 1) == "-" {
+        if text.len() == 1 { return None }
+        return match parseAstPositiveInt(text, 1, 0) {
+            None => None
+            Some(value) => Some(-value)
+        }
+    }
+    return parseAstPositiveInt(text, 0, 0)
+}
+
+fn isComparisonOperator(op: String) -> Bool {
+    if op == "==" || op == "!=" { return true }
+    if op == "<" || op == "<=" { return true }
+    return op == ">" || op == ">="
+}
+
+fn compileBinary(scope: IrExprScope, data: BinaryExprData) -> Option[LlvmValue] {
+    return match (irCompileExpr(scope, data.left.get(0)), irCompileExpr(scope, data.right.get(0))) {
+        (Some(left), Some(right)) => {
+            if isComparisonOperator(data.operator) { return irCompare(scope.builder, data.operator, left, right) }
+            irBinary(scope.builder, data.operator, left, right)
+        }
+        _ => None
+    }
+}
+
+fn compileAssign(scope: IrExprScope, data: AssignExprData) -> Option[LlvmValue] = match data.left.get(0) {
+    Identifier(_, _, identifier) => match irCompileExpr(scope, data.right.get(0)) {
+        None => None
+        Some(value) => {
+            if !irAssignVariable(scope, identifier.name, value) { return None }
+            Some(value)
+        }
+    }
+    _ => None
+}
+
+fn compileUnaryValue(scope: IrExprScope, operator: String, value: LlvmValue) -> Option[LlvmValue] {
+    if operator == "-" && irValueHasType(scope.builder, value, llvmI64()) {
+        return irBinary(scope.builder, "-", irIntConstant(scope.builder, 0), value)
+    }
+    if operator == "-" && irValueHasType(scope.builder, value, llvmF64()) {
+        return irBinary(scope.builder, "-", irFloatConstant(scope.builder, "0.0"), value)
+    }
+    if operator == "!" && irValueHasType(scope.builder, value, llvmI1()) {
+        return irCompare(scope.builder, "==", value, irBoolConstant(scope.builder, false))
+    }
+    if operator == "~" && irValueHasType(scope.builder, value, llvmI64()) {
+        return irBinary(scope.builder, "^", value, irIntConstant(scope.builder, -1))
+    }
+    return None
+}
+
+fn compileUnary(scope: IrExprScope, data: UnaryExprData) -> Option[LlvmValue] = match irCompileExpr(scope, data.operand.get(0)) {
+    None => None
+    Some(value) => compileUnaryValue(scope, data.operator, value)
+}
+
+fn compileCallArgs(scope: IrExprScope, args: List[Node]) -> Option[List[LlvmValue]] {
+    var values: List[LlvmValue] = []
+    var failed = false
+    for arg in args {
+        match irCompileExpr(scope, arg) {
+            None => { failed = true; 0 }
+            Some(value) => { values.append(value); 0 }
+        }
+    }
+    if failed { return None }
+    return Some(values)
+}
+
+fn compileCall(scope: IrExprScope, data: CallExprData) -> Option[LlvmValue] = match data.callee.get(0) {
+    Identifier(_, _, identifier) => {
+        if identifier.name == "print" {
+            return match compileCallArgs(scope, data.args) {
+                Some(args) if args.size() == 1 => {
+                    if !irPrintString(scope.builder, args.get(0)) { return None }
+                    Some(irUnitValue(scope.builder))
+                }
+                _ => None
+            }
+        }
+        return match (irFunctionReturnType(scope, identifier.name), irFunctionParamTypes(scope, identifier.name), compileCallArgs(scope, data.args)) {
+            (Some(returnType), Some(paramTypes), Some(args)) => {
+                if llvmTypesEqual(returnType, llvmVoid()) {
+                    if !irCallVoid(scope.builder, identifier.name, paramTypes, args) { return None }
+                    return Some(irUnitValue(scope.builder))
+                }
+                irCall(scope.builder, identifier.name, returnType, paramTypes, args)
+            }
+            _ => None
+        }
+    }
+    _ => None
+}
+
+pub fn irCompileExpr(scope: IrExprScope, node: Node) -> Option[LlvmValue] = match node {
+    IntLiteral(_, _, data) => match parseAstInt(data.value) {
+        None => None
+        Some(value) => Some(irIntConstant(scope.builder, value))
+    }
+    FloatLiteral(_, _, data) => Some(irFloatConstant(scope.builder, data.value))
+    BoolLiteral(_, _, data) => Some(irBoolConstant(scope.builder, data.value))
+    StringLiteral(_, _, data) => Some(irStringLiteral(scope.builder, data.value))
+    Identifier(_, _, data) => irReadVariable(scope, data.name)
+    BinaryExpr(_, _, data) => compileBinary(scope, data)
+    UnaryExpr(_, _, data) => compileUnary(scope, data)
+    AssignExpr(_, _, data) => compileAssign(scope, data)
+    CallExpr(_, _, data) => compileCall(scope, data)
+    _ => None
+}
+
+fn varIsMutable(kind: VarKind) -> Bool = match kind {
+    Val => false
+    Var => true
+}
+
+pub fn irCompileVarDecl(scope: IrExprScope, data: VarDeclData) -> Bool = match data.init {
+    None => false
+    Some(initializer) => match irCompileExpr(scope, initializer) {
+        None => false
+        Some(value) => irDeclareVariable(scope, data.name, value, varIsMutable(data.kind))
+    }
+}

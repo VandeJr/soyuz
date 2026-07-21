@@ -3,7 +3,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue, newBlock, setCurrentBlock, emitBrToBlockStub, blockNameRegistered } from @codegen/gen_ir
+    { legacyI64Stub, newBlock, setCurrentBlock, emitBrToBlockStub, blockNameRegistered } from @codegen/gen_ir
 )
 
 pub fn taskRuntimeEnqueue() -> String {
@@ -127,8 +127,8 @@ fn emitGatherSpawnLoopStubs(g: Generator) -> Bool {
     val spawnAfter = newBlock(g, gatherSpawnAfterBlockName())
     if !emitBrToBlockStub(g, spawnCond) { return false }
     setCurrentBlock(g, spawnBody)
-    g.gatherEnqueueStub = Some(stubLlvmValue(g))
-    g.gatherListAppendStub = Some(stubLlvmValue(g))
+    g.gatherEnqueueStub = Some(legacyI64Stub(g))
+    g.gatherListAppendStub = Some(legacyI64Stub(g))
     if !emitBrToBlockStub(g, spawnIncr) { return false }
     setCurrentBlock(g, spawnAfter)
     return true
@@ -141,8 +141,8 @@ fn emitGatherAwaitLoopStubs(g: Generator) -> Bool {
     val awaitAfter = newBlock(g, gatherAwaitAfterBlockName())
     if !emitBrToBlockStub(g, awaitCond) { return false }
     setCurrentBlock(g, awaitBody)
-    g.gatherAwaitStub = Some(stubLlvmValue(g))
-    g.gatherListGetStub = Some(stubLlvmValue(g))
+    g.gatherAwaitStub = Some(legacyI64Stub(g))
+    g.gatherListGetStub = Some(legacyI64Stub(g))
     if !emitBrToBlockStub(g, awaitIncr) { return false }
     setCurrentBlock(g, awaitAfter)
     return true
@@ -151,11 +151,11 @@ fn emitGatherAwaitLoopStubs(g: Generator) -> Bool {
 pub fn generateTaskGatherStub(g: Generator) -> Option[LlvmValue] {
     registerGatherRuntimeSymbols(g)
     g.gatherTaskWrapperName = Some(nextTaskWrapperName(g))
-    g.gatherHandlesListStub = Some(stubLlvmValue(g))
-    g.gatherResultsListStub = Some(stubLlvmValue(g))
+    g.gatherHandlesListStub = Some(legacyI64Stub(g))
+    g.gatherResultsListStub = Some(legacyI64Stub(g))
     if !emitGatherSpawnLoopStubs(g) { return None }
     if !emitGatherAwaitLoopStubs(g) { return None }
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.gatherResultStub = Some(stub)
     return Some(stub)
 }

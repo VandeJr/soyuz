@@ -1,0 +1,108 @@
+import (
+    { irBinary, irBoolConstant, irCall, irCallVoid, irCallWithDefaults, irCompare, irFloatConstant, irIntConstant, irNewBlock, irPrintString, irPrintf, irReturn, irReturnVoid, irSetCurrentBlock, irStringLiteral, irText, irValueHasType, irVariantSymbol, newIrBuilder } from @codegen/ir_builder
+    { irAssignVariable, irBinaryVariables, irDeclareVariable, irReadVariable, newIrExprScope } from @codegen/ir_expr
+    { irFunctionParam, irRenderFunction, newIrFunction } from @codegen/ir_function
+    { llvmF64, llvmI1, llvmI64, llvmVoid } from @codegen/llvm_types
+    { assertMsg } from @soyuz/testing
+)
+
+test fn scalarLiteralsAndBinaryOperators() {
+    val ir = newIrBuilder()
+    val left = irIntConstant(ir, 10)
+    val right = irIntConstant(ir, 3)
+    val truth = irBoolConstant(ir, true)
+    val floatLeft = irFloatConstant(ir, "3.0")
+    val floatRight = irFloatConstant(ir, "2.0")
+    assertMsg(irValueHasType(ir, left, llvmI64()), "int literal type")
+    assertMsg(irValueHasType(ir, truth, llvmI1()), "bool literal type")
+    match irBinary(ir, "+", left, right) {
+        None => assertMsg(false, "integer addition")
+        Some(sum) => assertMsg(irValueHasType(ir, sum, llvmI64()), "addition type")
+    }
+    match irBinary(ir, "*", floatLeft, floatRight) {
+        None => assertMsg(false, "float multiplication")
+        Some(product) => assertMsg(irValueHasType(ir, product, llvmF64()), "float product type")
+    }
+    match irCompare(ir, ">", left, right) {
+        None => assertMsg(false, "integer comparison")
+        Some(comparison) => assertMsg(irValueHasType(ir, comparison, llvmI1()), "comparison type")
+    }
+    assertMsg(irText(ir).contains("add i64 10, 3"), "real integer add")
+    assertMsg(irText(ir).contains("fmul double 3.0, 2.0"), "real float multiply")
+    assertMsg(irText(ir).contains("icmp sgt i64 10, 3"), "real integer comparison")
+}
+
+test fn functionsParametersCallsAndUnitReturn() {
+    val addFn = newIrFunction("add", llvmI64(), ["a", "b"], [llvmI64(), llvmI64()])
+    val a = irFunctionParam(addFn, 0)
+    val b = irFunctionParam(addFn, 1)
+    match (a, b) {
+        (Some(left), Some(right)) => match irBinary(addFn.builder, "+", left, right) {
+            None => assertMsg(false, "function body addition")
+            Some(sum) => assertMsg(irReturn(addFn.builder, llvmI64(), sum), "function return")
+        }
+        _ => assertMsg(false, "function parameters")
+    }
+    val addText = irRenderFunction(addFn)
+    assertMsg(addText.contains("define i64 @add(i64 %a, i64 %b)"), "function signature")
+    assertMsg(addText.contains("add i64 %a, %b"), "function body")
+
+    val caller = newIrFunction("caller", llvmI64(), [], [])
+    match irCall(caller.builder, "add", llvmI64(), [llvmI64(), llvmI64()], [irIntConstant(caller.builder, 2), irIntConstant(caller.builder, 5)]) {
+        None => assertMsg(false, "two argument call")
+        Some(result) => assertMsg(irReturn(caller.builder, llvmI64(), result), "caller return")
+    }
+    assertMsg(irRenderFunction(caller).contains("call i64 @add(i64 2, i64 5)"), "typed call arguments")
+
+    val logFn = newIrFunction("log", llvmVoid(), [], [])
+    assertMsg(irCallVoid(logFn.builder, "flush", [], []), "void call")
+    assertMsg(irReturnVoid(logFn.builder), "unit return")
+    assertMsg(irRenderFunction(logFn).contains("ret void"), "void return emitted")
+}
+
+test fn stringsAndPrintEmission() {
+    val printFn = newIrFunction("say_hello", llvmVoid(), [], [])
+    val hello = irStringLiteral(printFn.builder, "hello")
+    assertMsg(irPrintString(printFn.builder, hello), "print string")
+    assertMsg(irReturnVoid(printFn.builder), "string function unit return")
+    val text = irRenderFunction(printFn)
+    assertMsg(text.contains("getelementptr inbounds [6 x i8]"), "string pointer")
+    assertMsg(text.contains("call i32 (ptr, ...) @printf"), "printf call")
+}
+
+test fn interpolationDefaultsAndVariantSymbols() {
+    val fnBuilder = newIrFunction("use_defaults", llvmI64(), [], [])
+    val explicit = irIntConstant(fnBuilder.builder, 10)
+    val defaultSecond = irIntConstant(fnBuilder.builder, 32)
+    match irCallWithDefaults(fnBuilder.builder, "add", llvmI64(), [llvmI64(), llvmI64()], [explicit], [explicit, defaultSecond]) {
+        None => assertMsg(false, "default argument call")
+        Some(result) => {
+            assertMsg(irPrintf(fnBuilder.builder, "value=%ld", [llvmI64()], [result]), "integer interpolation printf")
+            assertMsg(irReturn(fnBuilder.builder, llvmI64(), result), "default caller return")
+        }
+    }
+    assertMsg(irText(fnBuilder.builder).contains("call i64 @add(i64 10, i64 32)"), "default inserted")
+    assertMsg(irVariantSymbol("factorial", 2) == "factorial.variant.2", "stable variant symbol")
+}
+
+test fn variablesAssignmentAndMutability() {
+    val ir = newIrBuilder()
+    val entry = irNewBlock(ir, "entry")
+    assertMsg(irSetCurrentBlock(ir, entry), "entry block")
+    val scope = newIrExprScope(ir)
+    assertMsg(irDeclareVariable(scope, "counter", irIntConstant(ir, 1), true), "mutable declaration")
+    assertMsg(irDeclareVariable(scope, "step", irIntConstant(ir, 2), false), "immutable declaration")
+    match irBinaryVariables(scope, "+", "counter", "step") {
+        None => assertMsg(false, "binary identifiers")
+        Some(sum) => assertMsg(irAssignVariable(scope, "counter", sum), "mutable assignment")
+    }
+    assertMsg(!irAssignVariable(scope, "step", irIntConstant(ir, 4)), "immutable assignment rejected")
+    match irReadVariable(scope, "counter") {
+        None => assertMsg(false, "counter lookup")
+        Some(value) => assertMsg(irValueHasType(ir, value, llvmI64()), "identifier load type")
+    }
+    val text = irText(ir)
+    assertMsg(text.contains("store i64 1"), "literal stored")
+    assertMsg(text.contains("load i64"), "identifier loads")
+    assertMsg(text.contains("add i64"), "assignment expression")
+}

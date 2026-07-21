@@ -100,7 +100,9 @@ pub fn nativeCompileNewOutputFromArgv(argv: List[String]) -> String {
     return plan.successMessage
 }
 
-pub fn standaloneCliNativeTestEnabled() -> Bool = true
+// A native test command must execute the compiled test binary. Until that
+// pipeline exists, keep this disabled so the CLI cannot report a false pass.
+pub fn standaloneCliNativeTestEnabled() -> Bool = false
 
 pub fn nativeCompileTestRunnerArgv() -> List[String] = defaultTestRunnerArgv()
 

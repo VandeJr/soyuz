@@ -25,7 +25,7 @@ extend Parser {
             _ => {
                 val expr = self.parseExpression(0)
                 self.consume(TokenType.SEMICOLON)
-                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: expr }))
+                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: [expr] }))
             }
         }
     }
@@ -87,7 +87,7 @@ extend Parser {
                 alternate = Some(self.parseBlock())
             }
         }
-        return Node.IfStmt(self.allocNodeId(), span, IfStmtData { condition: condition, consequent: consequent, alternate: alternate })
+        return Node.IfStmt(self.allocNodeId(), span, IfStmtData { condition: [condition], consequent: [consequent], alternate: alternate })
     }
 
     fn parseFor(self) -> Node {
@@ -98,26 +98,26 @@ extend Parser {
             self.expect(TokenType.IN)
             val iterable = self.parseExpression(0)
             val body = self.parseBlock()
-            return Node.ForTaskStmt(self.allocNodeId(), span, ForStmtData { binding: binding, iterable: iterable, body: body })
+            return Node.ForTaskStmt(self.allocNodeId(), span, ForStmtData { binding: binding, iterable: [iterable], body: [body] })
         }
         val binding = self.expect(TokenType.IDENT).lexeme
         self.expect(TokenType.IN)
         val iterable = self.parseExpression(0)
         val body = self.parseBlock()
-        return Node.ForStmt(self.allocNodeId(), span, ForStmtData { binding: binding, iterable: iterable, body: body })
+        return Node.ForStmt(self.allocNodeId(), span, ForStmtData { binding: binding, iterable: [iterable], body: [body] })
     }
 
     fn parseWhile(self) -> Node {
         val span = self.advance().span
         val condition = self.parseExpression(0)
         val body = self.parseBlock()
-        return Node.WhileStmt(self.allocNodeId(), span, WhileStmtData { condition: condition, body: body })
+        return Node.WhileStmt(self.allocNodeId(), span, WhileStmtData { condition: [condition], body: [body] })
     }
 
     fn parseLoop(self) -> Node {
         val span = self.advance().span
         val body = self.parseBlock()
-        return Node.LoopStmt(self.allocNodeId(), span, LoopStmtData { body: body })
+        return Node.LoopStmt(self.allocNodeId(), span, LoopStmtData { body: [body] })
     }
 
     fn parseSelectExpr(self) -> Node {

@@ -1,0 +1,9 @@
+pipe: 11
+map ok
+filter ok
+reduce: 15
+map fn nomeada ok
+parcial: 12
+multiline chain: 120
+pipequest ok: 10
+pipequest err: negativo

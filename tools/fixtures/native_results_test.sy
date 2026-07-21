@@ -1,0 +1,22 @@
+import (
+    { NativeRunResult, NativeTestResult, nativeBuildFailure, nativeBuildSuccess, nativeRunSucceeded, nativeTestsSucceeded } from @driver/native_results
+    { assertMsg } from @soyuz/testing
+)
+
+test fn structuredBuildAndRunResults() {
+    val build = nativeBuildSuccess("ok", "/tmp/app")
+    val run = NativeRunResult { build: build, exitCode: 0, stdout: "hello\n", stderr: "" }
+    assertMsg(build.success, "build success")
+    assertMsg(build.artifactPath == "/tmp/app", "artifact path")
+    assertMsg(nativeRunSucceeded(run), "run success")
+    val failed = nativeBuildFailure(["link falhou"])
+    assertMsg(!failed.success, "build failure")
+    assertMsg(failed.diagnostics.size() == 1, "structured diagnostic")
+}
+
+test fn structuredTestResultsRequireExecutedCases() {
+    val ok = NativeTestResult { executed: 5, passed: 5, failed: 0, output: "5 passed" }
+    val empty = NativeTestResult { executed: 0, passed: 0, failed: 0, output: "" }
+    assertMsg(nativeTestsSucceeded(ok), "non-empty passing suite")
+    assertMsg(!nativeTestsSucceeded(empty), "empty suite is not success")
+}

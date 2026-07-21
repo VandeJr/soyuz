@@ -1,0 +1,6 @@
+div: 5.000000
+erro: Divisão de 10.000000 por zero
+email ok: vand@soyuz.dev
+email err: Campo inválido: email
+pipe ok: processado: vand@ok.com
+pipe err: Campo inválido: email

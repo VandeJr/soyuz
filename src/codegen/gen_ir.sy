@@ -1,19 +1,83 @@
 import (
     { Generator } from @codegen/generator
     { PhiIncoming } from @codegen/types
-    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmFunc, LlvmGlobal, llvmI64, llvmTypeHasDefaultZero, llvmTypeIrSyntax } from @codegen/llvm_types
+    { LlvmBasicBlock, LlvmType, LlvmValue, LlvmValueInfo, LlvmValueKind, LlvmFunc, LlvmGlobal, llvmVoid, llvmI1, llvmI64, llvmPointerType, llvmStructHasField, llvmStructFieldOrVoid, llvmTypeIsPointer, llvmPointerPointeeEquals, llvmTypesEqual, llvmTypeHasDefaultZero, llvmTypeIrSyntax } from @codegen/llvm_types
     { traceIr, emitIrLine, llvmValueReg } from @codegen/gen_emit
 )
 
-fn recordValueType(g: Generator, value: LlvmValue, ty: LlvmType) {
-    g.valueTypes.set(value.handle, ty)
+pub fn recordIrError(g: Generator, message: String) {
+    g.irErrors.append(message)
 }
 
-fn lookupValueType(g: Generator, handle: Int) -> Option[LlvmType] {
-    for k in g.valueTypes.keys() {
-        if k == handle { return Some(g.valueTypes.get(k)) }
+pub fn irErrorCount(g: Generator) -> Int = g.irErrors.size()
+
+pub fn irGenerationSucceeded(g: Generator) -> Bool = irErrorCount(g) == 0
+
+pub fn recordValueInfo(g: Generator, value: LlvmValue, ty: LlvmType, kind: LlvmValueKind, origin: String) {
+    g.valueTypes.set(value.handle, ty)
+    g.valueInfo.set(value.handle, LlvmValueInfo { ty: ty, kind: kind, origin: origin })
+}
+
+fn recordValuePointee(g: Generator, value: LlvmValue, pointeeTy: LlvmType) {
+    g.valuePointeeTypes.set(value.handle, pointeeTy)
+}
+
+fn valuePointeeKnown(g: Generator, handle: Int) -> Bool {
+    for registered in g.valuePointeeTypes.keys() {
+        if registered == handle { return true }
+    }
+    return false
+}
+
+fn valuePointeeOrVoid(g: Generator, handle: Int) -> LlvmType {
+    for registered in g.valuePointeeTypes.keys() {
+        if registered == handle { return g.valuePointeeTypes.get(registered) }
+    }
+    return llvmVoid()
+}
+
+pub fn lookupValueInfo(g: Generator, handle: Int) -> Option[LlvmValueInfo] {
+    for k in g.valueInfo.keys() {
+        if k == handle { return Some(g.valueInfo.get(k)) }
     }
     return None
+}
+
+pub fn lookupValueType(g: Generator, handle: Int) -> Option[LlvmType] {
+    for registered in g.valueTypes.keys() {
+        if registered == handle { return Some(g.valueTypes.get(registered)) }
+    }
+    return None
+}
+
+fn valueHandleTypeKnown(g: Generator, handle: Int) -> Bool {
+    for registered in g.valueTypes.keys() {
+        if registered == handle { return true }
+    }
+    return false
+}
+
+fn valueHandleTypeOrVoid(g: Generator, handle: Int) -> LlvmType {
+    for registered in g.valueTypes.keys() {
+        if registered == handle { return g.valueTypes.get(registered) }
+    }
+    return llvmVoid()
+}
+
+pub fn valueHasLlvmType(g: Generator, value: LlvmValue, expected: LlvmType) -> Bool {
+    if !valueHandleTypeKnown(g, value.handle) { return false }
+    return llvmTypesEqual(valueHandleTypeOrVoid(g, value.handle), expected)
+}
+
+fn newTypedValue(g: Generator, ty: LlvmType, kind: LlvmValueKind, origin: String) -> LlvmValue {
+    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
+    g.valueHandleCounter = g.valueHandleCounter + 1
+    recordValueInfo(g, value, ty, kind, origin)
+    return value
+}
+
+pub fn typedLlvmValue(g: Generator, ty: LlvmType, origin: String) -> LlvmValue {
+    return newTypedValue(g, ty, LlvmValueKind.Temporary, origin)
 }
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
@@ -42,6 +106,8 @@ pub fn newBlock(g: Generator, name: String) -> LlvmBasicBlock {
     val block = LlvmBasicBlock { handle: g.blockHandleCounter + 1 }
     g.blockHandleCounter = g.blockHandleCounter + 1
     recordBlockNameUse(g, name)
+    g.blockNamesByHandle.set(block.handle, unique)
+    g.terminatedBlocks.set(block.handle, 0)
     traceIr(g, "block $(name)")
     emitIrLine(g, "$(unique):")
     return block
@@ -63,10 +129,48 @@ pub fn blockNameRegistered(g: Generator, name: String) -> Bool {
     return false
 }
 
+pub fn blockNameForHandle(g: Generator, handle: Int) -> Option[String] {
+    for k in g.blockNamesByHandle.keys() {
+        if k == handle { return Some(g.blockNamesByHandle.get(k)) }
+    }
+    return None
+}
+
+fn blockHandleKnown(g: Generator, handle: Int) -> Bool {
+    for registered in g.blockNamesByHandle.keys() {
+        if registered == handle { return true }
+    }
+    return false
+}
+
+pub fn currentBlockTerminated(g: Generator) -> Bool = match currentBlockHandle(g) {
+    None => false
+    Some(handle) => {
+        for k in g.terminatedBlocks.keys() {
+            if k == handle { return g.terminatedBlocks.get(k) == 1 }
+        }
+        return false
+    }
+}
+
+pub fn terminateCurrentBlock(g: Generator, origin: String) -> Bool = match currentBlockHandle(g) {
+    None => {
+        recordIrError(g, "$(origin): nenhuma basic block corrente")
+        false
+    }
+    Some(handle) => {
+        if currentBlockTerminated(g) {
+            recordIrError(g, "$(origin): basic block já terminada")
+            return false
+        }
+        g.terminatedBlocks.set(handle, 1)
+        true
+    }
+}
+
 pub fn newAlloca(g: Generator, ty: LlvmType) -> LlvmValue {
-    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
-    g.valueHandleCounter = g.valueHandleCounter + 1
-    recordValueType(g, value, ty)
+    val value = newTypedValue(g, llvmPointerType(ty), LlvmValueKind.Alloca, "alloca")
+    recordValuePointee(g, value, ty)
     emitIrLine(g, "  $(llvmValueReg(value)) = alloca $(llvmTypeIrSyntax(ty)), align 8")
     return value
 }
@@ -82,15 +186,55 @@ pub fn emitCondBrToBlockStub(g: Generator, thenBlock: LlvmBasicBlock, elseBlock:
     return true
 }
 
+fn emitTypedCondBr(g: Generator, cond: LlvmValue, condTy: LlvmType, thenBlock: LlvmBasicBlock, elseBlock: LlvmBasicBlock) -> Bool {
+    if !llvmTypesEqual(condTy, llvmI1()) {
+        recordIrError(g, "condbr: condição não é i1")
+        return false
+    }
+    val thenKnown = blockNameForHandle(g, thenBlock.handle)
+    val elseKnown = blockNameForHandle(g, elseBlock.handle)
+    return match (thenKnown, elseKnown) {
+        (Some(thenName), Some(elseName)) => {
+            if !terminateCurrentBlock(g, "condbr") { return false }
+            emitIrLine(g, "  br i1 $(llvmValueReg(cond)), label %$(thenName), label %$(elseName)")
+            true
+        }
+        _ => {
+            recordIrError(g, "condbr: target block desconhecida")
+            false
+        }
+    }
+}
+
+pub fn emitCondBrValue(g: Generator, cond: LlvmValue, thenBlock: LlvmBasicBlock, elseBlock: LlvmBasicBlock) -> Bool {
+    if !valueHandleTypeKnown(g, cond.handle) {
+        recordIrError(g, "condbr: condição sem tipo")
+        return false
+    }
+    return emitTypedCondBr(g, cond, valueHandleTypeOrVoid(g, cond.handle), thenBlock, elseBlock)
+}
+
 pub fn emitBrStub(g: Generator, targetBlockName: String) -> Bool {
+    if !terminateCurrentBlock(g, "br") { return false }
     emitIrLine(g, "  br label %$(targetBlockName)")
-    newBlock(g, targetBlockName)
+    val target = newBlock(g, targetBlockName)
+    setCurrentBlock(g, target)
     return true
 }
 
-pub fn emitBrToBlockStub(g: Generator, target: LlvmBasicBlock) -> Bool {
+fn emitBrToKnownBlock(g: Generator, target: LlvmBasicBlock, name: String) -> Bool {
+    if !terminateCurrentBlock(g, "br") { return false }
+    emitIrLine(g, "  br label %$(name)")
     setCurrentBlock(g, target)
     return true
+}
+
+pub fn emitBrToBlockStub(g: Generator, target: LlvmBasicBlock) -> Bool = match blockNameForHandle(g, target.handle) {
+        None => {
+            recordIrError(g, "br: target block desconhecida")
+            false
+        }
+        Some(name) => emitBrToKnownBlock(g, target, name)
 }
 
 pub fn clearMatchPhiIncomings(g: Generator) {
@@ -108,27 +252,60 @@ pub fn recordMatchPhiIncoming(g: Generator, value: LlvmValue, block: LlvmBasicBl
     g.matchPhiIncomings = incomings
 }
 
-fn stubPhiValue(g: Generator) -> LlvmValue {
-    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
-    g.valueHandleCounter = g.valueHandleCounter + 1
-    return value
+fn phiIncomingsHaveType(g: Generator, phiTy: LlvmType) -> Bool {
+    for incoming in g.matchPhiIncomings {
+        if !valueHandleTypeKnown(g, incoming.value.handle) {
+            recordIrError(g, "phi: incoming sem tipo")
+            return false
+        }
+        val incomingTy = valueHandleTypeOrVoid(g, incoming.value.handle)
+        if !llvmTypesEqual(phiTy, incomingTy) {
+            recordIrError(g, "phi: tipos incompatíveis")
+            return false
+        }
+        if !blockHandleKnown(g, incoming.block.handle) {
+            recordIrError(g, "phi: bloco de origem desconhecido")
+            return false
+        }
+    }
+    return true
 }
 
-pub fn emitPhiStub(g: Generator) -> Option[LlvmValue] {
-    if matchPhiIncomingCount(g) == 0 { return None }
-    val phi = stubPhiValue(g)
+fn emitTypedPhi(g: Generator, phiTy: LlvmType) -> Option[LlvmValue] {
+    if !phiIncomingsHaveType(g, phiTy) { return None }
+    val phi = newTypedValue(g, phiTy, LlvmValueKind.Temporary, "phi")
+    var operands = ""
+    var index = 0
+    for incoming in g.matchPhiIncomings {
+        if index > 0 { operands = "$(operands), " }
+        val blockName = g.blockNamesByHandle.get(incoming.block.handle)
+        operands = "$(operands)[ $(llvmValueReg(incoming.value)), %$(blockName) ]"
+        index = index + 1
+    }
+    emitIrLine(g, "  $(llvmValueReg(phi)) = phi $(llvmTypeIrSyntax(phiTy)) $(operands)")
     g.matchPhiResult = Some(phi)
     return Some(phi)
 }
 
-fn stubValueHandle(g: Generator) -> LlvmValue {
-    val value = LlvmValue { handle: g.valueHandleCounter + 1 }
-    g.valueHandleCounter = g.valueHandleCounter + 1
-    return value
+pub fn emitPhiStub(g: Generator) -> Option[LlvmValue] {
+    if matchPhiIncomingCount(g) == 0 { return None }
+    val firstIncoming = g.matchPhiIncomings.get(0)
+    val first = firstIncoming.value
+    if !valueHandleTypeKnown(g, first.handle) {
+        recordIrError(g, "phi: incoming sem tipo")
+        return None
+    }
+    return emitTypedPhi(g, valueHandleTypeOrVoid(g, first.handle))
 }
 
-pub fn stubLlvmValue(g: Generator) -> LlvmValue {
-    return stubValueHandle(g)
+// Temporary migration escape hatch. Callers must opt into i64 explicitly;
+// untyped load/GEP operations below are rejected instead of using this value.
+fn newLegacyI64Value(g: Generator) -> LlvmValue {
+    return newTypedValue(g, llvmI64(), LlvmValueKind.Temporary, "legacy-stub-i64")
+}
+
+pub fn legacyI64Stub(g: Generator) -> LlvmValue {
+    return newLegacyI64Value(g)
 }
 
 pub fn stubLlvmFunc(g: Generator) -> LlvmFunc {
@@ -144,40 +321,108 @@ pub fn stubLlvmGlobal(g: Generator) -> LlvmGlobal {
 }
 
 pub fn emitGepStub(g: Generator) -> LlvmValue {
-    return stubLlvmValue(g)
+    recordIrError(g, "gep: operação sem tipo explícito")
+    return newTypedValue(g, llvmVoid(), LlvmValueKind.Invalid, "untyped-gep")
+}
+
+fn emitStructGepKnownBase(g: Generator, base: LlvmValue, structTy: LlvmType, fieldIndex: Int, baseTy: LlvmType) -> Option[LlvmValue] {
+    if !llvmTypeIsPointer(baseTy) {
+        recordIrError(g, "gep: base não é ponteiro")
+        return None
+    }
+    if !llvmPointerPointeeEquals(baseTy, structTy) {
+        recordIrError(g, "gep: tipo base incompatível")
+        return None
+    }
+    if !llvmStructHasField(structTy, fieldIndex) {
+        recordIrError(g, "gep: índice de campo inválido")
+        return None
+    }
+    val fieldTy = llvmStructFieldOrVoid(structTy, fieldIndex)
+    val result = newTypedValue(g, llvmPointerType(fieldTy), LlvmValueKind.Temporary, "struct-gep")
+    recordValuePointee(g, result, fieldTy)
+    emitIrLine(g, "  $(llvmValueReg(result)) = getelementptr inbounds $(llvmTypeIrSyntax(structTy)), ptr $(llvmValueReg(base)), i32 0, i32 $(fieldIndex)")
+    return Some(result)
+}
+
+pub fn emitStructGep(g: Generator, base: LlvmValue, structTy: LlvmType, fieldIndex: Int) -> Option[LlvmValue] {
+    if !valueHandleTypeKnown(g, base.handle) {
+        recordIrError(g, "gep: base sem tipo")
+        return None
+    }
+    return emitStructGepKnownBase(g, base, structTy, fieldIndex, valueHandleTypeOrVoid(g, base.handle))
 }
 
 pub fn emitLoadStub(g: Generator) -> LlvmValue {
-    return stubLlvmValue(g)
+    recordIrError(g, "load: operação sem origem tipada")
+    return newTypedValue(g, llvmVoid(), LlvmValueKind.Invalid, "untyped-load")
 }
 
-pub fn emitLoadFromAlloca(g: Generator, alloca: LlvmValue) -> LlvmValue {
-    val elemTy = match lookupValueType(g, alloca.handle) {
-        None => llvmI64()
-        Some(ty) => ty
+fn emitLoadFromKnownType(g: Generator, alloca: LlvmValue, sourceTy: LlvmType) -> LlvmValue {
+    if !llvmTypeIsPointer(sourceTy) || !valuePointeeKnown(g, alloca.handle) {
+        recordIrError(g, "load: origem não é ponteiro")
+        return newTypedValue(g, llvmVoid(), LlvmValueKind.Invalid, "invalid-load")
     }
-    val loaded = stubValueHandle(g)
-    recordValueType(g, loaded, elemTy)
+    val elemTy = valuePointeeOrVoid(g, alloca.handle)
+    val loaded = newTypedValue(g, elemTy, LlvmValueKind.Temporary, "load")
     emitIrLine(g, "  $(llvmValueReg(loaded)) = load $(llvmTypeIrSyntax(elemTy)), ptr $(llvmValueReg(alloca)), align 8")
     return loaded
 }
 
-pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
-    if !llvmTypeHasDefaultZero(ty) { return None }
-    return Some(stubValueHandle(g))
+pub fn emitLoadFromAlloca(g: Generator, alloca: LlvmValue) -> LlvmValue {
+    if !valueHandleTypeKnown(g, alloca.handle) {
+        recordIrError(g, "load: origem sem tipo")
+        return newTypedValue(g, llvmVoid(), LlvmValueKind.Invalid, "invalid-load")
+    }
+    return emitLoadFromKnownType(g, alloca, valueHandleTypeOrVoid(g, alloca.handle))
 }
 
-pub fn emitStoreStub(g: Generator, value: LlvmValue, alloca: LlvmValue) -> Bool {
-    val storedTy = match lookupValueType(g, value.handle) {
-        None => llvmI64()
-        Some(ty) => ty
+pub fn defaultLlvmValue(g: Generator, ty: LlvmType) -> Option[LlvmValue] {
+    if !llvmTypeHasDefaultZero(ty) { return None }
+    return Some(newTypedValue(g, ty, LlvmValueKind.Constant, "zero-initializer"))
+}
+
+fn emitStoreToKnownTarget(g: Generator, value: LlvmValue, alloca: LlvmValue, storedTy: LlvmType, targetTy: LlvmType) -> Bool {
+    if !llvmTypeIsPointer(targetTy) || !valuePointeeKnown(g, alloca.handle) {
+        recordIrError(g, "store: destino não é ponteiro")
+        return false
+    }
+    val elemTy = valuePointeeOrVoid(g, alloca.handle)
+    if !llvmTypesEqual(storedTy, elemTy) {
+        recordIrError(g, "store: tipos incompatíveis $(llvmTypeIrSyntax(storedTy)) -> $(llvmTypeIrSyntax(elemTy))")
+        return false
     }
     emitIrLine(g, "  store $(llvmTypeIrSyntax(storedTy)) $(llvmValueReg(value)), ptr $(llvmValueReg(alloca)), align 8")
     return true
 }
 
+fn emitStoreWithValueType(g: Generator, value: LlvmValue, alloca: LlvmValue, storedTy: LlvmType) -> Bool {
+    if !valueHandleTypeKnown(g, alloca.handle) {
+        recordIrError(g, "store: destino sem tipo")
+        return false
+    }
+    return emitStoreToKnownTarget(g, value, alloca, storedTy, valueHandleTypeOrVoid(g, alloca.handle))
+}
+
+pub fn emitStoreStub(g: Generator, value: LlvmValue, alloca: LlvmValue) -> Bool {
+    if !valueHandleTypeKnown(g, value.handle) {
+        recordIrError(g, "store: valor sem tipo")
+        return false
+    }
+    return emitStoreWithValueType(g, value, alloca, valueHandleTypeOrVoid(g, value.handle))
+}
+
 pub fn emitBreakValueStoreStub(g: Generator, alloca: LlvmValue) {
-    emitStoreStub(g, stubValueHandle(g), alloca)
+    if !valueHandleTypeKnown(g, alloca.handle) {
+        recordIrError(g, "break store: destino sem tipo")
+        return
+    }
+    if !valuePointeeKnown(g, alloca.handle) {
+        recordIrError(g, "break store: destino sem pointee")
+        return
+    }
+    val value = typedLlvmValue(g, valuePointeeOrVoid(g, alloca.handle), "break-value")
+    emitStoreStub(g, value, alloca)
 }
 
 pub fn snapshotVars(g: Generator) -> Map[String, LlvmValue] {

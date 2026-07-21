@@ -208,28 +208,28 @@ pub record BreakStmtData {
 }
 
 pub record IfStmtData {
-    condition: Node,
-    consequent: Node,
+    condition: List[Node],
+    consequent: List[Node],
     alternate: Option[Node]
 }
 
 pub record ForStmtData {
     binding: String,
-    iterable: Node,
-    body: Node
+    iterable: List[Node],
+    body: List[Node]
 }
 
 pub record WhileStmtData {
-    condition: Node,
-    body: Node
+    condition: List[Node],
+    body: List[Node]
 }
 
 pub record LoopStmtData {
-    body: Node
+    body: List[Node]
 }
 
 pub record ExprStmtData {
-    expr: Node
+    expr: List[Node]
 }
 
 pub record IdentifierData {
@@ -258,22 +258,22 @@ pub record BoolLiteralData {
 
 pub record BinaryExprData {
     operator: String,
-    left: Node,
-    right: Node
+    left: List[Node],
+    right: List[Node]
 }
 
 pub record UnaryExprData {
     operator: String,
-    operand: Node
+    operand: List[Node]
 }
 
 pub record AssignExprData {
-    left: Node,
-    right: Node
+    left: List[Node],
+    right: List[Node]
 }
 
 pub record CallExprData {
-    callee: Node,
+    callee: List[Node],
     args: List[Node]
 }
 
@@ -321,8 +321,8 @@ pub record IndexExprData {
 }
 
 pub record RangeExprData {
-    from: Node,
-    to: Node,
+    from: List[Node],
+    to: List[Node],
     inclusive: Bool
 }
 

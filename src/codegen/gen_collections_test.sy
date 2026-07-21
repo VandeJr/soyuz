@@ -3,7 +3,7 @@ import (
     { CheckResult, Type, FuncType, ClassType, IntType, CharType, StringType } from @checker/types
     { newGenerator } from @codegen/generator
     { collectionElemKind, isListOrMapType, isListType, listElemType, isMapType, mapKeyType, mapValType, isIteratorType, iteratorElemType, mapKeyIsStringKind, generateMapKeysStub, generateMapValuesStub, emitCollectionToStringStub } from @codegen/gen_collections
-    { stubLlvmValue } from @codegen/gen_ir
+    { legacyI64Stub } from @codegen/gen_ir
     { assertMsg } from @soyuz/testing
 )
 
@@ -89,7 +89,7 @@ test fn testGenerateMapKeysStub() {
     val g = newGenerator(collectionsEmptyCheckResult())
     val mapClass = collectionsEmptyClass("Map")
     val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
-    val mapVal = stubLlvmValue(g)
+    val mapVal = legacyI64Stub(g)
     match generateMapKeysStub(g, mapVal, mapIntInt) {
         None => assertMsg(false, "expected map keys stub")
         Some(keys) => {
@@ -104,7 +104,7 @@ test fn testGenerateMapValuesStub() {
     val g = newGenerator(collectionsEmptyCheckResult())
     val mapClass = collectionsEmptyClass("Map")
     val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
-    val mapVal = stubLlvmValue(g)
+    val mapVal = legacyI64Stub(g)
     match generateMapValuesStub(g, mapVal, mapIntInt) {
         None => assertMsg(false, "expected map values stub")
         Some(values) => {
@@ -132,7 +132,7 @@ test fn testEmitCollectionToStringStub() {
     val g = newGenerator(collectionsEmptyCheckResult())
     val listClass = collectionsEmptyClass("List")
     val listInt = Type.Specialized(Type.Class(listClass), [IntType])
-    val valHandle = stubLlvmValue(g)
+    val valHandle = legacyI64Stub(g)
     match emitCollectionToStringStub(g, valHandle, listInt) {
         None => assertMsg(false, "expected stub for List to_string")
         Some(v) => assertMsg(v.handle > valHandle.handle, "to_string stub allocates handle")

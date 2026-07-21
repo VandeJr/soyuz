@@ -106,7 +106,7 @@ extend Parser {
                 }
                 val expr = self.parseExpression(0)
                 self.consume(TokenType.SEMICOLON)
-                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: expr }))
+                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: [expr] }))
             }
         }
     }

@@ -1,11 +1,15 @@
 import (
     { Node, FuncDeclData, RecordDeclData, EnumDeclData, InterfaceDeclData } from @ast/ast
     { CheckResult, Type, FuncType } from @checker/types
-    { LlvmModule, LlvmBasicBlock, LlvmValue, LlvmType, LlvmFunc } from @codegen/llvm_types
+    { LlvmModule, LlvmBasicBlock, LlvmValue, LlvmType, LlvmValueInfo, LlvmFunc } from @codegen/llvm_types
+    { IrBuilder } from @codegen/ir_builder
     { LoopCtx, StructInfo, EnumInfo, ClassInfo, PendingExtendMethodBody, PendingClassMethodBody, SyncGuardEntry, PhiIncoming } from @codegen/types
 )
 
 pub class Generator {
+    pub var nativeIr: IrBuilder = IrBuilder {}
+    pub var nativeVars: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    pub var nativeMutableVars: Map[String, Int] = Map[String, Int]{}
     pub var module: Option[LlvmModule] = None
     pub var current: Option[LlvmBasicBlock] = None
     pub var vars: Map[String, LlvmValue] = Map[String, LlvmValue]{}
@@ -202,6 +206,11 @@ pub class Generator {
     pub var irBodyLines: List[String] = []
     pub var irGlobalLines: List[String] = []
     pub var valueTypes: Map[Int, LlvmType] = Map[Int, LlvmType]{}
+    pub var valuePointeeTypes: Map[Int, LlvmType] = Map[Int, LlvmType]{}
+    pub var valueInfo: Map[Int, LlvmValueInfo] = Map[Int, LlvmValueInfo]{}
+    pub var blockNamesByHandle: Map[Int, String] = Map[Int, String]{}
+    pub var terminatedBlocks: Map[Int, Int] = Map[Int, Int]{}
+    pub var irErrors: List[String] = []
 }
 
 pub fn newGenerator(checkResult: CheckResult) -> Generator {

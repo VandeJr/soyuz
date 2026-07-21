@@ -1,0 +1,136 @@
+import (
+    { IrBuilder, irAllocaForValue, irBinary, irLoad, irStore } from @codegen/ir_builder
+    { LlvmBasicBlock, LlvmType, LlvmValue } from @codegen/llvm_types
+)
+
+pub class IrExprScope {
+    pub var builder: IrBuilder
+    pub var parent: Option[IrExprScope] = None
+    pub var variables: Map[String, LlvmValue] = Map[String, LlvmValue]{}
+    pub var mutableVars: Map[String, Int] = Map[String, Int]{}
+    pub var functionReturns: Map[String, LlvmType] = Map[String, LlvmType]{}
+    pub var functionParams: Map[String, List[LlvmType]] = Map[String, List[LlvmType]]{}
+    pub var continueTarget: Option[LlvmBasicBlock] = None
+    pub var breakTarget: Option[LlvmBasicBlock] = None
+}
+
+pub fn newIrExprScope(builder: IrBuilder) -> IrExprScope = IrExprScope { builder: builder }
+
+pub fn newIrChildScope(parent: IrExprScope) -> IrExprScope = IrExprScope {
+    builder: parent.builder,
+    parent: Some(parent)
+}
+
+pub fn newIrLoopScope(parent: IrExprScope, continueTarget: LlvmBasicBlock, breakTarget: LlvmBasicBlock) -> IrExprScope = IrExprScope {
+    builder: parent.builder,
+    parent: Some(parent),
+    continueTarget: Some(continueTarget),
+    breakTarget: Some(breakTarget)
+}
+
+pub fn irContinueTarget(scope: IrExprScope) -> Option[LlvmBasicBlock] = match scope.continueTarget {
+    Some(target) => Some(target)
+    None => match scope.parent {
+        Some(parent) => irContinueTarget(parent)
+        None => None
+    }
+}
+
+pub fn irBreakTarget(scope: IrExprScope) -> Option[LlvmBasicBlock] = match scope.breakTarget {
+    Some(target) => Some(target)
+    None => match scope.parent {
+        Some(parent) => irBreakTarget(parent)
+        None => None
+    }
+}
+
+pub fn irRegisterFunction(scope: IrExprScope, name: String, returnType: LlvmType, paramTypes: List[LlvmType]) -> Bool {
+    for registered in scope.functionReturns.keys() {
+        if registered == name { return false }
+    }
+    scope.functionReturns.set(name, returnType)
+    scope.functionParams.set(name, paramTypes)
+    return true
+}
+
+pub fn irFunctionReturnType(scope: IrExprScope, name: String) -> Option[LlvmType] {
+    for registered in scope.functionReturns.keys() {
+        if registered == name { return Some(scope.functionReturns.get(name)) }
+    }
+    return match scope.parent {
+        Some(parent) => irFunctionReturnType(parent, name)
+        None => None
+    }
+}
+
+pub fn irFunctionParamTypes(scope: IrExprScope, name: String) -> Option[List[LlvmType]] {
+    for registered in scope.functionParams.keys() {
+        if registered == name { return Some(scope.functionParams.get(name)) }
+    }
+    return match scope.parent {
+        Some(parent) => irFunctionParamTypes(parent, name)
+        None => None
+    }
+}
+
+fn localVariableKnown(scope: IrExprScope, name: String) -> Bool {
+    for registered in scope.variables.keys() {
+        if registered == name { return true }
+    }
+    return false
+}
+
+fn localMutabilityKnown(scope: IrExprScope, name: String) -> Bool {
+    for registered in scope.mutableVars.keys() {
+        if registered == name { return true }
+    }
+    return false
+}
+
+pub fn irDeclareVariable(scope: IrExprScope, name: String, initial: LlvmValue, mutable: Bool) -> Bool {
+    if localVariableKnown(scope, name) { return false }
+    return match irAllocaForValue(scope.builder, initial) {
+        None => false
+        Some(slot) => {
+            if !irStore(scope.builder, initial, slot) { return false }
+            scope.variables.set(name, slot)
+            if mutable { scope.mutableVars.set(name, 1) } else { scope.mutableVars.set(name, 0) }
+            true
+        }
+    }
+}
+
+pub fn irBindParameter(scope: IrExprScope, name: String, value: LlvmValue) -> Bool {
+    return irDeclareVariable(scope, name, value, false)
+}
+
+pub fn irReadVariable(scope: IrExprScope, name: String) -> Option[LlvmValue] {
+    if localVariableKnown(scope, name) {
+        return Some(irLoad(scope.builder, scope.variables.get(name)))
+    }
+    return match scope.parent {
+        Some(parent) => irReadVariable(parent, name)
+        None => None
+    }
+}
+
+pub fn irAssignVariable(scope: IrExprScope, name: String, value: LlvmValue) -> Bool {
+    if localVariableKnown(scope, name) {
+        if !localMutabilityKnown(scope, name) { return false }
+        if scope.mutableVars.get(name) != 1 { return false }
+        return irStore(scope.builder, value, scope.variables.get(name))
+    }
+    return match scope.parent {
+        Some(parent) => irAssignVariable(parent, name, value)
+        None => false
+    }
+}
+
+pub fn irBinaryVariables(scope: IrExprScope, op: String, leftName: String, rightName: String) -> Option[LlvmValue] {
+    val left = irReadVariable(scope, leftName)
+    val right = irReadVariable(scope, rightName)
+    return match (left, right) {
+        (Some(l), Some(r)) => irBinary(scope.builder, op, l, r)
+        _ => None
+    }
+}

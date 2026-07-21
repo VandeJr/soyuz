@@ -61,8 +61,8 @@ if ! grep -q 'verificada com sucesso' <<<"$LIB"; then
 fi
 
 TEST="$("$OUT" test test_runner.sy 2>&1 || true)"
-if ! grep -q 'testes passaram' <<<"$TEST"; then
-  echo "binário main.sy soyuz test sem marcador de sucesso: $TEST" >&2
+if ! grep -Eq '✓[[:space:]]+5 testes passaram' <<<"$TEST"; then
+  echo "binário main.sy soyuz test não executou exatamente 5 testes: $TEST" >&2
   exit 1
 fi
 

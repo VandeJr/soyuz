@@ -1,0 +1,78 @@
+import (
+    { irBinary, irBranch, irCall, irCallVoid, irCompare, irCondBranch, irI32Constant, irIntConstant, irNewBlock, irPhi, irPrintString, irPrintf, irReturn, irReturnVoid, irSetCurrentBlock, irStringLiteral } from @codegen/ir_builder
+    { irFunctionParam, irRenderModule, newIrFunction } from @codegen/ir_function
+    { llvmI32, llvmI64, llvmVoid } from @codegen/llvm_types
+)
+
+fn main() {
+    val addFn = newIrFunction("add", llvmI64(), ["a", "b"], [llvmI64(), llvmI64()])
+    match (irFunctionParam(addFn, 0), irFunctionParam(addFn, 1)) {
+        (Some(a), Some(b)) => match irBinary(addFn.builder, "+", a, b) {
+            None => {}
+            Some(sum) => {
+                if !irReturn(addFn.builder, llvmI64(), sum) {}
+            }
+        }
+        _ => {}
+    }
+
+    val caller = newIrFunction("caller", llvmI64(), [], [])
+    match irCall(caller.builder, "add", llvmI64(), [llvmI64(), llvmI64()], [irIntConstant(caller.builder, 20), irIntConstant(caller.builder, 22)]) {
+        None => {}
+        Some(result) => {
+            if !irReturn(caller.builder, llvmI64(), result) {}
+        }
+    }
+    val sayFn = newIrFunction("say", llvmVoid(), [], [])
+    val message = irStringLiteral(sayFn.builder, "hello")
+    if !irPrintString(sayFn.builder, message) {}
+    if !irReturnVoid(sayFn.builder) {}
+
+    val maxFn = newIrFunction("max", llvmI64(), ["a", "b"], [llvmI64(), llvmI64()])
+    var maxLeft = irIntConstant(maxFn.builder, 0)
+    var maxRight = irIntConstant(maxFn.builder, 0)
+    match irFunctionParam(maxFn, 0) {
+        None => {}
+        Some(value) => {
+            maxLeft = value
+            if maxLeft.handle < 0 {}
+        }
+    }
+    match irFunctionParam(maxFn, 1) {
+        None => {}
+        Some(value) => {
+            maxRight = value
+            if maxRight.handle < 0 {}
+        }
+    }
+    val maxThen = irNewBlock(maxFn.builder, "then")
+    val maxElse = irNewBlock(maxFn.builder, "else")
+    val maxDone = irNewBlock(maxFn.builder, "done")
+    match irCompare(maxFn.builder, ">", maxLeft, maxRight) {
+        None => {}
+        Some(condition) => { if !irCondBranch(maxFn.builder, condition, maxThen, maxElse) {} }
+    }
+    if !irSetCurrentBlock(maxFn.builder, maxThen) {}
+    if !irBranch(maxFn.builder, maxDone) {}
+    if !irSetCurrentBlock(maxFn.builder, maxElse) {}
+    if !irBranch(maxFn.builder, maxDone) {}
+    if !irSetCurrentBlock(maxFn.builder, maxDone) {}
+    match irPhi(maxFn.builder, [maxLeft, maxRight], [maxThen, maxElse]) {
+        None => {}
+        Some(result) => { if !irReturn(maxFn.builder, llvmI64(), result) {} }
+    }
+
+    val mainFn = newIrFunction("main", llvmI32(), [], [])
+    var computed = irIntConstant(mainFn.builder, 0)
+    match irCall(mainFn.builder, "max", llvmI64(), [llvmI64(), llvmI64()], [irIntConstant(mainFn.builder, 42), irIntConstant(mainFn.builder, 7)]) {
+        None => {}
+        Some(result) => {
+            computed = result
+            if computed.handle < 0 {}
+        }
+    }
+    if !irPrintf(mainFn.builder, "answer=%ld ", [llvmI64()], [computed]) {}
+    if !irCallVoid(mainFn.builder, "say", [], []) {}
+    if !irReturn(mainFn.builder, llvmI32(), irI32Constant(mainFn.builder, 0)) {}
+    print(irRenderModule([addFn, caller, sayFn, maxFn, mainFn]))
+}

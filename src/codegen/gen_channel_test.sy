@@ -230,7 +230,7 @@ test fn testExtractChannelFromRecvCall() {
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val recvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
     var args: List[Node] = []
-    val recvCall = Node.CallExpr(3, span, CallExprData { callee: recvMember, args: args })
+    val recvCall = Node.CallExpr(3, span, CallExprData { callee: [recvMember], args: args })
     match extractChannelFromRecvCall(recvCall) {
         None => assertMsg(false, "recv call extracts channel")
         Some(obj) => assertMsg(match obj { Identifier(_, _, idData) => idData.name == "ch", _ => false }, "channel identifier")

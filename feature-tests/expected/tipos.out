@@ -1,0 +1,11 @@
+primitivos: 42 3.140000 1 Soyuz
+tupla: 1 um
+ponto: 1.000000 2.000000
+igualdade p1==p2: 1
+igualdade p1==p3: 0
+area circulo: 78.539750
+area retangulo: 40.000000
+option: tem: 42
+optional chain: <ptr>
+elvis: -1.000000
+par genérico: nome 42

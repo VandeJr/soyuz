@@ -65,9 +65,9 @@ fn inferSpecializedExprType(c: Checker, data: SpecializedExprData, n: Node) -> T
 }
 
 fn inferCallExprType(c: Checker, data: CallExprData) -> Type {
-    val calleeType = match data.callee {
-        SpecializedExpr(_, _, seData) => inferSpecializedExprType(c, seData, data.callee)
-        _ => inferExprType(c, data.callee)
+    val calleeType = match data.callee.get(0) {
+        SpecializedExpr(_, _, seData) => inferSpecializedExprType(c, seData, data.callee.get(0))
+        _ => inferExprType(c, data.callee.get(0))
     }
     return match calleeType {
         Func(ft) => {

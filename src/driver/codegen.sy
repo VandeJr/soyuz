@@ -4,6 +4,7 @@ import (
     { newGenerator, setTestMode, Generator } from @codegen/generator
     { generateProgramBody, ProgramResult } from @codegen/gen_funcs
     { renderModuleIr, moduleIrHasMain } from @codegen/gen_emit
+    { irCompileAstModule } from @codegen/ir_ast_module
     { Node } from @ast/ast
 )
 
@@ -68,5 +69,32 @@ pub fn planCodegenBuild(frontend: FrontendBuildPlan, cfg: BuildConfig) -> Codege
             ready: true,
             error: ""
         }
+    }
+}
+
+fn typedDiagnosticsText(diagnostics: List[String]) -> String {
+    var text = ""
+    for diagnostic in diagnostics {
+        if text.len() > 0 { text = "$(text); " }
+        text = "$(text)$(diagnostic)"
+    }
+    return text
+}
+
+// Native typed path used by SOYUZ_NATIVE_DRIVER during migration. It never
+// falls back to Generator or renderModuleIr when an AST operation is missing.
+pub fn planTypedCodegenBuild(frontend: FrontendBuildPlan, cfg: BuildConfig) -> CodegenBuildPlan {
+    if !frontendBuildReady(frontend) {
+        return CodegenBuildPlan {
+            frontend: frontend, funcCount: 0, irContent: "", ready: false, error: frontend.error
+        }
+    }
+    val result = irCompileAstModule(frontend.collected.body)
+    return CodegenBuildPlan {
+        frontend: frontend,
+        funcCount: result.functionCount,
+        irContent: result.ir,
+        ready: result.success,
+        error: typedDiagnosticsText(result.diagnostics)
     }
 }

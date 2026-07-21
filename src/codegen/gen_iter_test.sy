@@ -4,7 +4,7 @@ import (
     { newGenerator } from @codegen/generator
     { structInfoRegistered } from @codegen/gen_structs
     { ensureRuntimeCollectionStructs, iteratorStructType, generateListIterStub, generateIteratorNextStub, generateIteratorIsEmptyStub, forListCondBlockName, forListBodyBlockName, forListIncrBlockName, forListAfterBlockName, forIteratorCondBlockName, forIteratorBodyBlockName, forIteratorIncrBlockName, forIteratorAfterBlockName, iterNextHasBlockName, iterNextDoneBlockName, iterNextMergeBlockName } from @codegen/gen_iter
-    { stubLlvmValue, blockNameRegistered } from @codegen/gen_ir
+    { legacyI64Stub, blockNameRegistered } from @codegen/gen_ir
     { IntType } from @checker/types
     { llvmStructType, llvmI8Ptr, llvmI64, llvmTypesEqual } from @codegen/llvm_types
     { assertMsg } from @soyuz/testing
@@ -49,7 +49,7 @@ test fn testEnsureRuntimeCollectionStructs() {
 
 test fn testGenerateListIterStub() {
     val g = newGenerator(iterEmptyCheckResult())
-    val listVal = stubLlvmValue(g)
+    val listVal = legacyI64Stub(g)
     match generateListIterStub(g, listVal) {
         None => assertMsg(false, "expected list iter stub")
         Some(iterPtr) => {
@@ -69,7 +69,7 @@ test fn testGenerateListIterStub() {
 
 test fn testGenerateIteratorNextStub() {
     val g = newGenerator(iterEmptyCheckResult())
-    val iterVal = stubLlvmValue(g)
+    val iterVal = legacyI64Stub(g)
     match generateIteratorNextStub(g, iterVal, IntType) {
         None => assertMsg(false, "expected iterator next stub")
         Some(phi) => {
@@ -94,7 +94,7 @@ test fn testGenerateIteratorNextStub() {
 
 test fn testGenerateIteratorIsEmptyStub() {
     val g = newGenerator(iterEmptyCheckResult())
-    val iterVal = stubLlvmValue(g)
+    val iterVal = legacyI64Stub(g)
     match generateIteratorIsEmptyStub(g, iterVal) {
         None => assertMsg(false, "expected iterator isEmpty stub")
         Some(result) => {

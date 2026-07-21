@@ -4,7 +4,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue } from @codegen/gen_ir
+    { legacyI64Stub } from @codegen/gen_ir
 )
 
 pub fn arcRuntimeNew() -> String {
@@ -114,35 +114,35 @@ pub fn arcRuntimeSymbolRegistered(g: Generator, symbol: String) -> Bool {
 
 pub fn generateArcNewStub(g: Generator) -> Option[LlvmValue] {
     registerArcRuntimeSymbol(g, arcRuntimeNew())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.arcNewStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateArcCloneStub(g: Generator) -> Option[LlvmValue] {
     registerArcRuntimeSymbol(g, arcRuntimeClone())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.arcCloneStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateArcGetStub(g: Generator) -> Option[LlvmValue] {
     registerArcRuntimeSymbol(g, arcRuntimeGet())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.arcGetStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateArcRefcountStub(g: Generator) -> Option[LlvmValue] {
     registerArcRuntimeSymbol(g, arcRuntimeRefcount())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.arcRefcountStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateArcReleaseStub(g: Generator) -> Option[LlvmValue] {
     registerArcRuntimeSymbol(g, arcRuntimeRelease())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.arcReleaseStub = Some(stub)
     return Some(stub)
 }

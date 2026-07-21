@@ -1,0 +1,357 @@
+import (
+    { Binding, BreakStmtData, ForStmtData, FuncDeclData, IfStmtData, LoopStmtData, Named, Node, Pattern, RangeExprData, ReturnStmtData, TypeExpr, VarDeclData, WhileStmtData } from @ast/ast
+    { irBinary, irBoolConstant, irBranch, irCompare, irCondBranch, irIntConstant, irNewBlock, irReturn, irReturnVoid, irSetCurrentBlock, irValueHasType } from @codegen/ir_builder
+    { irCompileExpr, irCompileVarDecl } from @codegen/ir_ast_expr
+    { IrExprScope, irAssignVariable, irBindParameter, irBreakTarget, irContinueTarget, irDeclareVariable, irReadVariable, irRegisterFunction, newIrChildScope, newIrExprScope, newIrLoopScope } from @codegen/ir_expr
+    { IrFunctionBuilder, irFunctionParam, newIrFunction } from @codegen/ir_function
+    { LlvmType, LlvmValue, llvmF64, llvmI1, llvmI64, llvmI8Ptr, llvmTypesEqual, llvmVoid } from @codegen/llvm_types
+)
+
+record IrParamMetadata {
+    ok: Bool,
+    names: List[String],
+    types: List[LlvmType]
+}
+
+pub record IrFunctionSignature {
+    name: String,
+    returnType: LlvmType,
+    paramTypes: List[LlvmType]
+}
+
+pub fn irTypeFromAst(typeExpr: TypeExpr) -> Option[LlvmType] = match typeExpr {
+    Named(_, _, name) if name == "Int" => Some(llvmI64())
+    Named(_, _, name) if name == "Float" => Some(llvmF64())
+    Named(_, _, name) if name == "Bool" => Some(llvmI1())
+    Named(_, _, name) if name == "String" => Some(llvmI8Ptr())
+    Named(_, _, name) if name == "Unit" => Some(llvmVoid())
+    _ => None
+}
+
+fn irReturnTypeFromDecl(data: FuncDeclData) -> Option[LlvmType] = match data.returnType {
+    None => Some(llvmVoid())
+    Some(typeExpr) => irTypeFromAst(typeExpr)
+}
+
+fn irParamName(pattern: Pattern) -> Option[String] = match pattern {
+    Binding(_, _, name) => Some(name)
+    _ => None
+}
+
+fn collectParamMetadata(data: FuncDeclData) -> IrParamMetadata {
+    var names: List[String] = []
+    var types: List[LlvmType] = []
+    var failed = false
+    for param in data.params {
+        match (irParamName(param.pattern), param.typeExpr) {
+            (Some(name), Some(typeExpr)) => match irTypeFromAst(typeExpr) {
+                None => { failed = true; 0 }
+                Some(llvmType) => { names.append(name); types.append(llvmType); 0 }
+            }
+            _ => { failed = true; 0 }
+        }
+    }
+    return IrParamMetadata { ok: !failed, names: names, types: types }
+}
+
+pub fn irFunctionSignatureFromDecl(data: FuncDeclData) -> Option[IrFunctionSignature] = match irReturnTypeFromDecl(data) {
+    None => None
+    Some(returnType) => {
+        val metadata = collectParamMetadata(data)
+        if !metadata.ok { return None }
+        Some(IrFunctionSignature { name: data.name, returnType: returnType, paramTypes: metadata.types })
+    }
+}
+
+fn registerKnownFunctions(scope: IrExprScope, signatures: List[IrFunctionSignature]) -> Bool {
+    var ok = true
+    for signature in signatures {
+        if !irRegisterFunction(scope, signature.name, signature.returnType, signature.paramTypes) { ok = false }
+    }
+    return ok
+}
+
+record IrStatementState { success: Bool, terminated: Bool }
+
+fn irStatementFailed() -> IrStatementState = IrStatementState { success: false, terminated: false }
+fn irStatementContinues() -> IrStatementState = IrStatementState { success: true, terminated: false }
+fn irStatementTerminated() -> IrStatementState = IrStatementState { success: true, terminated: true }
+
+fn compileAstBlock(scope: IrExprScope, returnType: LlvmType, statements: List[Node]) -> IrStatementState {
+    val blockScope = newIrChildScope(scope)
+    for statement in statements {
+        val state = compileAstStatement(blockScope, returnType, statement)
+        if !state.success { return state }
+        if state.terminated { return state }
+    }
+    return irStatementContinues()
+}
+
+fn compileAstReturn(scope: IrExprScope, returnType: LlvmType, data: ReturnStmtData) -> IrStatementState {
+    return match data.value {
+        None => {
+            if !llvmTypesEqual(returnType, llvmVoid()) { return irStatementFailed() }
+            if irReturnVoid(scope.builder) { return irStatementTerminated() }
+            irStatementFailed()
+        }
+        Some(valueNode) => match irCompileExpr(scope, valueNode) {
+            None => irStatementFailed()
+            Some(result) => {
+                if irReturn(scope.builder, returnType, result) { return irStatementTerminated() }
+                irStatementFailed()
+            }
+        }
+    }
+}
+
+fn compileAstVarDecl(scope: IrExprScope, data: VarDeclData) -> IrStatementState {
+    if irCompileVarDecl(scope, data) { return irStatementContinues() }
+    return irStatementFailed()
+}
+
+fn compileAstIf(scope: IrExprScope, returnType: LlvmType, data: IfStmtData) -> IrStatementState {
+    val condition = irCompileExpr(scope, data.condition.get(0))
+    var conditionValue = irBoolConstant(scope.builder, false)
+    match condition {
+        None => { return irStatementFailed(); 0 }
+        Some(value) => { conditionValue = value; 0 }
+    }
+    if !irValueHasType(scope.builder, conditionValue, llvmI1()) { return irStatementFailed() }
+
+    val thenBlock = irNewBlock(scope.builder, "if.then")
+    val elseBlock = irNewBlock(scope.builder, "if.else")
+    val mergeBlock = irNewBlock(scope.builder, "if.merge")
+    if !irCondBranch(scope.builder, conditionValue, thenBlock, elseBlock) { return irStatementFailed() }
+    if !irSetCurrentBlock(scope.builder, thenBlock) { return irStatementFailed() }
+    val thenScope = newIrChildScope(scope)
+    val thenState = compileAstStatement(thenScope, returnType, data.consequent.get(0))
+    if !thenState.success { return irStatementFailed() }
+    if !thenState.terminated && !irBranch(scope.builder, mergeBlock) { return irStatementFailed() }
+
+    if !irSetCurrentBlock(scope.builder, elseBlock) { return irStatementFailed() }
+    val elseScope = newIrChildScope(scope)
+    var elseState = irStatementContinues()
+    match data.alternate {
+        None => 0
+        Some(alternate) => { elseState = compileAstStatement(elseScope, returnType, alternate); 0 }
+    }
+    if !elseState.success { return irStatementFailed() }
+    if !elseState.terminated && !irBranch(scope.builder, mergeBlock) { return irStatementFailed() }
+
+    if thenState.terminated && elseState.terminated { return irStatementTerminated() }
+    if !irSetCurrentBlock(scope.builder, mergeBlock) { return irStatementFailed() }
+    return irStatementContinues()
+}
+
+fn compileAstWhile(scope: IrExprScope, returnType: LlvmType, data: WhileStmtData) -> IrStatementState {
+    val conditionBlock = irNewBlock(scope.builder, "while.condition")
+    val bodyBlock = irNewBlock(scope.builder, "while.body")
+    val afterBlock = irNewBlock(scope.builder, "while.after")
+    if !irBranch(scope.builder, conditionBlock) { return irStatementFailed() }
+    if !irSetCurrentBlock(scope.builder, conditionBlock) { return irStatementFailed() }
+
+    val condition = irCompileExpr(scope, data.condition.get(0))
+    var conditionValue = irBoolConstant(scope.builder, false)
+    match condition {
+        None => { return irStatementFailed(); 0 }
+        Some(value) => { conditionValue = value; 0 }
+    }
+    if !irValueHasType(scope.builder, conditionValue, llvmI1()) { return irStatementFailed() }
+    if !irCondBranch(scope.builder, conditionValue, bodyBlock, afterBlock) { return irStatementFailed() }
+
+    if !irSetCurrentBlock(scope.builder, bodyBlock) { return irStatementFailed() }
+    val bodyScope = newIrLoopScope(scope, conditionBlock, afterBlock)
+    val bodyState = compileAstStatement(bodyScope, returnType, data.body.get(0))
+    if !bodyState.success { return irStatementFailed() }
+    if !bodyState.terminated && !irBranch(scope.builder, conditionBlock) { return irStatementFailed() }
+    if !irSetCurrentBlock(scope.builder, afterBlock) { return irStatementFailed() }
+    return irStatementContinues()
+}
+
+fn compileAstLoop(scope: IrExprScope, returnType: LlvmType, data: LoopStmtData) -> IrStatementState {
+    val bodyBlock = irNewBlock(scope.builder, "loop.body")
+    val afterBlock = irNewBlock(scope.builder, "loop.after")
+    if !irBranch(scope.builder, bodyBlock) { return irStatementFailed() }
+    if !irSetCurrentBlock(scope.builder, bodyBlock) { return irStatementFailed() }
+    val bodyScope = newIrLoopScope(scope, bodyBlock, afterBlock)
+    val bodyState = compileAstStatement(bodyScope, returnType, data.body.get(0))
+    if !bodyState.success { return irStatementFailed() }
+    if !bodyState.terminated && !irBranch(scope.builder, bodyBlock) { return irStatementFailed() }
+    if !irSetCurrentBlock(scope.builder, afterBlock) { return irStatementFailed() }
+    return irStatementContinues()
+}
+
+fn rangeComparison(inclusive: Bool) -> String {
+    if inclusive { return "<=" }
+    return "<"
+}
+
+fn compileAstForRangeValues(scope: IrExprScope, returnType: LlvmType, data: ForStmtData, range: RangeExprData, start: LlvmValue, limit: LlvmValue) -> IrStatementState {
+    if !irValueHasType(scope.builder, start, llvmI64()) || !irValueHasType(scope.builder, limit, llvmI64()) {
+        return irStatementFailed()
+    }
+
+    val conditionBlock = irNewBlock(scope.builder, "for.condition")
+    val bodyBlock = irNewBlock(scope.builder, "for.body")
+    val incrementBlock = irNewBlock(scope.builder, "for.increment")
+    val afterBlock = irNewBlock(scope.builder, "for.after")
+    val loopScope = newIrLoopScope(scope, incrementBlock, afterBlock)
+    if !irDeclareVariable(loopScope, data.binding, start, true) { return irStatementFailed() }
+    if !irBranch(scope.builder, conditionBlock) { return irStatementFailed() }
+
+    if !irSetCurrentBlock(scope.builder, conditionBlock) { return irStatementFailed() }
+    match irReadVariable(loopScope, data.binding) {
+        Some(currentValue) => match irCompare(scope.builder, rangeComparison(range.inclusive), currentValue, limit) {
+            Some(conditionValue) => {
+                if !irCondBranch(scope.builder, conditionValue, bodyBlock, afterBlock) { return irStatementFailed() }
+                0
+            }
+            None => { return irStatementFailed(); 0 }
+        }
+        None => { return irStatementFailed(); 0 }
+    }
+
+    if !irSetCurrentBlock(scope.builder, bodyBlock) { return irStatementFailed() }
+    val bodyState = compileAstStatement(loopScope, returnType, data.body.get(0))
+    if !bodyState.success { return irStatementFailed() }
+    if !bodyState.terminated && !irBranch(scope.builder, incrementBlock) { return irStatementFailed() }
+
+    if !irSetCurrentBlock(scope.builder, incrementBlock) { return irStatementFailed() }
+    match irReadVariable(loopScope, data.binding) {
+        Some(value) => match irBinary(scope.builder, "+", value, irIntConstant(scope.builder, 1)) {
+            Some(incremented) => {
+                if !irAssignVariable(loopScope, data.binding, incremented) { return irStatementFailed() }
+                0
+            }
+            None => { return irStatementFailed(); 0 }
+        }
+        None => { return irStatementFailed(); 0 }
+    }
+    if !irBranch(scope.builder, conditionBlock) { return irStatementFailed() }
+    if !irSetCurrentBlock(scope.builder, afterBlock) { return irStatementFailed() }
+    return irStatementContinues()
+}
+
+fn compileAstForRange(scope: IrExprScope, returnType: LlvmType, data: ForStmtData, range: RangeExprData) -> IrStatementState {
+    return match (irCompileExpr(scope, range.from.get(0)), irCompileExpr(scope, range.to.get(0))) {
+        (Some(start), Some(limit)) => compileAstForRangeValues(scope, returnType, data, range, start, limit)
+        _ => irStatementFailed()
+    }
+}
+
+fn compileAstFor(scope: IrExprScope, returnType: LlvmType, data: ForStmtData) -> IrStatementState = match data.iterable.get(0) {
+    RangeExpr(_, _, range) => compileAstForRange(scope, returnType, data, range)
+    _ => irStatementFailed()
+}
+
+fn compileAstBreak(scope: IrExprScope, data: BreakStmtData) -> IrStatementState {
+    match data.value {
+        Some(_) => { return irStatementFailed(); 0 }
+        None => 0
+    }
+    match irBreakTarget(scope) {
+        Some(target) => {
+            if irBranch(scope.builder, target) { return irStatementTerminated() }
+            return irStatementFailed()
+            0
+        }
+        None => 0
+    }
+    return irStatementFailed()
+}
+
+fn compileAstContinue(scope: IrExprScope) -> IrStatementState {
+    match irContinueTarget(scope) {
+        Some(target) => {
+            if irBranch(scope.builder, target) { return irStatementTerminated() }
+            return irStatementFailed()
+            0
+        }
+        None => 0
+    }
+    return irStatementFailed()
+}
+
+fn compileAstStatement(scope: IrExprScope, returnType: LlvmType, node: Node) -> IrStatementState = match node {
+    BlockStmt(_, _, data) => compileAstBlock(scope, returnType, data.statements)
+    VarDecl(_, _, data) => compileAstVarDecl(scope, data)
+    ExprStmt(_, _, data) => match irCompileExpr(scope, data.expr.get(0)) {
+        None => irStatementFailed()
+        Some(_) => irStatementContinues()
+    }
+    ReturnStmt(_, _, data) => compileAstReturn(scope, returnType, data)
+    IfStmt(_, _, data) => compileAstIf(scope, returnType, data)
+    WhileStmt(_, _, data) => compileAstWhile(scope, returnType, data)
+    ForStmt(_, _, data) => compileAstFor(scope, returnType, data)
+    LoopStmt(_, _, data) => compileAstLoop(scope, returnType, data)
+    BreakStmt(_, _, data) => compileAstBreak(scope, data)
+    ContinueStmt(_, _) => compileAstContinue(scope)
+    _ => match irCompileExpr(scope, node) {
+        None => irStatementFailed()
+        Some(_) => irStatementContinues()
+    }
+}
+
+fn emitFunctionBody(fnBuilder: IrFunctionBuilder, names: List[String], body: Node, signatures: List[IrFunctionSignature]) -> Bool {
+    val scope = newIrExprScope(fnBuilder.builder)
+    if !registerKnownFunctions(scope, signatures) { return false }
+    var index = 0
+    loop {
+        if index >= names.size() { break }
+        match irFunctionParam(fnBuilder, index) {
+            None => { return false; 0 }
+            Some(value) => { if !irBindParameter(scope, names.get(index), value) { return false }; 0 }
+        }
+        index = index + 1
+    }
+    var structured = false
+    var structuredResult = false
+    match body {
+        BlockStmt(_, _, _) => {
+            structured = true
+            val state = compileAstStatement(scope, fnBuilder.returnType, body)
+            if state.success && state.terminated { structuredResult = true }
+            if state.success && !state.terminated && llvmTypesEqual(fnBuilder.returnType, llvmVoid()) {
+                structuredResult = irReturnVoid(fnBuilder.builder)
+            }
+            0
+        }
+        ReturnStmt(_, _, _) => { structured = true; structuredResult = compileAstStatement(scope, fnBuilder.returnType, body).success; 0 }
+        _ => 0
+    }
+    if structured { return structuredResult }
+    if llvmTypesEqual(fnBuilder.returnType, llvmVoid()) {
+        var expressionOk = false
+        match irCompileExpr(scope, body) { None => { expressionOk = false; 0 }; Some(_) => { expressionOk = true; 0 } }
+        if !expressionOk { return false }
+        return irReturnVoid(fnBuilder.builder)
+    }
+    return match irCompileExpr(scope, body) {
+        None => false
+        Some(value) => irReturn(fnBuilder.builder, fnBuilder.returnType, value)
+    }
+}
+
+pub fn irCompileFunctionDeclWithSignatures(data: FuncDeclData, signatures: List[IrFunctionSignature]) -> Option[IrFunctionBuilder] = match irReturnTypeFromDecl(data) {
+    Some(returnType) => {
+        val metadata = collectParamMetadata(data)
+        if !metadata.ok { return None }
+        var llvmName = data.name
+        if data.name == "main" && returnType.ir == "void" { llvmName = "soyuz_main" }
+        val fnBuilder = newIrFunction(llvmName, returnType, metadata.names, metadata.types)
+        val bodyOk = match data.body {
+            None => irReturnVoid(fnBuilder.builder)
+            Some(body) => emitFunctionBody(fnBuilder, metadata.names, body, signatures)
+        }
+        if !bodyOk { return None }
+        Some(fnBuilder)
+    }
+    None => None
+}
+
+pub fn irCompileFunctionDecl(data: FuncDeclData) -> Option[IrFunctionBuilder] {
+    return match irFunctionSignatureFromDecl(data) {
+        None => None
+        Some(signature) => irCompileFunctionDeclWithSignatures(data, [signature])
+    }
+}

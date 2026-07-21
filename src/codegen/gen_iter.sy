@@ -4,7 +4,7 @@ import (
     { StructInfo } from @codegen/types
     { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmI8Ptr, llvmPointerType, llvmStructType } from @codegen/llvm_types
     { structInfoRegistered } from @codegen/gen_structs
-    { stubLlvmValue, newBlock, setCurrentBlock, emitCondBrToBlockStub, emitBrToBlockStub, emitLoadStub } from @codegen/gen_ir
+    { legacyI64Stub, newBlock, setCurrentBlock, emitCondBrToBlockStub, emitBrToBlockStub, emitLoadStub } from @codegen/gen_ir
 )
 
 pub fn forListCondBlockName() -> String {
@@ -80,14 +80,15 @@ pub fn ensureRuntimeCollectionStructs(g: Generator) {
 
 pub fn iteratorStructType(g: Generator) -> LlvmType {
     ensureRuntimeCollectionStructs(g)
-    return g.structs.get("SoyuzIterator").typ
+    val info = g.structs.get("SoyuzIterator")
+    return info.typ
 }
 
 pub fn generateListIterStub(g: Generator, listVal: LlvmValue) -> Option[LlvmValue] {
     ensureRuntimeCollectionStructs(g)
     g.listIterListStoreStub = Some(listVal)
-    g.listIterIndexInitStub = Some(stubLlvmValue(g))
-    val iterPtr = stubLlvmValue(g)
+    g.listIterIndexInitStub = Some(legacyI64Stub(g))
+    val iterPtr = legacyI64Stub(g)
     g.listIterAllocStub = Some(iterPtr)
     return Some(iterPtr)
 }
@@ -115,15 +116,15 @@ pub fn generateIteratorNextStub(g: Generator, iterVal: LlvmValue, _elemType: Typ
     val mergeBlock = newBlock(g, iterNextMergeBlockName())
     if !emitCondBrToBlockStub(g, hasBlock, doneBlock) { return None }
     setCurrentBlock(g, hasBlock)
-    g.iterNextGetStub = Some(stubLlvmValue(g))
-    g.iterNextIndexStore = Some(stubLlvmValue(g))
-    g.iterNextSomeResult = Some(stubLlvmValue(g))
+    g.iterNextGetStub = Some(legacyI64Stub(g))
+    g.iterNextIndexStore = Some(legacyI64Stub(g))
+    g.iterNextSomeResult = Some(legacyI64Stub(g))
     if !emitBrToBlockStub(g, mergeBlock) { return None }
     setCurrentBlock(g, doneBlock)
-    g.iterNextNoneResult = Some(stubLlvmValue(g))
+    g.iterNextNoneResult = Some(legacyI64Stub(g))
     if !emitBrToBlockStub(g, mergeBlock) { return None }
     setCurrentBlock(g, mergeBlock)
-    val phi = stubLlvmValue(g)
+    val phi = legacyI64Stub(g)
     g.iterNextPhiResult = Some(phi)
     return Some(phi)
 }
@@ -133,7 +134,7 @@ pub fn generateIteratorIsEmptyStub(g: Generator, iterVal: LlvmValue) -> Option[L
     val _iter = iterVal
     g.iterNextIndexLoad = Some(emitLoadStub(g))
     g.iterNextSizeLoad = Some(emitLoadStub(g))
-    val result = stubLlvmValue(g)
+    val result = legacyI64Stub(g)
     g.iterIsEmptyResult = Some(result)
     return Some(result)
 }

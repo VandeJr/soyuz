@@ -35,7 +35,7 @@ test fn testEvalIntBinaryOp() {
 test fn testEvalConstUnaryOp() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }
     val inner = Node.IntLiteral(1, span, IntLiteralData { value: "7" })
-    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: inner })
+    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: [inner] })
     match evalConstExpr(node) {
         Some(IntVal(v)) => assertMsg(v == -7, "-7")
         _ => assertMsg(false, "expected IntVal -7")
@@ -46,7 +46,7 @@ test fn testEvalConstUnaryOp() {
 test fn testEvalConstExprMath() {
     val left = Node.IntLiteral(1, Span { line: 1, column: 1, startOffset: 0, endOffset: 2 }, IntLiteralData { value: "10" })
     val right = Node.IntLiteral(2, Span { line: 1, column: 4, startOffset: 3, endOffset: 4 }, IntLiteralData { value: "5" })
-    val node = Node.BinaryExpr(3, Span { line: 1, column: 1, startOffset: 0, endOffset: 4 }, BinaryExprData { operator: "+", left: left, right: right })
+    val node = Node.BinaryExpr(3, Span { line: 1, column: 1, startOffset: 0, endOffset: 4 }, BinaryExprData { operator: "+", left: [left], right: [right] })
     match evalConstExpr(node) {
         Some(IntVal(v)) => assertMsg(v == 15, "(10+5) const fold")
         _ => assertMsg(false, "expected IntVal")
@@ -187,7 +187,7 @@ test fn testGenerateExprNodeCall() {
     val arg2 = Node.IntLiteral(4, span, IntLiteralData { value: "2" })
     val callee = Node.Identifier(5, span, IdentifierData { name: "add" })
     val ft = FuncType { params: [IntType, IntType], returnType: IntType, generics: [], defaults: [], isOptional: [] }
-    val call = Node.CallExpr(6, span, CallExprData { callee: callee, args: [arg1, arg2] })
+    val call = Node.CallExpr(6, span, CallExprData { callee: [callee], args: [arg1, arg2] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(3, IntType)
     types.set(4, IntType)
@@ -249,7 +249,7 @@ test fn testGenerateExprNodeIndexExpr() {
 test fn testGenerateExprNodeUnaryMinus() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 3 }
     val inner = Node.IntLiteral(1, span, IntLiteralData { value: "7" })
-    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: inner })
+    val node = Node.UnaryExpr(2, span, UnaryExprData { operator: "-", operand: [inner] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, IntType)
@@ -294,7 +294,7 @@ test fn testGenerateAssignExprNode() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 6 }
     val left = Node.Identifier(2, span, IdentifierData { name: "x" })
     val right = Node.IntLiteral(3, span, IntLiteralData { value: "20" })
-    val node = Node.AssignExpr(4, span, AssignExprData { left: left, right: right })
+    val node = Node.AssignExpr(4, span, AssignExprData { left: [left], right: [right] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(2, IntType)
     types.set(3, IntType)
@@ -540,7 +540,7 @@ test fn testM6EnumWithFieldsCtorCodegen() {
     val floatType = Type.Basic("Float")
     val callee = Node.Identifier(2, span, IdentifierData { name: "Circulo" })
     val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "5.0" })
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: [arg] })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: [arg] })
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     variants.set("Circulo", [floatType])
     variants.set("Retangulo", [floatType])
@@ -618,7 +618,7 @@ test fn testM6EnumDotSyntaxWithArgsCodegen() {
     val formaId = Node.Identifier(1, span, IdentifierData { name: "Forma" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: formaId, property: "Circulo" })
     val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "3.14" })
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: [arg] })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: [arg] })
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     variants.set("Circulo", [floatType])
     val formaType = Type.Enum(EnumType {
@@ -1201,7 +1201,7 @@ test fn testChannelNewCallExprCodegen() {
     val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "4" })
     var args: List[Node] = []
     args.append(capArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelClass))
     types.set(2, Type.Class(channelClass))
@@ -1227,7 +1227,7 @@ test fn testMutexNewCallExprCodegen() {
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
     var args: List[Node] = []
     args.append(initArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(mutexClass))
     types.set(2, Type.Class(mutexClass))
@@ -1253,7 +1253,7 @@ test fn testRwLockNewCallExprCodegen() {
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     var args: List[Node] = []
     args.append(initArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(rwlockClass))
     types.set(2, Type.Class(rwlockClass))
@@ -1279,7 +1279,7 @@ test fn testAtomicNewCallExprCodegen() {
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     var args: List[Node] = []
     args.append(initArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(atomicClass))
     types.set(2, Type.Class(atomicClass))
@@ -1305,7 +1305,7 @@ test fn testAtomicStoreCallExprCodegen() {
     val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
     var args: List[Node] = []
     args.append(valArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, atomicInt)
     types.set(2, atomicInt)
@@ -1329,7 +1329,7 @@ test fn testAtomicLoadCallExprCodegen() {
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "load" })
     var args: List[Node] = []
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, atomicInt)
     types.set(2, atomicInt)
@@ -1354,7 +1354,7 @@ test fn testAtomicAddCallExprCodegen() {
     val deltaArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
     var args: List[Node] = []
     args.append(deltaArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, atomicInt)
     types.set(2, atomicInt)
@@ -1382,7 +1382,7 @@ test fn testAtomicCasCallExprCodegen() {
     var args: List[Node] = []
     args.append(expArg)
     args.append(desArg)
-    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(5, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, atomicInt)
     types.set(2, atomicInt)
@@ -1409,7 +1409,7 @@ test fn testRwLockReadCallExprCodegen() {
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
     var args: List[Node] = []
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, rwlockInt)
     types.set(2, rwlockInt)
@@ -1433,7 +1433,7 @@ test fn testRwLockWriteCallExprCodegen() {
     val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, rwlockInt)
     types.set(2, rwlockInt)
@@ -1458,7 +1458,7 @@ test fn testMutexLockCallExprCodegen() {
     val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
     var args: List[Node] = []
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, mutexInt)
     types.set(2, mutexInt)
@@ -1483,7 +1483,7 @@ test fn testChannelZeroCapacityNewCallExprCodegen() {
     val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     var args: List[Node] = []
     args.append(capArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelClass))
     types.set(2, Type.Class(channelClass))
@@ -1509,7 +1509,7 @@ test fn testChannelSendCallExprCodegen() {
     val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
     var args: List[Node] = []
     args.append(valArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, channelInt)
     types.set(2, channelInt)
@@ -1547,7 +1547,7 @@ test fn testChannelRecvCallExprCodegen() {
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
     var args: List[Node] = []
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, channelInt)
     types.set(2, channelInt)
@@ -1573,7 +1573,7 @@ test fn testChannelTryRecvCallExprCodegen() {
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "tryRecv" })
     var args: List[Node] = []
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, channelInt)
     types.set(2, channelInt)
@@ -1599,7 +1599,7 @@ test fn testChannelCloseCallExprCodegen() {
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "close" })
     var args: List[Node] = []
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, channelInt)
     types.set(2, channelInt)
@@ -1622,7 +1622,7 @@ test fn testChannelIsClosedCallExprCodegen() {
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "isClosed" })
     var args: List[Node] = []
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, channelInt)
     types.set(2, channelInt)
@@ -1665,7 +1665,7 @@ test fn testSyncGuardValueWriteExprCodegen() {
     val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
     val left = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
     val right = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
-    val assign = Node.AssignExpr(4, span, AssignExprData { left: left, right: right })
+    val assign = Node.AssignExpr(4, span, AssignExprData { left: [left], right: [right] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, guardInt)
     types.set(2, IntType)
@@ -1691,7 +1691,7 @@ test fn testArcNewCallExprCodegen() {
     val arg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
     var args: List[Node] = []
     args.append(arg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(arcClass))
     types.set(2, Type.Class(arcClass))
@@ -1714,7 +1714,7 @@ test fn testArcCloneCallExprCodegen() {
     val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "clone" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, arcInt)
     types.set(2, arcInt)
@@ -1736,7 +1736,7 @@ test fn testArcGetCallExprCodegen() {
     val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "get" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, arcInt)
     types.set(2, arcInt)
@@ -1758,7 +1758,7 @@ test fn testArcRefcountCallExprCodegen() {
     val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "refcount" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, arcInt)
     types.set(2, arcInt)
@@ -1786,7 +1786,7 @@ test fn testTaskGatherCallExprCodegen() {
     var args: List[Node] = []
     args.append(listArg)
     args.append(fnArg)
-    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(5, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(taskClass))
     types.set(2, Type.Class(taskClass))
@@ -1818,7 +1818,7 @@ test fn testTaskEnqueueExprCodegen() {
     val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
     var args: List[Node] = []
     args.append(arg)
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: args })
     val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: call })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Basic("Unit"))
@@ -1850,7 +1850,7 @@ test fn testTaskWrapperFreeArgsCodegen() {
     var args: List[Node] = []
     args.append(argA)
     args.append(argB)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     val taskExpr = Node.TaskExpr(5, span, TaskExprData { inner: call })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Basic("Unit"))
@@ -1876,7 +1876,7 @@ test fn testTaskDetachCallExprCodegen() {
     val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, taskInt)
     types.set(2, taskInt)
@@ -1900,7 +1900,7 @@ test fn testTaskCancelCallExprCodegen() {
     val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, taskInt)
     types.set(2, taskInt)
@@ -1922,7 +1922,7 @@ test fn testTaskAwaitCallExprCodegen() {
     val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, taskInt)
     types.set(2, taskInt)
@@ -1975,7 +1975,7 @@ test fn testTaskPipeAwaitResultCodegen() {
     val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: pipe })
     val tId = Node.Identifier(5, span, IdentifierData { name: "t" })
     val awaitCallee = Node.MemberExpr(6, span, MemberExprData { object: tId, property: "await" })
-    val awaitCall = Node.CallExpr(7, span, CallExprData { callee: awaitCallee, args: [] })
+    val awaitCall = Node.CallExpr(7, span, CallExprData { callee: [awaitCallee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, Type.Basic("Unit"))
@@ -2010,7 +2010,7 @@ test fn testTaskAllCallExprCodegen() {
     var args: List[Node] = []
     args.append(t1)
     args.append(t2)
-    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(5, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(taskClass))
     types.set(2, Type.Class(taskClass))
@@ -2042,7 +2042,7 @@ test fn testTaskFanCallExprCodegen() {
     args.append(input)
     args.append(f1)
     args.append(f2)
-    val call = Node.CallExpr(6, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(6, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(taskClass))
     types.set(2, Type.Class(taskClass))
@@ -2139,7 +2139,7 @@ test fn testTaskHandleCurrentCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelTestClass("TaskHandle")))
     types.set(2, Type.Class(channelTestClass("TaskHandle")))
@@ -2164,7 +2164,7 @@ test fn testTaskHandleCancelledCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
     val callee = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "cancelled" })
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: [] })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelTestClass("TaskHandle")))
     types.set(2, Type.Class(channelTestClass("TaskHandle")))
@@ -2187,7 +2187,7 @@ test fn testTaskHandleProgressCallExprCodegen() {
     val progressArg = Node.FloatLiteral(3, span, FloatLiteralData { value: "0.5" })
     var args: List[Node] = []
     args.append(progressArg)
-    val call = Node.CallExpr(4, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelTestClass("TaskHandle")))
     types.set(2, Type.Class(channelTestClass("TaskHandle")))

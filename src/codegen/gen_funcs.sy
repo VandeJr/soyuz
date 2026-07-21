@@ -8,7 +8,7 @@ import (
     { checkerTypeForNode, generateExprNode } from @codegen/gen_exprs
     { generateTopLevelDecl, generateClassDecl, generateExtendDecl, extendMethodSymbolName, extendHasMethodSymbol, extendSelfLLVM } from @codegen/gen_structs
     { funcParamPatternsSupported, buildFuncParamPatternSteps, FuncParamPatternStep, matchPatternDispatchNoSubject } from @codegen/gen_patterns
-    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, stubLlvmValue, blockNameRegistered } from @codegen/gen_ir
+    { newBlock, setCurrentBlock, newAlloca, snapshotVars, restoreVars, emitCondBrStub, legacyI64Stub, blockNameRegistered } from @codegen/gen_ir
     { mapTypeToLLVM, mapSoyuzTypeToLLVM, ensureSoyuzStringLlvmTypes } from @codegen/gen_types
     { PendingClassMethodBody, PendingExtendMethodBody, StructInfo } from @codegen/types
     { LlvmType, LlvmValue, LlvmBasicBlock, llvmI64, llvmPointerType } from @codegen/llvm_types
@@ -269,7 +269,8 @@ fn generateFuncVariantParamPatterns(g: Generator, plan: FuncVariantPlan) -> Bool
 
 pub fn shouldSkipFuncVariants(g: Generator, name: String, variants: List[FuncDeclData]) -> Bool {
     if variants.size() == 0 { return false }
-    if variants.get(0).isTest && !g.isTestBuild { return true }
+    val firstVariant = variants.get(0)
+    if firstVariant.isTest && !g.isTestBuild { return true }
     if name == "main" && g.isTestBuild { return true }
     return false
 }
@@ -296,7 +297,7 @@ fn generateFuncVariantWhenGuard(g: Generator, plan: FuncVariantPlan) -> Bool = m
         (None, _) => false
         (Some(_), None) => true
         (Some(_), Some(guardName)) => {
-            g.funcVariantGuardCondValue = Some(stubLlvmValue(g))
+            g.funcVariantGuardCondValue = Some(legacyI64Stub(g))
             emitCondBrStub(g, guardName, plan.nextBlockName)
         }
     }
@@ -333,7 +334,8 @@ fn generateFuncVariantsBodyLoop(g: Generator, plans: List[FuncVariantPlan], inde
 pub fn generateFuncVariantsBody(g: Generator, name: String) -> Bool {
     val plans = buildFuncVariantPlans(g, name)
     if plans.size() == 0 { return true }
-    if !seedFuncVariantParams(g, plans.get(0).variant.params.size()) { return false }
+    val firstPlan = plans.get(0)
+    if !seedFuncVariantParams(g, firstPlan.variant.params.size()) { return false }
     return generateFuncVariantsBodyLoop(g, plans, 0)
 }
 

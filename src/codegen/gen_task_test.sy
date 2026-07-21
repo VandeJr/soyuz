@@ -41,7 +41,7 @@ test fn testIsTaskCallInner() {
     val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
     var args: List[Node] = []
     args.append(arg)
-    val call = Node.CallExpr(3, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: args })
     assertMsg(isTaskCallInner(call), "CallExpr is task call inner")
     val taskInner = Node.TaskExpr(4, span, TaskExprData { inner: call })
     assertMsg(!isTaskCallInner(taskInner), "TaskExpr not direct call inner")
@@ -56,7 +56,7 @@ test fn testIsTaskPipeInner() {
     val callee = Node.Identifier(4, span, IdentifierData { name: "double" })
     var args: List[Node] = []
     args.append(nId)
-    val call = Node.CallExpr(5, span, CallExprData { callee: callee, args: args })
+    val call = Node.CallExpr(5, span, CallExprData { callee: [callee], args: args })
     assertMsg(!isTaskPipeInner(call), "CallExpr not pipe inner")
 }
 
@@ -280,10 +280,10 @@ test fn testIsSelectTaskAwaitCall() {
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
     val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
     var args: List[Node] = []
-    val awaitCall = Node.CallExpr(3, span, CallExprData { callee: awaitMember, args: args })
+    val awaitCall = Node.CallExpr(3, span, CallExprData { callee: [awaitMember], args: args })
     assertMsg(isSelectTaskAwaitCall(awaitCall), "t.await() is select task arm")
     val recvMember = Node.MemberExpr(4, span, MemberExprData { object: tId, property: "recv" })
-    val recvCall = Node.CallExpr(5, span, CallExprData { callee: recvMember, args: args })
+    val recvCall = Node.CallExpr(5, span, CallExprData { callee: [recvMember], args: args })
     assertMsg(!isSelectTaskAwaitCall(recvCall), "ch.recv() not select task arm")
 }
 

@@ -136,17 +136,17 @@ extend Parser {
             MINUS => {
                 self.advance()
                 val operand = self.parseExpression(28)
-                Node.UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "-", operand: operand })
+                Node.UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "-", operand: [operand] })
             }
             BANG => {
                 self.advance()
                 val operand = self.parseExpression(28)
-                Node.UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "!", operand: operand })
+                Node.UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "!", operand: [operand] })
             }
             TILDE => {
                 self.advance()
                 val operand = self.parseExpression(28)
-                Node.UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "~", operand: operand })
+                Node.UnaryExpr(self.allocNodeId(), span, UnaryExprData { operator: "~", operand: [operand] })
             }
             LPAREN => self.parseParenOrTuple()
             LBRACKET => self.parseListOrMap()
@@ -190,14 +190,14 @@ extend Parser {
         if isBinaryInfixToken(tok.type) {
             self.advance()
             val right = self.parseExpression(bp)
-            return Node.BinaryExpr(self.allocNodeId(), tok.span, BinaryExprData { operator: tok.lexeme, left: left, right: right })
+            return Node.BinaryExpr(self.allocNodeId(), tok.span, BinaryExprData { operator: tok.lexeme, left: [left], right: [right] })
         }
 
         return match tok.type {
             ASSIGN => {
                 self.advance()
                 val right = self.parseExpression(bp - 1)
-                Node.AssignExpr(self.allocNodeId(), tok.span, AssignExprData { left: left, right: right })
+                Node.AssignExpr(self.allocNodeId(), tok.span, AssignExprData { left: [left], right: [right] })
             }
             PIPE => {
                 self.advance()
@@ -246,12 +246,12 @@ extend Parser {
             RANGE => {
                 self.advance()
                 val to = self.parseExpression(bp)
-                Node.RangeExpr(self.allocNodeId(), tok.span, RangeExprData { from: left, to: to, inclusive: false })
+                Node.RangeExpr(self.allocNodeId(), tok.span, RangeExprData { from: [left], to: [to], inclusive: false })
             }
             RANGE_INCL => {
                 self.advance()
                 val to = self.parseExpression(bp)
-                Node.RangeExpr(self.allocNodeId(), tok.span, RangeExprData { from: left, to: to, inclusive: true })
+                Node.RangeExpr(self.allocNodeId(), tok.span, RangeExprData { from: [left], to: [to], inclusive: true })
             }
             DOT => {
                 self.advance()
@@ -271,7 +271,7 @@ extend Parser {
                 self.advance()
                 val args = self.parseCallArgs()
                 self.expect(TokenType.RPAREN)
-                Node.CallExpr(self.allocNodeId(), tok.span, CallExprData { callee: left, args: args })
+                Node.CallExpr(self.allocNodeId(), tok.span, CallExprData { callee: [left], args: args })
             }
             LBRACKET => {
                 if self.looksLikeTypeArgList() {

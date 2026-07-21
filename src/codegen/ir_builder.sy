@@ -1,0 +1,566 @@
+import (
+    { LlvmBasicBlock, LlvmType, LlvmValue, llvmF64, llvmI1, llvmI8Ptr, llvmI32, llvmI64, llvmPointerType, llvmStructFieldOrVoid, llvmStructHasField, llvmTypeIrSyntax, llvmTypeIsPointer, llvmPointerPointeeEquals, llvmTypesEqual, llvmVoid } from @codegen/llvm_types
+)
+
+// Executable typed IR core. It intentionally depends only on llvm_types so its
+// invariants can run before the checker and full Generator become self-hostable.
+pub class IrBuilder {
+    pub var nextValue: Int = 0
+    pub var nextBlock: Int = 0
+    pub var nextGlobal: Int = 0
+    pub var currentBlock: Int = 0
+    pub var globalPrefix: String = "module"
+    pub var valueTypes: Map[Int, LlvmType] = Map[Int, LlvmType]{}
+    pub var pointeeTypes: Map[Int, LlvmType] = Map[Int, LlvmType]{}
+    pub var valueKinds: Map[Int, String] = Map[Int, String]{}
+    pub var valueOrigins: Map[Int, String] = Map[Int, String]{}
+    pub var operands: Map[Int, String] = Map[Int, String]{}
+    pub var blockNames: Map[Int, String] = Map[Int, String]{}
+    pub var terminated: Map[Int, Int] = Map[Int, Int]{}
+    pub var emittedBlocks: Map[Int, Int] = Map[Int, Int]{}
+    pub var lines: List[String] = []
+    pub var globals: List[String] = []
+    pub var errors: List[String] = []
+}
+
+pub fn newIrBuilder() -> IrBuilder = IrBuilder {}
+
+fn typeMapHasKey(values: Map[Int, LlvmType], key: Int) -> Bool {
+    for registered in values.keys() {
+        if registered == key { return true }
+    }
+    return false
+}
+
+fn stringMapHasKey(values: Map[Int, String], key: Int) -> Bool {
+    for registered in values.keys() {
+        if registered == key { return true }
+    }
+    return false
+}
+
+fn intMapHasKey(values: Map[Int, Int], key: Int) -> Bool {
+    for registered in values.keys() {
+        if registered == key { return true }
+    }
+    return false
+}
+
+fn recordError(ir: IrBuilder, message: String) {
+    ir.errors.append(message)
+}
+
+pub fn builderErrorCount(ir: IrBuilder) -> Int = ir.errors.size()
+
+pub fn builderSucceeded(ir: IrBuilder) -> Bool = builderErrorCount(ir) == 0
+
+pub fn irLineCount(ir: IrBuilder) -> Int = ir.lines.size()
+
+pub fn irText(ir: IrBuilder) -> String {
+    var result = ""
+    for line in ir.lines { result = "$(result)$(line)\n" }
+    return result
+}
+
+pub fn irGlobalsText(ir: IrBuilder) -> String {
+    var result = ""
+    for line in ir.globals { result = "$(result)$(line)\n" }
+    return result
+}
+
+pub fn irSetGlobalPrefix(ir: IrBuilder, prefix: String) {
+    ir.globalPrefix = prefix
+}
+
+fn registerValue(ir: IrBuilder, ty: LlvmType, kind: String, origin: String) -> LlvmValue {
+    ir.nextValue = ir.nextValue + 1
+    val value = LlvmValue { handle: ir.nextValue }
+    ir.valueTypes.set(value.handle, ty)
+    ir.valueKinds.set(value.handle, kind)
+    ir.valueOrigins.set(value.handle, origin)
+    ir.operands.set(value.handle, "%v$(value.handle)")
+    return value
+}
+
+fn valueOperand(ir: IrBuilder, value: LlvmValue) -> String {
+    if !stringMapHasKey(ir.operands, value.handle) { return "<invalid>" }
+    return ir.operands.get(value.handle)
+}
+
+fn registerPointerValue(ir: IrBuilder, elemTy: LlvmType, kind: String, origin: String) -> LlvmValue {
+    val value = registerValue(ir, llvmPointerType(elemTy), kind, origin)
+    ir.pointeeTypes.set(value.handle, elemTy)
+    return value
+}
+
+fn valueKnown(ir: IrBuilder, value: LlvmValue) -> Bool = typeMapHasKey(ir.valueTypes, value.handle)
+
+fn valueType(ir: IrBuilder, value: LlvmValue) -> LlvmType {
+    if !valueKnown(ir, value) { return llvmVoid() }
+    return ir.valueTypes.get(value.handle)
+}
+
+fn pointeeKnown(ir: IrBuilder, value: LlvmValue) -> Bool = typeMapHasKey(ir.pointeeTypes, value.handle)
+
+fn pointeeType(ir: IrBuilder, value: LlvmValue) -> LlvmType {
+    if !pointeeKnown(ir, value) { return llvmVoid() }
+    return ir.pointeeTypes.get(value.handle)
+}
+
+pub fn irValueHasType(ir: IrBuilder, value: LlvmValue, expected: LlvmType) -> Bool {
+    return valueKnown(ir, value) && llvmTypesEqual(valueType(ir, value), expected)
+}
+
+pub fn irTypedValue(ir: IrBuilder, ty: LlvmType, origin: String) -> LlvmValue {
+    return registerValue(ir, ty, "temporary", origin)
+}
+
+pub fn irParameter(ir: IrBuilder, ty: LlvmType, name: String) -> LlvmValue {
+    val param = registerValue(ir, ty, "parameter", name)
+    ir.operands.set(param.handle, "%$(name)")
+    return param
+}
+
+pub fn irIntConstant(ir: IrBuilder, value: Int) -> LlvmValue {
+    val constant = registerValue(ir, llvmI64(), "constant", "int-literal")
+    ir.operands.set(constant.handle, "$(value)")
+    return constant
+}
+
+pub fn irI32Constant(ir: IrBuilder, value: Int) -> LlvmValue {
+    val constant = registerValue(ir, llvmI32(), "constant", "i32-literal")
+    ir.operands.set(constant.handle, "$(value)")
+    return constant
+}
+
+pub fn irBoolConstant(ir: IrBuilder, value: Bool) -> LlvmValue {
+    val constant = registerValue(ir, llvmI1(), "constant", "bool-literal")
+    if value { ir.operands.set(constant.handle, "true") } else { ir.operands.set(constant.handle, "false") }
+    return constant
+}
+
+pub fn irUnitValue(ir: IrBuilder) -> LlvmValue {
+    val value = registerValue(ir, llvmVoid(), "unit", "unit")
+    ir.operands.set(value.handle, "")
+    return value
+}
+
+pub fn irFloatConstant(ir: IrBuilder, value: String) -> LlvmValue {
+    val constant = registerValue(ir, llvmF64(), "constant", "float-literal")
+    ir.operands.set(constant.handle, value)
+    return constant
+}
+
+pub fn irStringLiteral(ir: IrBuilder, text: String) -> LlvmValue {
+    ir.nextGlobal = ir.nextGlobal + 1
+    val name = "$(ir.globalPrefix).str.$(ir.nextGlobal)"
+    val byteLen = text.len() + 1
+    ir.globals.append("@$(name) = private unnamed_addr constant [$(byteLen) x i8] c\"$(text)\\00\"")
+    val value = registerValue(ir, llvmI8Ptr(), "global-address", "string-literal")
+    ir.operands.set(value.handle, "%v$(value.handle)")
+    ir.lines.append("  $(valueOperand(ir, value)) = getelementptr inbounds [$(byteLen) x i8], ptr @$(name), i64 0, i64 0")
+    return value
+}
+
+pub fn irPrintString(ir: IrBuilder, value: LlvmValue) -> Bool {
+    if !valueKnown(ir, value) || !llvmTypesEqual(valueType(ir, value), llvmI8Ptr()) {
+        recordError(ir, "print: argumento não é string")
+        return false
+    }
+    val fmtName = "$(ir.globalPrefix).fmt.print.str"
+    var fmtKnown = false
+    for line in ir.globals {
+        if line.contains("@$(fmtName) =") { fmtKnown = true }
+    }
+    if !fmtKnown { ir.globals.append("@$(fmtName) = private unnamed_addr constant [4 x i8] c\"%s\\0A\\00\"") }
+    val fmt = registerValue(ir, llvmI8Ptr(), "global-address", "printf-format")
+    ir.lines.append("  $(valueOperand(ir, fmt)) = getelementptr inbounds [4 x i8], ptr @$(fmtName), i64 0, i64 0")
+    ir.lines.append("  call i32 (ptr, ...) @printf(ptr $(valueOperand(ir, fmt)), ptr $(valueOperand(ir, value)))")
+    return true
+}
+
+fn blockNameKnown(ir: IrBuilder, name: String) -> Bool {
+    for registered in ir.blockNames.keys() {
+        if ir.blockNames.get(registered) == name { return true }
+    }
+    return false
+}
+
+fn irBuilderUniqueBlockName(ir: IrBuilder, requested: String) -> String {
+    if !blockNameKnown(ir, requested) { return requested }
+    var suffix = 2
+    loop {
+        val candidate = "$(requested).$(suffix)"
+        if !blockNameKnown(ir, candidate) { return candidate }
+        suffix = suffix + 1
+    }
+    return requested
+}
+
+pub fn irNewBlock(ir: IrBuilder, name: String) -> LlvmBasicBlock {
+    ir.nextBlock = ir.nextBlock + 1
+    val block = LlvmBasicBlock { handle: ir.nextBlock }
+    ir.blockNames.set(block.handle, irBuilderUniqueBlockName(ir, name))
+    ir.terminated.set(block.handle, 0)
+    ir.emittedBlocks.set(block.handle, 0)
+    return block
+}
+
+pub fn irSetCurrentBlock(ir: IrBuilder, block: LlvmBasicBlock) -> Bool {
+    if !stringMapHasKey(ir.blockNames, block.handle) {
+        recordError(ir, "block corrente desconhecida")
+        return false
+    }
+    ir.currentBlock = block.handle
+    if ir.emittedBlocks.get(block.handle) == 0 {
+        ir.lines.append("$(ir.blockNames.get(block.handle)):")
+        ir.emittedBlocks.set(block.handle, 1)
+    }
+    return true
+}
+
+pub fn irCurrentBlockTerminated(ir: IrBuilder) -> Bool {
+    if ir.currentBlock == 0 { return false }
+    if !intMapHasKey(ir.terminated, ir.currentBlock) { return false }
+    return ir.terminated.get(ir.currentBlock) == 1
+}
+
+fn terminateCurrent(ir: IrBuilder, operation: String) -> Bool {
+    if ir.currentBlock == 0 {
+        recordError(ir, "$(operation): nenhuma basic block corrente")
+        return false
+    }
+    if irCurrentBlockTerminated(ir) {
+        recordError(ir, "$(operation): basic block já terminada")
+        return false
+    }
+    ir.terminated.set(ir.currentBlock, 1)
+    return true
+}
+
+pub fn irAlloca(ir: IrBuilder, ty: LlvmType) -> LlvmValue {
+    val value = registerPointerValue(ir, ty, "alloca", "alloca")
+    ir.lines.append("  %v$(value.handle) = alloca $(llvmTypeIrSyntax(ty)), align 8")
+    return value
+}
+
+pub fn irAllocaForValue(ir: IrBuilder, value: LlvmValue) -> Option[LlvmValue] {
+    if !valueKnown(ir, value) {
+        recordError(ir, "alloca: valor inicial sem tipo")
+        return None
+    }
+    return Some(irAlloca(ir, valueType(ir, value)))
+}
+
+pub fn irStore(ir: IrBuilder, value: LlvmValue, destination: LlvmValue) -> Bool {
+    if !valueKnown(ir, value) {
+        recordError(ir, "store: valor sem tipo")
+        return false
+    }
+    if !valueKnown(ir, destination) || !pointeeKnown(ir, destination) {
+        recordError(ir, "store: destino sem tipo de pointee")
+        return false
+    }
+    val storedTy = valueType(ir, value)
+    val expectedTy = pointeeType(ir, destination)
+    if !llvmTypesEqual(storedTy, expectedTy) {
+        recordError(ir, "store: tipos incompatíveis $(llvmTypeIrSyntax(storedTy)) -> $(llvmTypeIrSyntax(expectedTy))")
+        return false
+    }
+    ir.lines.append("  store $(llvmTypeIrSyntax(storedTy)) $(valueOperand(ir, value)), ptr $(valueOperand(ir, destination)), align 8")
+    return true
+}
+
+pub fn irLoad(ir: IrBuilder, source: LlvmValue) -> LlvmValue {
+    if !valueKnown(ir, source) || !pointeeKnown(ir, source) || !llvmTypeIsPointer(valueType(ir, source)) {
+        recordError(ir, "load: origem não é ponteiro tipado")
+        return registerValue(ir, llvmVoid(), "invalid", "invalid-load")
+    }
+    val elemTy = pointeeType(ir, source)
+    val loaded = registerValue(ir, elemTy, "temporary", "load")
+    ir.lines.append("  $(valueOperand(ir, loaded)) = load $(llvmTypeIrSyntax(elemTy)), ptr $(valueOperand(ir, source)), align 8")
+    return loaded
+}
+
+pub fn irStructGep(ir: IrBuilder, base: LlvmValue, structTy: LlvmType, fieldIndex: Int) -> Option[LlvmValue] {
+    if !valueKnown(ir, base) || !llvmTypeIsPointer(valueType(ir, base)) {
+        recordError(ir, "gep: base não é ponteiro tipado")
+        return None
+    }
+    if !llvmPointerPointeeEquals(valueType(ir, base), structTy) {
+        recordError(ir, "gep: tipo base incompatível")
+        return None
+    }
+    if !llvmStructHasField(structTy, fieldIndex) {
+        recordError(ir, "gep: índice de campo inválido")
+        return None
+    }
+    val fieldTy = llvmStructFieldOrVoid(structTy, fieldIndex)
+    val result = registerPointerValue(ir, fieldTy, "temporary", "struct-gep")
+    ir.lines.append("  $(valueOperand(ir, result)) = getelementptr inbounds $(llvmTypeIrSyntax(structTy)), ptr $(valueOperand(ir, base)), i32 0, i32 $(fieldIndex)")
+    return Some(result)
+}
+
+pub fn irCallOne(ir: IrBuilder, name: String, retTy: LlvmType, argTy: LlvmType, arg: LlvmValue) -> Option[LlvmValue] {
+    if !valueKnown(ir, arg) || !llvmTypesEqual(valueType(ir, arg), argTy) {
+        recordError(ir, "call $(name): argumento incompatível")
+        return None
+    }
+    val result = registerValue(ir, retTy, "temporary", "call $(name)")
+    ir.lines.append("  $(valueOperand(ir, result)) = call $(llvmTypeIrSyntax(retTy)) @$(name)($(llvmTypeIrSyntax(argTy)) $(valueOperand(ir, arg)))")
+    return Some(result)
+}
+
+fn callArgumentsValid(ir: IrBuilder, argTypes: List[LlvmType], args: List[LlvmValue]) -> Bool {
+    if argTypes.size() != args.size() { return false }
+    var index = 0
+    loop {
+        if index >= args.size() { break }
+        val arg = args.get(index)
+        if !valueKnown(ir, arg) || !llvmTypesEqual(valueType(ir, arg), argTypes.get(index)) { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fn renderCallArguments(ir: IrBuilder, argTypes: List[LlvmType], args: List[LlvmValue]) -> String {
+    var result = ""
+    var index = 0
+    loop {
+        if index >= args.size() { break }
+        if index > 0 { result = "$(result), " }
+        result = "$(result)$(llvmTypeIrSyntax(argTypes.get(index))) $(valueOperand(ir, args.get(index)))"
+        index = index + 1
+    }
+    return result
+}
+
+pub fn irCall(ir: IrBuilder, name: String, retTy: LlvmType, argTypes: List[LlvmType], args: List[LlvmValue]) -> Option[LlvmValue] {
+    if !callArgumentsValid(ir, argTypes, args) {
+        recordError(ir, "call $(name): argumentos incompatíveis")
+        return None
+    }
+    val result = registerValue(ir, retTy, "temporary", "call $(name)")
+    ir.lines.append("  $(valueOperand(ir, result)) = call $(llvmTypeIrSyntax(retTy)) @$(name)($(renderCallArguments(ir, argTypes, args)))")
+    return Some(result)
+}
+
+pub fn irCallVoid(ir: IrBuilder, name: String, argTypes: List[LlvmType], args: List[LlvmValue]) -> Bool {
+    if !callArgumentsValid(ir, argTypes, args) {
+        recordError(ir, "call $(name): argumentos incompatíveis")
+        return false
+    }
+    ir.lines.append("  call void @$(name)($(renderCallArguments(ir, argTypes, args)))")
+    return true
+}
+
+pub fn irCallWithDefaults(ir: IrBuilder, name: String, retTy: LlvmType, paramTypes: List[LlvmType], provided: List[LlvmValue], defaults: List[LlvmValue]) -> Option[LlvmValue] {
+    if provided.size() > paramTypes.size() || defaults.size() != paramTypes.size() {
+        recordError(ir, "call $(name): configuração de defaults inválida")
+        return None
+    }
+    var args: List[LlvmValue] = []
+    var index = 0
+    loop {
+        if index >= paramTypes.size() { break }
+        if index < provided.size() {
+            args.append(provided.get(index))
+        } else {
+            val defaultValue = defaults.get(index)
+            if !valueKnown(ir, defaultValue) {
+                recordError(ir, "call $(name): argumento $(index) sem default")
+                return None
+            }
+            args.append(defaultValue)
+        }
+        index = index + 1
+    }
+    return irCall(ir, name, retTy, paramTypes, args)
+}
+
+pub fn irVariantSymbol(name: String, variantIndex: Int) -> String = "$(name).variant.$(variantIndex)"
+
+pub fn irPrintf(ir: IrBuilder, format: String, argTypes: List[LlvmType], args: List[LlvmValue]) -> Bool {
+    if !callArgumentsValid(ir, argTypes, args) {
+        recordError(ir, "printf: argumentos incompatíveis")
+        return false
+    }
+    ir.nextGlobal = ir.nextGlobal + 1
+    val name = "$(ir.globalPrefix).fmt.$(ir.nextGlobal)"
+    val byteLen = format.len() + 1
+    ir.globals.append("@$(name) = private unnamed_addr constant [$(byteLen) x i8] c\"$(format)\\00\"")
+    val fmt = registerValue(ir, llvmI8Ptr(), "global-address", "printf-format")
+    ir.lines.append("  $(valueOperand(ir, fmt)) = getelementptr inbounds [$(byteLen) x i8], ptr @$(name), i64 0, i64 0")
+    var renderedArgs = renderCallArguments(ir, argTypes, args)
+    if renderedArgs.len() > 0 { renderedArgs = ", $(renderedArgs)" }
+    ir.lines.append("  call i32 (ptr, ...) @printf(ptr $(valueOperand(ir, fmt))$(renderedArgs))")
+    return true
+}
+
+pub fn irBranch(ir: IrBuilder, target: LlvmBasicBlock) -> Bool {
+    if !stringMapHasKey(ir.blockNames, target.handle) {
+        recordError(ir, "br: target desconhecida")
+        return false
+    }
+    if !terminateCurrent(ir, "br") { return false }
+    ir.lines.append("  br label %$(ir.blockNames.get(target.handle))")
+    return true
+}
+
+pub fn irCondBranch(ir: IrBuilder, cond: LlvmValue, thenBlock: LlvmBasicBlock, elseBlock: LlvmBasicBlock) -> Bool {
+    if !valueKnown(ir, cond) || !llvmTypesEqual(valueType(ir, cond), llvmI1()) {
+        recordError(ir, "condbr: condição não é i1")
+        return false
+    }
+    if !stringMapHasKey(ir.blockNames, thenBlock.handle) || !stringMapHasKey(ir.blockNames, elseBlock.handle) {
+        recordError(ir, "condbr: target desconhecida")
+        return false
+    }
+    if !terminateCurrent(ir, "condbr") { return false }
+    ir.lines.append("  br i1 $(valueOperand(ir, cond)), label %$(ir.blockNames.get(thenBlock.handle)), label %$(ir.blockNames.get(elseBlock.handle))")
+    return true
+}
+
+pub fn irPhi(ir: IrBuilder, values: List[LlvmValue], blocks: List[LlvmBasicBlock]) -> Option[LlvmValue] {
+    if values.size() == 0 || values.size() != blocks.size() {
+        recordError(ir, "phi: incomings inválidos")
+        return None
+    }
+    val first = values.get(0)
+    if !valueKnown(ir, first) {
+        recordError(ir, "phi: incoming sem tipo")
+        return None
+    }
+    val phiTy = valueType(ir, first)
+    var operands = ""
+    var index = 0
+    loop {
+        if index >= values.size() { break }
+        val incoming = values.get(index)
+        val block = blocks.get(index)
+        if !valueKnown(ir, incoming) || !llvmTypesEqual(valueType(ir, incoming), phiTy) {
+            recordError(ir, "phi: tipos incompatíveis")
+            return None
+        }
+        if !stringMapHasKey(ir.blockNames, block.handle) {
+            recordError(ir, "phi: bloco desconhecido")
+            return None
+        }
+        if index > 0 { operands = "$(operands), " }
+        operands = "$(operands)[ $(valueOperand(ir, incoming)), %$(ir.blockNames.get(block.handle)) ]"
+        index = index + 1
+    }
+    val result = registerValue(ir, phiTy, "temporary", "phi")
+    ir.lines.append("  $(valueOperand(ir, result)) = phi $(llvmTypeIrSyntax(phiTy)) $(operands)")
+    return Some(result)
+}
+
+pub fn irReturn(ir: IrBuilder, retTy: LlvmType, value: LlvmValue) -> Bool {
+    if !valueKnown(ir, value) || !llvmTypesEqual(valueType(ir, value), retTy) {
+        recordError(ir, "ret: valor incompatível")
+        return false
+    }
+    if !terminateCurrent(ir, "ret") { return false }
+    ir.lines.append("  ret $(llvmTypeIrSyntax(retTy)) $(valueOperand(ir, value))")
+    return true
+}
+
+pub fn irReturnVoid(ir: IrBuilder) -> Bool {
+    if !terminateCurrent(ir, "ret") { return false }
+    ir.lines.append("  ret void")
+    return true
+}
+
+fn intBinaryOpcode(op: String) -> String {
+    if op == "+" { return "add" }
+    if op == "-" { return "sub" }
+    if op == "*" { return "mul" }
+    if op == "/" { return "sdiv" }
+    if op == "%" { return "srem" }
+    return ""
+}
+
+fn floatBinaryOpcode(op: String) -> String {
+    if op == "+" { return "fadd" }
+    if op == "-" { return "fsub" }
+    if op == "*" { return "fmul" }
+    if op == "/" { return "fdiv" }
+    return ""
+}
+
+pub fn irBinary(ir: IrBuilder, op: String, left: LlvmValue, right: LlvmValue) -> Option[LlvmValue] {
+    if !valueKnown(ir, left) || !valueKnown(ir, right) {
+        recordError(ir, "binary $(op): operando sem tipo")
+        return None
+    }
+    val leftTy = valueType(ir, left)
+    val rightTy = valueType(ir, right)
+    if !llvmTypesEqual(leftTy, rightTy) {
+        recordError(ir, "binary $(op): tipos incompatíveis")
+        return None
+    }
+    var opcode = ""
+    if llvmTypesEqual(leftTy, llvmI64()) { opcode = intBinaryOpcode(op) }
+    if llvmTypesEqual(leftTy, llvmF64()) { opcode = floatBinaryOpcode(op) }
+    if opcode == "" {
+        recordError(ir, "binary $(op): operação não suportada para $(llvmTypeIrSyntax(leftTy))")
+        return None
+    }
+    val result = registerValue(ir, leftTy, "temporary", "binary $(op)")
+    ir.lines.append("  $(valueOperand(ir, result)) = $(opcode) $(llvmTypeIrSyntax(leftTy)) $(valueOperand(ir, left)), $(valueOperand(ir, right))")
+    return Some(result)
+}
+
+fn intComparePredicate(op: String) -> String {
+    if op == "==" { return "eq" }
+    if op == "!=" { return "ne" }
+    if op == "<" { return "slt" }
+    if op == "<=" { return "sle" }
+    if op == ">" { return "sgt" }
+    if op == ">=" { return "sge" }
+    return ""
+}
+
+fn floatComparePredicate(op: String) -> String {
+    if op == "==" { return "oeq" }
+    if op == "!=" { return "one" }
+    if op == "<" { return "olt" }
+    if op == "<=" { return "ole" }
+    if op == ">" { return "ogt" }
+    if op == ">=" { return "oge" }
+    return ""
+}
+
+pub fn irCompare(ir: IrBuilder, op: String, left: LlvmValue, right: LlvmValue) -> Option[LlvmValue] {
+    if !valueKnown(ir, left) || !valueKnown(ir, right) {
+        recordError(ir, "compare $(op): operando sem tipo")
+        return None
+    }
+    val leftTy = valueType(ir, left)
+    if !llvmTypesEqual(leftTy, valueType(ir, right)) {
+        recordError(ir, "compare $(op): tipos incompatíveis")
+        return None
+    }
+    var opcode = ""
+    var predicate = ""
+    if llvmTypesEqual(leftTy, llvmI64()) {
+        opcode = "icmp"
+        predicate = intComparePredicate(op)
+    }
+    if llvmTypesEqual(leftTy, llvmI1()) {
+        opcode = "icmp"
+        if op == "==" { predicate = "eq" }
+        if op == "!=" { predicate = "ne" }
+    }
+    if llvmTypesEqual(leftTy, llvmF64()) {
+        opcode = "fcmp"
+        predicate = floatComparePredicate(op)
+    }
+    if predicate == "" {
+        recordError(ir, "compare $(op): operação não suportada")
+        return None
+    }
+    val result = registerValue(ir, llvmI1(), "temporary", "compare $(op)")
+    ir.lines.append("  $(valueOperand(ir, result)) = $(opcode) $(predicate) $(llvmTypeIrSyntax(leftTy)) $(valueOperand(ir, left)), $(valueOperand(ir, right))")
+    return Some(result)
+}

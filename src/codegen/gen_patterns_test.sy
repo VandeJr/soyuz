@@ -183,10 +183,12 @@ test fn testBuildMatchArmPlans() {
     val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
     val plans = buildMatchArmPlans(data)
     assertMsg(plans.size() == 2, "two arm plans")
-    assertMsg(plans.get(0).patternOkBlockName == "match_arm_0_pattern_ok", "first arm pattern ok")
-    assertMsg(plans.get(0).hasGuard, "first arm has guard")
-    assertMsg(plans.get(1).bodyBlockName == "match_arm_1_body", "second arm body block")
-    assertMsg(!plans.get(1).hasGuard, "catchall no guard")
+    val firstPlan = plans.get(0)
+    val secondPlan = plans.get(1)
+    assertMsg(firstPlan.patternOkBlockName == "match_arm_0_pattern_ok", "first arm pattern ok")
+    assertMsg(firstPlan.hasGuard, "first arm has guard")
+    assertMsg(secondPlan.bodyBlockName == "match_arm_1_body", "second arm body block")
+    assertMsg(!secondPlan.hasGuard, "catchall no guard")
 }
 
 test fn testPatternBindingNameAndCollect() {
@@ -309,10 +311,12 @@ test fn testBuildFuncParamPatternSteps() {
     val bindingParam = FuncParam { span: span, pattern: Pattern.Binding(1, span, "x"), typeExpr: None, defaultExpr: None }
     val steps = buildFuncParamPatternSteps(0, [literalParam, bindingParam])
     assertMsg(steps.size() == 2, "two param pattern steps")
-    assertMsg(steps.get(0).okBlockName == "v0_p0_ok", "first param ok block")
-    assertMsg(steps.get(1).okBlockName == "v0_p1_ok", "second param ok block")
-    assertMsg(isLiteralPattern(steps.get(0).pattern), "first step literal pattern")
-    assertMsg(isBindingPattern(steps.get(1).pattern), "second step binding pattern")
+    val firstStep = steps.get(0)
+    val secondStep = steps.get(1)
+    assertMsg(firstStep.okBlockName == "v0_p0_ok", "first param ok block")
+    assertMsg(secondStep.okBlockName == "v0_p1_ok", "second param ok block")
+    assertMsg(isLiteralPattern(firstStep.pattern), "first step literal pattern")
+    assertMsg(isBindingPattern(secondStep.pattern), "second step binding pattern")
 }
 
 test fn testMatchPatternBindingRegistersVar() {

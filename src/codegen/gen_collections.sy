@@ -2,7 +2,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue } from @codegen/gen_ir
+    { legacyI64Stub } from @codegen/gen_ir
 )
 
 // collectionElemKind: 0 = Int/Char, 1 = String (for list/map to_string runtime).
@@ -87,14 +87,14 @@ pub fn mapValType(t: Type) -> Option[Type] = match t {
 
 pub fn generateMapKeysStub(g: Generator, _mapVal: LlvmValue, mapType: Type) -> Option[LlvmValue] {
     if !isMapType(mapType) { return None }
-    g.forMapKeysStub = Some(stubLlvmValue(g))
-    return Some(stubLlvmValue(g))
+    g.forMapKeysStub = Some(legacyI64Stub(g))
+    return Some(legacyI64Stub(g))
 }
 
 pub fn generateMapValuesStub(g: Generator, _mapVal: LlvmValue, mapType: Type) -> Option[LlvmValue] {
     if !isMapType(mapType) { return None }
-    g.forMapValuesStub = Some(stubLlvmValue(g))
-    return Some(stubLlvmValue(g))
+    g.forMapValuesStub = Some(legacyI64Stub(g))
+    return Some(legacyI64Stub(g))
 }
 
 pub fn isIteratorType(t: Type) -> Bool = match t {
@@ -120,5 +120,5 @@ pub fn iteratorElemType(t: Type) -> Option[Type] = match t {
 
 pub fn emitCollectionToStringStub(g: Generator, _val: LlvmValue, soyuzType: Type) -> Option[LlvmValue] {
     if !isListOrMapType(soyuzType) { return None }
-    return Some(stubLlvmValue(g))
+    return Some(legacyI64Stub(g))
 }

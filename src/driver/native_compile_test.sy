@@ -45,12 +45,11 @@ test fn testNativeCompileNew() {
 }
 
 test fn testNativeCompileTest() {
-    assertMsg(standaloneCliNativeTestEnabled(), "native test enabled")
+    assertMsg(!standaloneCliNativeTestEnabled(), "native test disabled until it executes tests")
     val argv = nativeCompileTestRunnerArgv()
     assertMsg(argvIsNativeTest(argv), "argv detects test")
     val out = nativeCompileTestOutputFromArgv(argv)
-    assertMsg(out == testCliNativeSuccessStubMessage(), "native test stub message")
-    assertMsg(out.contains(nativeCompileTestSuccessMarker()), "native test success marker")
+    assertMsg(out == "", "native test must not emit a false success")
 }
 
 test fn testNativeCompileRun() {

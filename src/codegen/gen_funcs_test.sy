@@ -142,12 +142,12 @@ fn makeAbsVariant(span: Span, whenGuard: Option[Node]) -> FuncDeclData {
 fn makeAbsGuardCond(span: Span) -> Node {
     val xId = Node.Identifier(10, span, IdentifierData { name: "x" })
     val zero = Node.IntLiteral(11, span, IntLiteralData { value: "0" })
-    return Node.BinaryExpr(12, span, BinaryExprData { operator: "<", left: xId, right: zero })
+    return Node.BinaryExpr(12, span, BinaryExprData { operator: "<", left: [xId], right: [zero] })
 }
 
 fn makeAbsReturnNegX(span: Span) -> Node {
     val xId = Node.Identifier(30, span, IdentifierData { name: "x" })
-    val negX = Node.UnaryExpr(31, span, UnaryExprData { operator: "-", operand: xId })
+    val negX = Node.UnaryExpr(31, span, UnaryExprData { operator: "-", operand: [xId] })
     return Node.ReturnStmt(32, span, ReturnStmtData { value: Some(negX) })
 }
 
@@ -187,8 +187,9 @@ test fn testWhenVariantBeforeCatchall() {
     val g = newGenerator(cr)
     val plans = buildFuncVariantPlans(g, "pick")
     assertMsg(plans.size() == 2, "two variant plans")
-    assertMsg(isWhenGuardVariant(plans.get(0).variant), "when-guarded variant at index 0 after sort")
-    match plans.get(0).variant.body {
+    val firstPlan = plans.get(0)
+    assertMsg(isWhenGuardVariant(firstPlan.variant), "when-guarded variant at index 0 after sort")
+    match firstPlan.variant.body {
         None => assertMsg(false, "guarded variant body")
         Some(bodyNode) => match bodyNode {
             ReturnStmt(_, _, data) => match data.value {
@@ -201,7 +202,7 @@ test fn testWhenVariantBeforeCatchall() {
             _ => assertMsg(false, "guarded return stmt")
         }
     }
-    match plans.get(0).guardBlockName {
+    match firstPlan.guardBlockName {
         None => assertMsg(false, "guarded plan has guard block")
         Some(name) => assertMsg(name == "v0_guard_ok", "guard block at sorted index 0")
     }
@@ -244,8 +245,10 @@ test fn testSortFuncVariantsStableAmongSamePriority() {
         isIgnore: false
     }
     val sorted = sortFuncVariantsForDispatch([first, second])
-    assertMsg(sorted.get(0).name == "first", "stable sort preserves order among equal priority")
-    assertMsg(sorted.get(1).name == "second", "stable sort preserves order among equal priority")
+    val sortedFirst = sorted.get(0)
+    val sortedSecond = sorted.get(1)
+    assertMsg(sortedFirst.name == "first", "stable sort preserves order among equal priority")
+    assertMsg(sortedSecond.name == "second", "stable sort preserves order among equal priority")
 }
 
 test fn testVariantBlockNames() {
@@ -298,11 +301,13 @@ test fn testGenerateFuncVariantsBodyBindingParamAliasesArg() {
     for k in g.vars.keys() {
         if k == "arg0" {
             hasArg = true
-            argHandle = g.vars.get("arg0").handle
+            val argValue = g.vars.get("arg0")
+            argHandle = argValue.handle
         }
         if k == "x" {
             hasX = true
-            xHandle = g.vars.get("x").handle
+            val xValue = g.vars.get("x")
+            xHandle = xValue.handle
         }
     }
     assertMsg(hasArg, "arg0 present after variant dispatch")
@@ -335,12 +340,14 @@ test fn testBuildFuncVariantPlansFromCheckResult() {
     val g = newGenerator(cr)
     val plans = buildFuncVariantPlans(g, "pick")
     assertMsg(plans.size() == 2, "two variant plans")
-    assertMsg(isWhenGuardVariant(plans.get(0).variant), "guarded plan first")
-    match plans.get(0).guardBlockName {
+    val firstPlan = plans.get(0)
+    val secondPlan = plans.get(1)
+    assertMsg(isWhenGuardVariant(firstPlan.variant), "guarded plan first")
+    match firstPlan.guardBlockName {
         None => assertMsg(false, "first plan has guard block")
         Some(name) => assertMsg(name == "v0_guard_ok", "first plan guard block")
     }
-    match plans.get(1).guardBlockName {
+    match secondPlan.guardBlockName {
         None => assertMsg(true, "catchall has no guard block")
         Some(_) => assertMsg(false, "catchall has no guard block")
     }

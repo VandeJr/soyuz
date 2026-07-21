@@ -4,7 +4,7 @@ import (
     { Type } from @checker/types
     { Generator } from @codegen/generator
     { LlvmValue } from @codegen/llvm_types
-    { stubLlvmValue, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
+    { legacyI64Stub, newBlock, setCurrentBlock, blockNameRegistered, emitStoreStub, emitCondBrStub, emitCondBrToBlockStub, emitBrToBlockStub } from @codegen/gen_ir
     { channelRuntimeNew, channelRuntimeSend, channelRuntimeRecv, channelRuntimeClose } from @codegen/gen_channel
     { taskRuntimeEnqueue, taskRuntimeAwait, nextTaskWrapperName, isTaskInstanceType } from @codegen/gen_gather
 )
@@ -213,7 +213,7 @@ pub fn nextAlwaysWrapperName(g: Generator) -> String {
 }
 
 pub fn isSelectTaskAwaitCall(node: Node) -> Bool = match node {
-    CallExpr(_, _, callData) => match callData.callee {
+    CallExpr(_, _, callData) => match callData.callee.get(0) {
         MemberExpr(_, _, memberData) => memberData.property == "await"
         _ => false
     }
@@ -294,7 +294,7 @@ pub fn generateTaskEnqueueStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskMallocBuiltin())
     registerTaskRuntimeSymbol(g, taskFreeBuiltin())
     g.taskLastWrapperName = Some(nextTaskWrapperName(g))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskEnqueueStub = Some(stub)
     return Some(stub)
 }
@@ -305,8 +305,8 @@ pub fn generateTaskPipeEnqueueStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskMallocBuiltin())
     g.taskPipeMode = true
     g.taskLastWrapperName = Some(nextTaskWrapperName(g))
-    g.taskPipeCaptureStub = Some(stubLlvmValue(g))
-    val stub = stubLlvmValue(g)
+    g.taskPipeCaptureStub = Some(legacyI64Stub(g))
+    val stub = legacyI64Stub(g)
     g.taskEnqueueStub = Some(stub)
     g.taskPipeInnerStub = Some(stub)
     return Some(stub)
@@ -314,21 +314,21 @@ pub fn generateTaskPipeEnqueueStub(g: Generator) -> Option[LlvmValue] {
 
 pub fn generateTaskDetachStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeDetach())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskDetachStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateTaskCancelStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeCancel())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskCancelStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateTaskAwaitStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeAwait())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskAwaitStub = Some(stub)
     return Some(stub)
 }
@@ -339,7 +339,7 @@ pub fn generateTaskTapStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
     registerTaskRuntimeSymbol(g, taskMallocBuiltin())
     g.taskTapWrapperName = Some(nextTapWrapperName(g))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskTapStub = Some(stub)
     return Some(stub)
 }
@@ -350,7 +350,7 @@ pub fn generateTaskAlwaysStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeSetResult())
     registerTaskRuntimeSymbol(g, taskMallocBuiltin())
     g.taskAlwaysWrapperName = Some(nextAlwaysWrapperName(g))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskAlwaysStub = Some(stub)
     return Some(stub)
 }
@@ -362,7 +362,7 @@ pub fn generateSelectListenerStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, channelRuntimeSend())
     registerTaskRuntimeSymbol(g, taskMallocBuiltin())
     g.selectListenerWrapperName = Some(nextSelectListenerWrapperName(g))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.selectListenerStub = Some(stub)
     return Some(stub)
 }
@@ -373,14 +373,14 @@ pub fn generateSelectTaskBridgeStub(g: Generator) -> Option[LlvmValue] {
         None => None
         Some(_) => {
             g.selectTaskArmCount = g.selectTaskArmCount + 1
-            Some(stubLlvmValue(g))
+            Some(legacyI64Stub(g))
         }
     }
 }
 
 pub fn generateTaskDropStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskDropHandleRuntime())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskDropStub = Some(stub)
     return Some(stub)
 }
@@ -389,7 +389,7 @@ pub fn generateTaskAllStub(g: Generator, argCount: Int) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskRuntimeAwait())
     registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
     g.taskAllArgCount = argCount
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskAllStub = Some(stub)
     return Some(stub)
 }
@@ -401,7 +401,7 @@ pub fn generateTaskFanStub(g: Generator, fnCount: Int) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskTupleAllocBuiltin())
     g.taskFanFnCount = fnCount
     g.taskLastWrapperName = Some(nextTaskWrapperName(g))
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskFanStub = Some(stub)
     return Some(stub)
 }
@@ -454,7 +454,7 @@ pub fn generateAsyncPipeStub(g: Generator, stepCount: Int, questStepCount: Int) 
     }
     g.asyncPipeStepCount = stepCount
     g.asyncPipeQuestStepCount = questStepCount
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.asyncPipeStub = Some(stub)
     return Some(stub)
 }
@@ -472,13 +472,13 @@ pub fn generateTaskHandleCurrentStub(g: Generator) -> Option[LlvmValue] {
     val mergeBlock = newBlock(g, taskHandleMergeBlockName())
     if !emitCondBrToBlockStub(g, someBlock, noneBlock) { return None }
     setCurrentBlock(g, someBlock)
-    g.taskHandleCurrentSomeResult = Some(stubLlvmValue(g))
+    g.taskHandleCurrentSomeResult = Some(legacyI64Stub(g))
     if !emitBrToBlockStub(g, mergeBlock) { return None }
     setCurrentBlock(g, noneBlock)
-    g.taskHandleCurrentNoneResult = Some(stubLlvmValue(g))
+    g.taskHandleCurrentNoneResult = Some(legacyI64Stub(g))
     if !emitBrToBlockStub(g, mergeBlock) { return None }
     setCurrentBlock(g, mergeBlock)
-    val phi = stubLlvmValue(g)
+    val phi = legacyI64Stub(g)
     g.taskHandleCurrentPhiResult = Some(phi)
     g.taskHandleCurrentStub = Some(phi)
     return Some(phi)
@@ -492,14 +492,14 @@ pub fn taskHandleCurrentBlockNamesRegistered(g: Generator) -> Bool {
 
 pub fn generateTaskHandleCancelledStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskHandleCancelledRuntime())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskHandleCancelledStub = Some(stub)
     return Some(stub)
 }
 
 pub fn generateTaskHandleProgressStub(g: Generator) -> Option[LlvmValue] {
     registerTaskRuntimeSymbol(g, taskHandleProgressRuntime())
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskHandleProgressStub = Some(stub)
     return Some(stub)
 }
@@ -520,7 +520,7 @@ pub fn generateTaskPipelineStub(g: Generator, stageCount: Int) -> Option[LlvmVal
         i = i + 1
     }
     g.taskPipelineStageCount = stageCount
-    val stub = stubLlvmValue(g)
+    val stub = legacyI64Stub(g)
     g.taskPipelineStub = Some(stub)
     return Some(stub)
 }
@@ -550,7 +550,7 @@ pub fn nullifyTaskVarAfterConsume(g: Generator, object: Node) -> Bool = match ob
     Identifier(_, _, idData) => {
         if !taskVarsMapHasKey(g.vars, idData.name) { return true }
         val alloca = g.vars.get(idData.name)
-        if !emitStoreStub(g, stubLlvmValue(g), alloca) { return false }
+        if !emitStoreStub(g, legacyI64Stub(g), alloca) { return false }
         var names = g.taskNullStoreVars
         names.append(idData.name)
         g.taskNullStoreVars = names

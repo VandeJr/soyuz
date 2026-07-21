@@ -5,7 +5,7 @@ import (
     { EnumInfo, VariantInfo } from @codegen/types
     { mapTypeToLLVM } from @codegen/gen_types
     { recordFieldLlvmType } from @codegen/gen_structs
-    { stubLlvmValue, emitGepStub, emitLoadStub, emitStoreStub, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
+    { legacyI64Stub, emitGepStub, emitLoadStub, emitStoreStub, newBlock, setCurrentBlock, newAlloca, emitCondBrStub } from @codegen/gen_ir
     { LlvmType, LlvmValue, llvmI64, llvmI8Ptr, llvmStructType, llvmStructFieldAt } from @codegen/llvm_types
 )
 
@@ -169,7 +169,8 @@ fn constructorPatternArgsOk(args: List[Pattern], vi: VariantInfo) -> Bool {
 
 fn funcParamPatternsSupportedLoop(g: Generator, params: List[FuncParam], index: Int) -> Bool {
     if index >= params.size() { return true }
-    if !matchPatternSupported(g, params.get(index).pattern) { return false }
+    val param = params.get(index)
+    if !matchPatternSupported(g, param.pattern) { return false }
     return funcParamPatternsSupportedLoop(g, params, index + 1)
 }
 
@@ -245,9 +246,10 @@ pub record FuncParamPatternStep {
 fn buildFuncParamPatternStepsLoop(params: List[FuncParam], variantIdx: Int, index: Int, steps: List[FuncParamPatternStep]) -> List[FuncParamPatternStep] {
     if index >= params.size() { return steps }
     var result = steps
+    val param = params.get(index)
     result.append(FuncParamPatternStep {
         paramIndex: index,
-        pattern: params.get(index).pattern,
+        pattern: param.pattern,
         okBlockName: funcParamPatternOkBlockName(variantIdx, index)
     })
     return buildFuncParamPatternStepsLoop(params, variantIdx, index + 1, result)
@@ -511,7 +513,7 @@ fn matchPatternBindingDispatch(g: Generator, name: String, hasSubject: Bool, sub
     val slotType = patternBindingSlotType(g, hasSubject, subjectType)
     val alloca = newAlloca(g, slotType)
     if hasSubject {
-        val subjectVal = stubLlvmValue(g)
+        val subjectVal = legacyI64Stub(g)
         emitStoreStub(g, subjectVal, alloca)
         g.bindingPatternSubjectStore = Some(subjectVal)
     }
@@ -538,7 +540,7 @@ fn patternLiteralLlvmType(g: Generator, v: LiteralPatternValue) -> LlvmType = ma
 pub fn generateLiteralPatternValue(g: Generator, v: LiteralPatternValue) -> Option[LlvmValue] {
     if !literalPatternDispatchOk(v) { return None }
     val _ty = patternLiteralLlvmType(g, v)
-    return Some(stubLlvmValue(g))
+    return Some(legacyI64Stub(g))
 }
 
 fn matchPatternLiteralDispatch(g: Generator, value: LiteralPatternValue, thenBlockName: String, nextBlockName: String) -> Bool {
@@ -608,7 +610,7 @@ fn clearConstructorPayloadStubs(g: Generator) {
 
 fn emitConstructorTagPayloadStubs(g: Generator, hasSubject: Bool) -> Bool {
     if !hasSubject { return true }
-    val _subject = stubLlvmValue(g)
+    val _subject = legacyI64Stub(g)
     val _tagPtr = emitGepStub(g)
     g.constructorTagLoad = Some(emitLoadStub(g))
     g.constructorPayloadPtr = Some(emitGepStub(g))
@@ -800,7 +802,7 @@ fn clearRecordPatternFieldStubs(g: Generator) {
 
 fn emitRecordPatternSubjectStub(g: Generator, hasSubject: Bool) -> Bool {
     if !hasSubject { return true }
-    g.recordPatternSubject = Some(stubLlvmValue(g))
+    g.recordPatternSubject = Some(legacyI64Stub(g))
     return true
 }
 
@@ -912,7 +914,7 @@ fn clearTuplePatternElemStubs(g: Generator) {
 
 fn emitTuplePatternSubjectStub(g: Generator, hasSubject: Bool) -> Bool {
     if !hasSubject { return true }
-    g.tuplePatternSubject = Some(stubLlvmValue(g))
+    g.tuplePatternSubject = Some(legacyI64Stub(g))
     return true
 }
 
@@ -1007,7 +1009,7 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
     Binding(_, _, name) => matchPatternBindingDispatch(g, name, hasSubject, subjectType, thenBlockName)
     Literal(_, _, value) => {
         if hasSubject {
-            val subjectVal = stubLlvmValue(g)
+            val subjectVal = legacyI64Stub(g)
             return matchPatternLiteralDispatchWithSubject(g, value, subjectVal, thenBlockName, nextBlockName)
         }
         return matchPatternLiteralDispatch(g, value, thenBlockName, nextBlockName)

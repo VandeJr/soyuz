@@ -1,0 +1,13 @@
+Olá, Vand!
+Resultado: 7
+raw: \d+\.\d+
+len: 10
+toUpper: SOYUZ LANG
+toLower: soyuz lang
+contains: 1
+startsWith: 1
+endsWith: 1
+replace: Soyuz PL
+trim: hello
+substring(0,5): Soyuz
+indexOf: 6

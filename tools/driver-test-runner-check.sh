@@ -16,8 +16,8 @@ OUT="$(soyuz test test_runner.sy 2>&1)" || {
   exit 1
 }
 
-if ! echo "$OUT" | grep -q 'testes passaram'; then
-  echo "soyuz test test_runner.sy sem marcador de sucesso" >&2
+if ! echo "$OUT" | grep -Eq '✓[[:space:]]+5 testes passaram'; then
+  echo "soyuz test test_runner.sy não executou exatamente 5 testes" >&2
   echo "$OUT" | tail -15 >&2
   exit 1
 fi

@@ -1,0 +1,19 @@
+positivo
+0..5 soma: 10
+0..=5 soma: 15
+Olá, Alice!
+Olá, Bob!
+Olá, Carol!
+tentativas: 3
+count (skip 3, stop 7): 6
+loop valor: 50
+1
+2
+Fizz
+4
+Buzz
+soma lista: 15
+primeiro positivo: 3
+iter: 1
+iter: 2
+iter: 4

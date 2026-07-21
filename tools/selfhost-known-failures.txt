@@ -1,0 +1,10 @@
+# Feature fixture names expected to fail until their milestone is closed.
+extensions
+funcoes
+generics
+
+# Other known blockers tracked by tools/selfhost-regression-check.sh:
+# - vN delegates `build main.sy` to bootstrap
+# - Parser is not executable through bootstrap codegen
+# - List.slice and List.removeAt are not code-generated
+# - checker stores can produce incompatible LLVM pointer/value types
