@@ -507,10 +507,11 @@ extend Parser {
             returnType = Some(self.parseTypeExpr())
         }
         self.expect(TokenType.FAT_ARROW)
-        val body = if self.check(TokenType.LBRACE) {
-            self.parseBlock()
+        var body: Node = Node.NoneLit(self.allocNodeId(), span)
+        if self.check(TokenType.LBRACE) {
+            body = self.parseBlock()
         } else {
-            self.parseExpression(0)
+            body = self.parseExpression(0)
         }
         return Node.ArrowFunc(self.allocNodeId(), span, ArrowFuncData { params: params, returnType: returnType, body: body })
     }
@@ -525,33 +526,28 @@ extend Parser {
         var parts: List[Node] = []
 
         loop {
-            match self.peek().type {
-                STRING_PART => {
-                    val tok = self.advance()
+            if self.check(TokenType.STRING_PART) {
+                val tok = self.advance()
+                parts.append(Node.StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme }))
+            } else if self.check(TokenType.INTERP_START) {
+                self.advance()
+                val expr = self.parseExpression(0)
+                parts.append(expr)
+                self.expect(TokenType.INTERP_END)
+            } else if self.check(TokenType.STRING_LITERAL) {
+                val tok = self.advance()
+                if tok.lexeme != "" {
                     parts.append(Node.StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme }))
                 }
-                INTERP_START => {
-                    self.advance()
-                    val expr = self.parseExpression(0)
-                    parts.append(expr)
-                    self.expect(TokenType.INTERP_END)
-                }
-                STRING_LITERAL => {
-                    val tok = self.advance()
-                    if tok.lexeme != "" {
-                        parts.append(Node.StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme }))
+                if parts.size() == 1 {
+                    val only = parts.get(0)
+                    if self.isPlainStringLiteral(only) {
+                        return only
                     }
-                    if parts.size() == 1 {
-                        val only = parts.get(0)
-                        if self.isPlainStringLiteral(only) {
-                            return only
-                        }
-                    }
-                    return Node.InterpolatedString(self.allocNodeId(), span, InterpolatedStringData { parts: parts })
                 }
-                _ => {
-                    return Node.InterpolatedString(self.allocNodeId(), span, InterpolatedStringData { parts: parts })
-                }
+                return Node.InterpolatedString(self.allocNodeId(), span, InterpolatedStringData { parts: parts })
+            } else {
+                return Node.InterpolatedString(self.allocNodeId(), span, InterpolatedStringData { parts: parts })
             }
         }
     }

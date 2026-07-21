@@ -2,12 +2,12 @@ import (
     { Node, SpecializedExprData, IdentifierData, TypeExpr } from @ast/ast
     { nodePos } from @ast/ast_helpers
     { Checker, Type, FuncType, RecordType, ClassType, EnumType, Unknown } from @checker/types
-    { checkNode, checkerErrorf } from @checker/checker
+    { checkerErrorf } from @checker/checker
     { instantiateFunc, typeArgsFromExprs } from @checker/check_generics
 )
 
 pub fn checkSpecializedExpr(c: Checker, data: SpecializedExprData, node: Node) -> Type {
-    val baseType = checkNode(c, data.base)
+    val baseType = c.checkNode(data.base)
     val specParams = typeArgsFromExprs(c, data.typeArgs)
     if specParams == None { return Unknown }
     val params = specParams.get()

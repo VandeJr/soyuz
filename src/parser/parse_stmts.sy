@@ -81,10 +81,10 @@ extend Parser {
         val consequent = self.parseBlock()
         var alternate: Option[Node] = None
         if self.consume(TokenType.ELSE) {
-            alternate = if self.check(TokenType.IF) {
-                Some(self.parseIf())
+            if self.check(TokenType.IF) {
+                alternate = Some(self.parseIf())
             } else {
-                Some(self.parseBlock())
+                alternate = Some(self.parseBlock())
             }
         }
         return Node.IfStmt(self.allocNodeId(), span, IfStmtData { condition: condition, consequent: consequent, alternate: alternate })
