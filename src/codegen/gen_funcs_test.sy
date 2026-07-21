@@ -486,7 +486,7 @@ test fn testGenerateProgramBodyMultiVariant() {
 test fn testGenerateFuncDeclNode() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val ret = Node.ReturnStmt(2, span, ReturnStmtData { value: Some(Node.IntLiteral(3, span, IntLiteralData { value: "42" })) })
-    val ft = FuncType { params: [], returnType: IntType, generics: [], defaults: [], isOptional: [] }
+    val ft = FuncType { params: [], returnType: [IntType], generics: [], defaults: [], isOptional: [] }
     val fd = FuncDeclData {
         namePos: span,
         isPub: false,
@@ -519,7 +519,7 @@ test fn testGenerateFuncDeclNode() {
 test fn testGenerateProgramBody() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val ret = Node.ReturnStmt(4, span, ReturnStmtData { value: None })
-    val ft = FuncType { params: [], returnType: UnitType, generics: [], defaults: [], isOptional: [] }
+    val ft = FuncType { params: [], returnType: [UnitType], generics: [], defaults: [], isOptional: [] }
     val fd = FuncDeclData {
         namePos: span,
         isPub: false,

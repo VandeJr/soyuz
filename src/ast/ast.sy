@@ -32,7 +32,7 @@ pub enum LiteralPatternValue {
 pub enum TypeExpr {
     Named(nodeId: Int, span: Span, name: String)
     Generic(nodeId: Int, span: Span, name: String, params: List[TypeExpr])
-    Optional(nodeId: Int, span: Span, inner: TypeExpr)
+    Optional(nodeId: Int, span: Span, inner: List[TypeExpr])
     Tuple(nodeId: Int, span: Span, elements: List[TypeExpr])
     Func(nodeId: Int, span: Span, paramTypes: List[TypeExpr], returnType: Option[TypeExpr])
 }
@@ -44,7 +44,7 @@ pub enum Pattern {
     Constructor(nodeId: Int, span: Span, name: String, args: List[Pattern])
     Record(nodeId: Int, span: Span, name: String, fields: List[RecordPatternField])
     Tuple(nodeId: Int, span: Span, elements: List[Pattern])
-    Range(nodeId: Int, span: Span, from: LiteralPatternValue, to: Pattern, inclusive: Bool)
+    Range(nodeId: Int, span: Span, from: LiteralPatternValue, to: List[Pattern], inclusive: Bool)
 }
 
 pub record GenericParam {
@@ -90,21 +90,21 @@ pub record ImportName {
 }
 
 pub record MapEntry {
-    key: Node,
-    value: Node
+    key: List[Node],
+    value: List[Node]
 }
 
 pub record RecordLiteralField {
     span: Span,
     name: String,
-    value: Node
+    value: List[Node]
 }
 
 pub record MatchArm {
     span: Span,
     pattern: Pattern,
     guard: Option[Node],
-    body: Node
+    body: List[Node]
 }
 
 pub record SelectArm {
@@ -112,7 +112,7 @@ pub record SelectArm {
     binding: String,
     chanExpr: Option[Node],
     isDefault: Bool,
-    body: Node
+    body: List[Node]
 }
 
 pub record RecordPatternField {
@@ -279,32 +279,32 @@ pub record CallExprData {
 
 pub record NamedArgData {
     name: String,
-    value: Node
+    value: List[Node]
 }
 
 pub record MemberExprData {
-    object: Node,
+    object: List[Node],
     property: String
 }
 
 pub record SafeNavExprData {
-    object: Node,
+    object: List[Node],
     property: String
 }
 
 pub record ElvisExprData {
-    left: Node,
-    right: Node
+    left: List[Node],
+    right: List[Node]
 }
 
 pub record PipeExprData {
-    left: Node,
-    right: Node
+    left: List[Node],
+    right: List[Node]
 }
 
 pub record PipeQuestExprData {
-    left: Node,
-    right: Node
+    left: List[Node],
+    right: List[Node]
 }
 
 pub record AsyncPipeExprData {
@@ -312,12 +312,12 @@ pub record AsyncPipeExprData {
 }
 
 pub record AsyncPipeQuestStepData {
-    step: Node
+    step: List[Node]
 }
 
 pub record IndexExprData {
-    object: Node,
-    index: Node
+    object: List[Node],
+    index: List[Node]
 }
 
 pub record RangeExprData {
@@ -339,19 +339,19 @@ pub record MapExprData {
 }
 
 pub record OkExprData {
-    value: Node
+    value: List[Node]
 }
 
 pub record ErrExprData {
-    value: Node
+    value: List[Node]
 }
 
 pub record SomeExprData {
-    value: Node
+    value: List[Node]
 }
 
 pub record SpecializedExprData {
-    base: Node,
+    base: List[Node],
     typeArgs: List[TypeExpr]
 }
 
@@ -362,12 +362,12 @@ pub record RecordLiteralData {
 }
 
 pub record MatchExprData {
-    subject: Node,
+    subject: List[Node],
     arms: List[MatchArm]
 }
 
 pub record TaskExprData {
-    inner: Node
+    inner: List[Node]
 }
 
 pub record SelectExprData {
@@ -377,7 +377,7 @@ pub record SelectExprData {
 pub record ArrowFuncData {
     params: List[FuncParam],
     returnType: Option[TypeExpr],
-    body: Node
+    body: List[Node]
 }
 
 pub record InterpolatedStringData {

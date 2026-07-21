@@ -94,7 +94,7 @@ test fn testResolveEnumPayloadTypeSpecializedSome() {
     match enumVariantForPattern(g, "Some", None) {
         None => assertMsg(false, "Some lookup")
         Some(lookup) => {
-            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Some", Some(Type.Specialized(Type.Basic("Option"), [IntType])))
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Some", Some(Type.Specialized([Type.Basic("Option")], [IntType])))
             assertMsg(llvmTypesEqual(ty, llvmI64()), "Some payload maps to Int")
         }
     }
@@ -107,7 +107,7 @@ test fn testResolveEnumPayloadTypeSpecializedErr() {
     match enumVariantForPattern(g, "Err", None) {
         None => assertMsg(false, "Err lookup")
         Some(lookup) => {
-            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Err", Some(Type.Specialized(Type.Basic("Result"), [StringType])))
+            val ty = resolveEnumPayloadType(g, lookup.variantInfo, "Err", Some(Type.Specialized([Type.Basic("Result")], [StringType])))
             assertMsg(llvmTypesEqual(ty, llvmI8Ptr()), "Err payload is i8*")
         }
     }
@@ -141,13 +141,13 @@ test fn testMatchArmGuardAndCatchall() {
         span: span,
         pattern: Pattern.Binding(0, span, "n"),
         guard: Some(guardCond),
-        body: body
+        body: [body]
     }
     val catchallArm = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(1, span),
         guard: None,
-        body: body
+        body: [body]
     }
     assertMsg(matchArmHasGuard(guardedArm), "arm has guard")
     assertMsg(!matchArmHasGuard(catchallArm), "catchall no guard")
@@ -172,15 +172,15 @@ test fn testBuildMatchArmPlans() {
         span: span,
         pattern: Pattern.Binding(0, span, "n"),
         guard: Some(guardCond),
-        body: body
+        body: [body]
     }
     val catchallArm = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(1, span),
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val data = MatchExprData { subject: [subject], arms: [guardedArm, catchallArm] }
     val plans = buildMatchArmPlans(data)
     assertMsg(plans.size() == 2, "two arm plans")
     val firstPlan = plans.get(0)
@@ -266,7 +266,7 @@ test fn testMatchPatternDispatchRangeCondBr() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
     val to = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
-    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, true)
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), [to], true)
     val handlesBefore = g.valueHandleCounter
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "range dispatch")
     assertMsg(blockNameRegistered(g, "range_ge"), "range ge stub block")
@@ -285,7 +285,7 @@ test fn testMatchPatternDispatchRangeRejectsNonLiteralTo() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
     val to = Pattern.Wildcard(3, span)
-    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, true)
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), [to], true)
     assertMsg(!matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "range needs literal upper bound")
 }
 
@@ -293,7 +293,7 @@ test fn testMatchPatternDispatchRangeExclusive() {
     val g = newGenerator(patternsEmptyCheckResult())
     val span = patternsZeroSpan()
     val to = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
-    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), to, false)
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), [to], false)
     assertMsg(matchPatternDispatchNoSubject(g, pat, "match_arm_0_pattern_ok", "match_arm_0_next"), "exclusive range dispatch")
 }
 
@@ -421,7 +421,7 @@ test fn testResolveEnumPayloadTypeWithChecker() {
     match enumVariantForPattern(g, "Some", None) {
         None => assertMsg(false, "Some lookup")
         Some(lookup) => {
-            val subject = Type.Specialized(Type.Basic("Option"), [IntType])
+            val subject = Type.Specialized([Type.Basic("Option")], [IntType])
             val ty = resolveEnumPayloadTypeWithChecker(g, lookup.variantInfo, "Some", subject)
             assertMsg(llvmTypesEqual(ty, llvmI64()), "Some payload with checker subject")
         }

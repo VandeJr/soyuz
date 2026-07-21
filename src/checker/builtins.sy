@@ -7,7 +7,7 @@ pub fn emptyTypes() -> List[Type] { [] }
 pub fn tParam(name: String) -> Type = Type.TypeParam(name)
 
 fn fnType(params: List[Type], ret: Type) -> FuncType {
-    FuncType { params: params, returnType: ret, generics: [], defaults: [], isOptional: [] }
+    FuncType { params: params, returnType: [ret], generics: [], defaults: [], isOptional: [] }
 }
 
 pub fn fn0(ret: Type) -> FuncType = fnType(emptyTypes(), ret)
@@ -39,8 +39,8 @@ pub fn builtinTypeExtensions() -> Map[String, Map[String, List[FuncType]]] {
         variantFieldNames: Map[String, List[String]]{}
     }
 
-    val resultInt = Type.Specialized(Type.Enum(resultEnum), [IntType])
-    val resultFloat = Type.Specialized(Type.Enum(resultEnum), [FloatType])
+    val resultInt = Type.Specialized([Type.Enum(resultEnum)], [IntType])
+    val resultFloat = Type.Specialized([Type.Enum(resultEnum)], [FloatType])
     var optionVariants = Map[String, List[Type]]{}
     optionVariants.set("Some", [tParam("T")])
     optionVariants.set("None", emptyTypes())
@@ -49,14 +49,14 @@ pub fn builtinTypeExtensions() -> Map[String, Map[String, List[FuncType]]] {
         variants: optionVariants,
         variantFieldNames: Map[String, List[String]]{}
     }
-    val optionInt = Type.Specialized(Type.Enum(optionBase), [IntType])
-    val optionChar = Type.Specialized(Type.Enum(optionBase), [CharType])
+    val optionInt = Type.Specialized([Type.Enum(optionBase)], [IntType])
+    val optionChar = Type.Specialized([Type.Enum(optionBase)], [CharType])
     val listBase = ClassType {
         name: "List", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
+        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, String]{}
     }
-    val listOfString = Type.Specialized(Type.Class(listBase), [StringType])
+    val listOfString = Type.Specialized([Type.Class(listBase)], [StringType])
 
     var stringExt = Map[String, List[FuncType]]{}
     setExtMethod(stringExt, "len", fn0(IntType))

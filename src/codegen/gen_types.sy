@@ -140,7 +140,7 @@ pub fn mapTypeToLLVM(g: Generator, t: Type) -> LlvmType = match t {
     Record(name, _, _) => mapNamedAggregate(g, name)
     Enum(data) => mapNamedAggregate(g, data.name)
     Tuple(elements) => mapTupleElements(g, elements)
-    Specialized(base, params) => mapSpecializedType(g, base, params)
+    Specialized(base, params) => mapSpecializedType(g, base.get(0), params)
     Class(data) => mapClassByName(g, data.name)
     TypeParam(name) => unknownLlvmType(g, "parâmetro de tipo não resolvido $(name)")
 }

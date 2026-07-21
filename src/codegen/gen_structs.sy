@@ -151,7 +151,7 @@ fn incrementMapStringCount(m: Map[String, Int], key: String) {
     m.set(key, mapStringKeyCount(m, key) + 1)
 }
 
-fn mapHasStringKey(m: Map[String, Bool], key: String) -> Bool {
+fn mapHasStringKey(m: Map[String, String], key: String) -> Bool {
     for k in m.keys() { if k == key { return true } }
     return false
 }
@@ -284,7 +284,7 @@ fn classMethodReturnLlvmType(g: Generator, member: Node, fd: FuncDeclData) -> Ll
         Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
         None => llvmVoid()
     }
-    Some(ft) => mapTypeToLLVM(g, ft.returnType)
+    Some(ft) => mapTypeToLLVM(g, ft.returnType.get(0))
 }
 
 fn declareClassMethod(g: Generator, className: String, member: Node, fd: FuncDeclData, methodName: String) -> LlvmFunc {
@@ -319,7 +319,7 @@ fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: L
         }
     }
     var declaredKeys: List[ClassMethodArityKey] = []
-    var seenKeys: Map[String, Bool] = Map[String, Bool]{}
+    var seenKeys: Map[String, String] = Map[String, String]{}
     var arityGroupNodes: Map[String, List[Node]] = Map[String, List[Node]]{}
     for member in body {
         match member {
@@ -327,7 +327,7 @@ fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: L
                 val arity = classMethodNonSelfArity(fd)
                 val key = classArityKeyStr(fd.name, arity)
                 if !mapHasStringKey(seenKeys, key) {
-                    seenKeys.set(key, true)
+                    seenKeys.set(key, "1")
                     declaredKeys.append(ClassMethodArityKey { name: fd.name, arity: arity })
                 }
                 appendClassMethodVariantNode(arityGroupNodes, key, member)
@@ -498,7 +498,7 @@ fn extendMethodReturnLlvmType(g: Generator, member: Node, fd: FuncDeclData) -> L
         Some(te) => mapSoyuzTypeToLLVM(g, Some(te))
         None => llvmVoid()
     }
-    Some(ft) => mapTypeToLLVM(g, ft.returnType)
+    Some(ft) => mapTypeToLLVM(g, ft.returnType.get(0))
 }
 
 fn declareExtendMethod(g: Generator, typeName: String, member: Node, fd: FuncDeclData) -> LlvmFunc {

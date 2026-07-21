@@ -1,0 +1,28 @@
+import (
+    { buildConfigForEntry } from @driver/build
+    { frontendBuildReady, planFrontendBuild } from @driver/frontend
+    { planStandaloneTypedCodegenBuild, typedCodegenBuildReady } from @driver/typed_codegen
+    { emptyPathIndex, joinPathFile } from @module/paths
+    { newResolverWithStdlib } from @module/resolver
+)
+
+fn main() {
+    val entry = "/virtual/source_main.sy"
+    val stdlibDir = "/virtual/std"
+    var index = emptyPathIndex()
+    index.fileContents.set(joinPathFile(stdlibDir, "prelude.sy"), "")
+    index.fileContents.set(entry, "fn add(a: Int, b: Int) -> Int = a + b\nfn main() {\n  if add(2, 4) == 6 { print(\"source native\") } else { print(\"wrong\") }\n}\n")
+    val resolver = newResolverWithStdlib(entry, stdlibDir)
+    val frontend = planFrontendBuild(entry, resolver, index)
+    if !frontendBuildReady(frontend) {
+        print(frontend.error)
+        return
+    }
+    val cfg = buildConfigForEntry(entry, "/tmp/source-native", false, "/tmp/source-native-build", "/runtime/src")
+    val codegen = planStandaloneTypedCodegenBuild(frontend, cfg)
+    if !typedCodegenBuildReady(codegen) {
+        print(codegen.error)
+        return
+    }
+    print(codegen.irContent)
+}

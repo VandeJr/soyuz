@@ -27,10 +27,10 @@ fn taskEmptyCheckResult() -> CheckResult = CheckResult {
 fn taskEmptyClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -43,7 +43,7 @@ test fn testIsTaskCallInner() {
     args.append(arg)
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: args })
     assertMsg(isTaskCallInner(call), "CallExpr is task call inner")
-    val taskInner = Node.TaskExpr(4, span, TaskExprData { inner: call })
+    val taskInner = Node.TaskExpr(4, span, TaskExprData { inner: [call] })
     assertMsg(!isTaskCallInner(taskInner), "TaskExpr not direct call inner")
 }
 
@@ -51,7 +51,7 @@ test fn testIsTaskPipeInner() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
     val fnId = Node.Identifier(2, span, IdentifierData { name: "double" })
-    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: [nId], right: [fnId] })
     assertMsg(isTaskPipeInner(pipe), "PipeExpr is task pipe inner")
     val callee = Node.Identifier(4, span, IdentifierData { name: "double" })
     var args: List[Node] = []
@@ -78,24 +78,24 @@ test fn testGenerateTaskPipeEnqueueStub() {
 test fn testIsTaskAwaitCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = taskEmptyClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "await" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskInt))
     cr.nodeTypes.append(Some(taskInt))
     val g = newGenerator(cr)
     assertMsg(isTaskAwaitMethodCall(awaitMember, g), "t.await on Task[Int]")
-    val detachMember = Node.MemberExpr(3, span, MemberExprData { object: tId, property: "detach" })
+    val detachMember = Node.MemberExpr(3, span, MemberExprData { object: [tId], property: "detach" })
     assertMsg(!isTaskAwaitMethodCall(detachMember, g), "t.detach not await")
 }
 
 test fn testIsTaskDetachCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = taskEmptyClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val detachMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
+    val detachMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "detach" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskInt))
     cr.nodeTypes.append(Some(taskInt))
@@ -106,29 +106,29 @@ test fn testIsTaskDetachCall() {
 test fn testIsTaskCancelMethodCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = taskEmptyClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val cancelMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    val cancelMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "cancel" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskInt))
     cr.nodeTypes.append(Some(taskInt))
     val g = newGenerator(cr)
     assertMsg(isTaskCancelMethodCall(cancelMember, g), "t.cancel on Task[Int]")
-    assertMsg(!isTaskCancelMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "detach" }), g), "t.detach not cancel")
+    assertMsg(!isTaskCancelMethodCall(Node.MemberExpr(3, span, MemberExprData { object: [tId], property: "detach" }), g), "t.detach not cancel")
 }
 
 test fn testIsTaskTapMethodCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = taskEmptyClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val tapMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "tap" })
+    val tapMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "tap" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskInt))
     cr.nodeTypes.append(Some(taskInt))
     val g = newGenerator(cr)
     assertMsg(isTaskTapMethodCall(tapMember, g), "t.tap on Task[Int]")
-    assertMsg(!isTaskTapMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "await" }), g), "t.await not tap")
+    assertMsg(!isTaskTapMethodCall(Node.MemberExpr(3, span, MemberExprData { object: [tId], property: "await" }), g), "t.await not tap")
 }
 
 test fn testGenerateTaskTapStub() {
@@ -153,15 +153,15 @@ test fn testGenerateTaskTapStub() {
 test fn testIsTaskAlwaysMethodCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = taskEmptyClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val alwaysMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "always" })
+    val alwaysMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "always" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskInt))
     cr.nodeTypes.append(Some(taskInt))
     val g = newGenerator(cr)
     assertMsg(isTaskAlwaysMethodCall(alwaysMember, g), "t.always on Task[Int]")
-    assertMsg(!isTaskAlwaysMethodCall(Node.MemberExpr(3, span, MemberExprData { object: tId, property: "tap" }), g), "t.tap not always")
+    assertMsg(!isTaskAlwaysMethodCall(Node.MemberExpr(3, span, MemberExprData { object: [tId], property: "tap" }), g), "t.tap not always")
 }
 
 test fn testGenerateTaskAlwaysStub() {
@@ -226,7 +226,7 @@ test fn testOwnTaskVarAndPopScope() {
     ownTaskVar(g, "t")
     val owned = popTaskScope(g)
     assertMsg(owned.size() == 1, "one task var owned")
-    assertMsg(isTaskInstanceType(Type.Specialized(Type.Class(taskEmptyClass("Task")), [IntType])), "task instance type")
+    assertMsg(isTaskInstanceType(Type.Specialized([Type.Class(taskEmptyClass("Task"))], [IntType])), "task instance type")
 }
 
 test fn testNullifyTaskVarAfterConsume() {
@@ -278,11 +278,11 @@ test fn testNullifyAfterDetachStub() {
 test fn testIsSelectTaskAwaitCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    val awaitMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "await" })
     var args: List[Node] = []
     val awaitCall = Node.CallExpr(3, span, CallExprData { callee: [awaitMember], args: args })
     assertMsg(isSelectTaskAwaitCall(awaitCall), "t.await() is select task arm")
-    val recvMember = Node.MemberExpr(4, span, MemberExprData { object: tId, property: "recv" })
+    val recvMember = Node.MemberExpr(4, span, MemberExprData { object: [tId], property: "recv" })
     val recvCall = Node.CallExpr(5, span, CallExprData { callee: [recvMember], args: args })
     assertMsg(!isSelectTaskAwaitCall(recvCall), "ch.recv() not select task arm")
 }
@@ -319,9 +319,9 @@ test fn testGenerateSelectTaskBridgeStub() {
 test fn testIsTaskAllCombinatorCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val allMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "all" })
-    val settledMember = Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "allSettled" })
-    val gatherMember = Node.MemberExpr(4, span, MemberExprData { object: taskId, property: "gather" })
+    val allMember = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "all" })
+    val settledMember = Node.MemberExpr(3, span, MemberExprData { object: [taskId], property: "allSettled" })
+    val gatherMember = Node.MemberExpr(4, span, MemberExprData { object: [taskId], property: "gather" })
     assertMsg(isTaskStaticAll("Task", "all"), "Task.all static")
     assertMsg(isTaskStaticAll("Task", "allSettled"), "Task.allSettled static")
     assertMsg(isTaskAllCombinatorCall(allMember), "Task.all call")
@@ -361,10 +361,10 @@ test fn testNullifyTaskVarsAfterAll() {
 test fn testIsTaskFanCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val fanMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "fan" })
+    val fanMember = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "fan" })
     assertMsg(isTaskStaticFan("Task", "fan"), "Task.fan static")
     assertMsg(isTaskFanCall(fanMember), "Task.fan call")
-    assertMsg(!isTaskFanCall(Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "all" })), "Task.all not fan")
+    assertMsg(!isTaskFanCall(Node.MemberExpr(3, span, MemberExprData { object: [taskId], property: "all" })), "Task.all not fan")
 }
 
 test fn testTaskFanFnArgsValid() {
@@ -402,10 +402,10 @@ test fn testGenerateTaskFanStub() {
 test fn testIsTaskPipelineCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val pipeMember = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "pipe" })
+    val pipeMember = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "pipe" })
     assertMsg(isTaskStaticPipeline("Task", "pipe"), "Task.pipe static")
     assertMsg(isTaskPipelineCall(pipeMember), "Task.pipe call")
-    assertMsg(!isTaskPipelineCall(Node.MemberExpr(3, span, MemberExprData { object: taskId, property: "fan" })), "Task.fan not pipeline")
+    assertMsg(!isTaskPipelineCall(Node.MemberExpr(3, span, MemberExprData { object: [taskId], property: "fan" })), "Task.fan not pipeline")
 }
 
 test fn testGenerateTaskPipelineStub() {
@@ -456,7 +456,7 @@ test fn testAsyncPipeQuestStepCount() {
     val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
     val validate = Node.Identifier(2, span, IdentifierData { name: "validate" })
     val inc = Node.Identifier(3, span, IdentifierData { name: "inc" })
-    val questInc = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: inc })
+    val questInc = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: [inc] })
     var steps: List[Node] = []
     steps.append(nId)
     steps.append(validate)
@@ -507,9 +507,9 @@ test fn testGenerateAsyncPipeStubQuestBlocks() {
 test fn testIsTaskHandleCurrentCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
-    val currentMember = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
+    val currentMember = Node.MemberExpr(2, span, MemberExprData { object: [taskHandleId], property: "current" })
     assertMsg(isTaskHandleCurrentCall(currentMember), "TaskHandle.current call")
-    assertMsg(!isTaskHandleCurrentCall(Node.MemberExpr(3, span, MemberExprData { object: taskHandleId, property: "cancelled" })), "not current")
+    assertMsg(!isTaskHandleCurrentCall(Node.MemberExpr(3, span, MemberExprData { object: [taskHandleId], property: "cancelled" })), "not current")
 }
 
 test fn testGenerateTaskHandleCurrentStub() {
@@ -532,13 +532,13 @@ test fn testIsTaskHandleCancelledMethodCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskHandle = Type.Class(taskEmptyClass("TaskHandle"))
     val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
-    val cancelledMember = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "cancelled" })
+    val cancelledMember = Node.MemberExpr(2, span, MemberExprData { object: [handleId], property: "cancelled" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskHandle))
     cr.nodeTypes.append(Some(taskHandle))
     val g = newGenerator(cr)
     assertMsg(isTaskHandleCancelledMethodCall(cancelledMember, g), "handle.cancelled call")
-    assertMsg(!isTaskHandleCancelledMethodCall(Node.MemberExpr(3, span, MemberExprData { object: handleId, property: "current" }), g), "not cancelled")
+    assertMsg(!isTaskHandleCancelledMethodCall(Node.MemberExpr(3, span, MemberExprData { object: [handleId], property: "current" }), g), "not cancelled")
 }
 
 test fn testGenerateTaskHandleCancelledStub() {
@@ -554,13 +554,13 @@ test fn testIsTaskHandleProgressMethodCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskHandle = Type.Class(taskEmptyClass("TaskHandle"))
     val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
-    val progressMember = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "progress" })
+    val progressMember = Node.MemberExpr(2, span, MemberExprData { object: [handleId], property: "progress" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskHandle))
     cr.nodeTypes.append(Some(taskHandle))
     val g = newGenerator(cr)
     assertMsg(isTaskHandleProgressMethodCall(progressMember, g), "handle.progress call")
-    assertMsg(!isTaskHandleProgressMethodCall(Node.MemberExpr(3, span, MemberExprData { object: handleId, property: "cancelled" }), g), "not progress")
+    assertMsg(!isTaskHandleProgressMethodCall(Node.MemberExpr(3, span, MemberExprData { object: [handleId], property: "cancelled" }), g), "not progress")
 }
 
 test fn testGenerateTaskHandleProgressStub() {
@@ -584,9 +584,9 @@ test fn testGenerateTaskCancelStub() {
 test fn testTaskCancelDoesNotNullHandle() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = taskEmptyClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val cancelMember = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    val cancelMember = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "cancel" })
     var cr = taskEmptyCheckResult()
     cr.nodeTypes.append(Some(taskInt))
     cr.nodeTypes.append(Some(taskInt))

@@ -32,7 +32,7 @@ pub fn channelRuntimeIsClosed() -> String {
 }
 
 pub fn isChannelType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Channel" && params.size() > 0
         _ => false
     }
@@ -40,7 +40,7 @@ pub fn isChannelType(t: Type) -> Bool = match t {
 }
 
 pub fn channelInnerType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Channel" && params.size() > 0 {
                 return Some(params.get(0))
@@ -57,7 +57,7 @@ pub fn isChannelStaticNew(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isChannelNewCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isChannelStaticNew(idData.name, memberData.property)
         _ => false
     }
@@ -76,7 +76,7 @@ pub fn isChannelSendCall(callee: Node, g: Generator) -> Bool {
 pub fn isChannelInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match checkerNodeType(g, nodeId(memberData.object)) {
+        match checkerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isChannelType(t)
         }
@@ -235,8 +235,8 @@ pub fn selectHasDefaultArm(arms: List[SelectArm]) -> Bool {
 pub fn extractChannelFromRecvCall(node: Node) -> Option[Node] = match node {
     CallExpr(_, _, callData) => match callData.callee.get(0) {
         MemberExpr(_, _, memberData) => {
-            if memberData.property == "recv" { return Some(memberData.object) }
-            if memberData.property == "tryRecv" { return Some(memberData.object) }
+            if memberData.property == "recv" { return Some(memberData.object.get(0)) }
+            if memberData.property == "tryRecv" { return Some(memberData.object.get(0)) }
             return None
         }
         _ => None

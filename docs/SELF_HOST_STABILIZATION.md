@@ -14,13 +14,22 @@ seu gate objetivo passa; implementação parcial permanece `in_progress`.
 
 ## Estado ativo do M3
 
-As arestas recursivas diretas de `BinaryExprData`, `UnaryExprData` e
-`AssignExprData` agora usam storage indireto por lista, removendo os casts
-inválidos de `%Node*` para `i64` nesse subconjunto. A regressão em
+As arestas recursivas diretas da AST agora usam storage indireto por lista,
+incluindo operandos, membros, índices, pipes, braços de `match`/`select`,
+lambdas e wrappers `Ok`/`Err`/`Some`/`Task`. `Type.Specialized.base` e
+`FuncType.returnType` receberam a mesma representação, removendo stores
+inválidos de `%Node*`/`%Type*` em slots escalares. A regressão em
 `tools/fixtures/typed_ast_expr_test.sy` passa, inclusive rejeitando calls sem
 assinatura conhecida. Declarações, parâmetros, corpos de expressão e calls
 entre funções já chegam ao backend tipado. Ainda falta suportar o restante do
 subconjunto exercitado por `funcoes.sy` e ligar o planner nativo ao dispatch.
+
+Existe agora um gate separado, `tools/source-pipeline-verify.sh`, que constrói
+um renderer da cadeia fonte → lexer → parser → checker → LLVM. O renderer já
+compila e linka com o runtime local, mas sua execução falha de forma explícita:
+o bootstrap emite `ret %Node* null` em funções que retornam nós heap, inclusive
+`parseExpression`. Essa falha permanece aberta e não é mascarada como sucesso
+do gate de IR tipado.
 
 O módulo tipado coleta assinaturas antes dos corpos, resolve calls forward,
 emite `print`/`Unit`, aceita corpos em bloco com declarações, expression
@@ -58,6 +67,7 @@ loops aninhados e `for` sobre collections para concluir M4.
 ```bash
 soyuz build
 bash tools/typed-ir-verify.sh
+bash tools/source-pipeline-verify.sh
 bash tools/driver-test-runner-check.sh
 bash tools/selfhost-regression-check.sh
 bash tools/feature-corpus-verify.sh

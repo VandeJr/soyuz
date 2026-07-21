@@ -21,9 +21,9 @@ extend Parser {
                 val tok = self.advance()
                 val litVal = LiteralPatternValue.Int(tok.lexeme)
                 if self.checkAny([TokenType.RANGE, TokenType.RANGE_INCL]) {
-                    val inclusive = self.advance().type == TokenType.RANGE_INCL
+                    val inclusive = self.tokenTypeIs(self.advance().type, TokenType.RANGE_INCL)
                     val to = self.parsePattern()
-                    return Pattern.Range(self.allocNodeId(), span, litVal, to, inclusive)
+                    return Pattern.Range(self.allocNodeId(), span, litVal, [to], inclusive)
                 }
                 Pattern.Literal(self.allocNodeId(), span, litVal)
             }

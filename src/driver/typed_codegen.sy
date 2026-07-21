@@ -1,0 +1,43 @@
+import (
+    { Node } from @ast/ast
+    { irCompileAstModule } from @codegen/ir_ast_module
+    { BuildConfig } from @driver/build
+    { FrontendBuildPlan, frontendBuildReady } from @driver/frontend
+)
+
+pub record TypedCodegenBuildPlan {
+    frontend: FrontendBuildPlan,
+    funcCount: Int,
+    irContent: String,
+    ready: Bool,
+    error: String
+}
+
+pub fn typedCodegenBuildReady(plan: TypedCodegenBuildPlan) -> Bool = plan.ready
+
+fn typedDiagnosticsText(diagnostics: List[String]) -> String {
+    var text = ""
+    for diagnostic in diagnostics {
+        if text.len() > 0 { text = "$(text); " }
+        text = "$(text)$(diagnostic)"
+    }
+    return text
+}
+
+// Typed-only planner. This module deliberately does not import Generator,
+// gen_funcs or the legacy LLVM renderer.
+pub fn planStandaloneTypedCodegenBuild(frontend: FrontendBuildPlan, cfg: BuildConfig) -> TypedCodegenBuildPlan {
+    if !frontendBuildReady(frontend) {
+        return TypedCodegenBuildPlan {
+            frontend: frontend, funcCount: 0, irContent: "", ready: false, error: frontend.error
+        }
+    }
+    val result = irCompileAstModule(frontend.collected.body)
+    return TypedCodegenBuildPlan {
+        frontend: frontend,
+        funcCount: result.functionCount,
+        irContent: result.ir,
+        ready: result.success,
+        error: typedDiagnosticsText(result.diagnostics)
+    }
+}

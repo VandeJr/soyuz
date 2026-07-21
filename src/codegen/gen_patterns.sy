@@ -689,7 +689,7 @@ fn checkerEnumVariantFieldType(subjectType: Type, variantName: String, argIndex:
     return match subjectType {
         Enum(data) => checkerEnumVariantFieldsAt(data, variantName, argIndex)
         Specialized(base, params) => {
-            val fromBase = checkerEnumVariantFieldType(base, variantName, argIndex)
+            val fromBase = checkerEnumVariantFieldType(base.get(0), variantName, argIndex)
             match fromBase {
                 Some(_) => fromBase
                 None => specializedVariantFieldType(variantName, params, argIndex)
@@ -1022,7 +1022,7 @@ fn matchPatternDispatchBody(g: Generator, pat: Pattern, thenBlockName: String, n
     }
     Record(_, _, recordName, fields) => matchPatternRecordDispatch(g, recordName, fields, thenBlockName, nextBlockName, hasSubject, subjectType)
     Tuple(_, _, elements) => matchPatternTupleDispatch(g, elements, thenBlockName, nextBlockName, hasSubject, subjectType)
-    Range(_, _, from, to, inclusive) => matchPatternRangeDispatch(g, from, to, inclusive, thenBlockName, nextBlockName)
+    Range(_, _, from, to, inclusive) => matchPatternRangeDispatch(g, from, to.get(0), inclusive, thenBlockName, nextBlockName)
 }
 
 pub fn matchPatternDispatchNoSubject(g: Generator, pat: Pattern, thenBlockName: String, nextBlockName: String) -> Bool {

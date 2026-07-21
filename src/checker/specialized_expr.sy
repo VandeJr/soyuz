@@ -15,17 +15,17 @@ fn checkGenericSpecialization(c: Checker, node: Node, baseType: Type, params: Li
         checkerErrorf(c, nodePos(node), "esperado $(generics.size()) argumentos de tipo, encontrado $(params.size())", [])
         return Unknown
     }
-    return Type.Specialized(baseType, params)
+    return Type.Specialized([baseType], params)
 }
 
 pub fn checkSpecializedExpr(c: Checker, data: SpecializedExprData, node: Node) -> Type {
-    val baseType = c.checkNode(data.base)
+    val baseType = c.checkNode(data.base.get(0))
     return match typeArgsFromExprs(c, data.typeArgs) {
         None => Unknown
         Some(params) => match baseType {
             Func(ft) => {
                 if ft.generics.size() == 0 {
-                    checkerErrorf(c, nodePos(node), "$(data.base) não é genérico", [])
+                    checkerErrorf(c, nodePos(node), "$(data.base.get(0)) não é genérico", [])
                     return Unknown
                 }
                 if params.size() != ft.generics.size() {
@@ -38,7 +38,7 @@ pub fn checkSpecializedExpr(c: Checker, data: SpecializedExprData, node: Node) -
             Class(ct) => checkGenericSpecialization(c, node, baseType, params, ct.generics)
             Enum(et) => checkGenericSpecialization(c, node, baseType, params, et.generics)
             _ => {
-                match data.base {
+                match data.base.get(0) {
                     Identifier(_, _, id) => checkerErrorf(c, nodePos(node), "tipo explícito inválido para $(id.name)", [])
                     _ => {}
                 }

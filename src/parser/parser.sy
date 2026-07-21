@@ -35,10 +35,7 @@ pub class Parser {
                     di = di + 1
                 }
             } else {
-                match self.parseTopLevel() {
-                    Some(node) => body.append(node)
-                    None => ()
-                }
+                body.append(self.parseTopLevel())
             }
             self.skipSemicolons()
         }
@@ -74,7 +71,9 @@ pub class Parser {
         return tok
     }
 
-    fn check(self, t: TokenType) -> Bool = self.peek().type == t
+    fn tokenTypeIs(self, actual: TokenType, expected: TokenType) -> Bool = printToken(actual) == printToken(expected)
+
+    fn check(self, t: TokenType) -> Bool = self.tokenTypeIs(self.peek().type, t)
 
     fn checkAny(self, types: List[TokenType]) -> Bool {
         val cur = self.peek().type
@@ -83,7 +82,7 @@ pub class Parser {
             if i >= types.size() {
                 break
             }
-            if cur == types.get(i) {
+            if self.tokenTypeIs(cur, types.get(i)) {
                 return true
             }
             i = i + 1
@@ -93,7 +92,7 @@ pub class Parser {
 
     fn expect(self, t: TokenType) -> Token {
         val tok = self.peek()
-        if tok.type == t {
+        if self.tokenTypeIs(tok.type, t) {
             return self.advance()
         }
         self.errorf(tok.span, "esperado $(printToken(t)), encontrado $(printToken(tok.type)) ($(tok.lexeme))")
@@ -110,7 +109,7 @@ pub class Parser {
 
     fn expectName(self) -> Token {
         val tok = self.peek()
-        if tok.type == TokenType.IDENT || self.isNameLikeKeyword(tok.type) {
+        if self.tokenTypeIs(tok.type, TokenType.IDENT) || self.isNameLikeKeyword(tok.type) {
             return self.advance()
         }
         self.errorf(tok.span, "esperado identificador, encontrado $(printToken(tok.type)) ($(tok.lexeme))")
@@ -206,6 +205,16 @@ pub class Parser {
         }
     }
 }
+
+// Keeps Parser allocation inside its defining module. The bootstrap codegen
+// cannot resolve cross-module class constructors, while native callers only
+// need the parsed program value.
+pub fn parseTokens(tokens: List[Token]) -> Node = Parser {
+    tokens: tokens,
+    pos: 0,
+    errors: [],
+    nextNodeId: 0
+}.parse()
 
 pub fn isUppercase(s: String) -> Bool {
     if s.isEmpty() {

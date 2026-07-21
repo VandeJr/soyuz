@@ -50,65 +50,42 @@ fn classifyImportPath(path: String) -> ImportPathClassified {
 }
 
 extend Parser {
-    fn parseTopLevel(self) -> Option[Node] {
+    fn rejectNamedArrowValue(self, vd: Node) -> Bool = match vd {
+        VarDecl(_, span, data) if data.name != "" => match data.init {
+            Some(ArrowFunc(_, _, _)) => {
+                self.errorf(span, "funções nomeadas devem usar 'fn $(data.name)(...)', não 'val $(data.name) = fn(...)'")
+                true
+            }
+            _ => false
+        }
+        _ => false
+    }
+
+    fn parseTopLevel(self) -> Node {
         var isPub = false
         if self.check(TokenType.PUB) {
             self.advance()
             isPub = true
         }
 
-        return match self.peek().type {
-            VAL => {
-                val vd = self.parseVarDecl(isPub)
-                match vd {
-                    VarDecl(_, span, data) => {
-                        if data.name != "" {
-                            match data.init {
-                                Some(ArrowFunc(_, _, _)) => {
-                                    self.errorf(span, "funções nomeadas devem usar 'fn $(data.name)(...)', não 'val $(data.name) = fn(...)'")
-                                }
-                                _ => ()
-                            }
-                        }
-                    }
-                    _ => ()
-                }
-                Some(vd)
-            }
-            VAR => {
-                val vd = self.parseVarDecl(isPub)
-                match vd {
-                    VarDecl(_, span, data) => {
-                        if data.name != "" {
-                            match data.init {
-                                Some(ArrowFunc(_, _, _)) => {
-                                    self.errorf(span, "funções nomeadas devem usar 'fn $(data.name)(...)', não 'val $(data.name) = fn(...)'")
-                                }
-                                _ => ()
-                            }
-                        }
-                    }
-                    _ => ()
-                }
-                Some(vd)
-            }
-            FN => Some(self.parseFuncDecl(isPub))
-            TEST => self.parseTestFuncDecl()
-            EXTERN => Some(self.parseExternDecl(isPub))
-            RECORD => Some(self.parseRecordDecl(isPub))
-            CLASS => Some(self.parseClassDecl(isPub))
-            INTERFACE => Some(self.parseInterfaceDecl(isPub))
-            ENUM => Some(self.parseEnumDecl(isPub))
-            EXTEND => Some(self.parseExtendDecl())
-            _ => {
-                if isPub {
-                    self.errorf(self.peek().span, "esperado declaração após pub")
-                }
-                val expr = self.parseExpression(0)
-                self.consume(TokenType.SEMICOLON)
-                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: [expr] }))
-            }
+        val kind = self.peek().type
+        if self.tokenTypeIs(kind, TokenType.VAL) || self.tokenTypeIs(kind, TokenType.VAR) {
+            val vd = self.parseVarDecl(isPub)
+            if self.rejectNamedArrowValue(vd) { () }
+            return vd
         }
+        if self.tokenTypeIs(kind, TokenType.FN) { return self.parseFuncDecl(isPub) }
+        if self.tokenTypeIs(kind, TokenType.TEST) { return self.parseTestFuncDecl() }
+        if self.tokenTypeIs(kind, TokenType.EXTERN) { return self.parseExternDecl(isPub) }
+        if self.tokenTypeIs(kind, TokenType.RECORD) { return self.parseRecordDecl(isPub) }
+        if self.tokenTypeIs(kind, TokenType.CLASS) { return self.parseClassDecl(isPub) }
+        if self.tokenTypeIs(kind, TokenType.INTERFACE) { return self.parseInterfaceDecl(isPub) }
+        if self.tokenTypeIs(kind, TokenType.ENUM) { return self.parseEnumDecl(isPub) }
+        if self.tokenTypeIs(kind, TokenType.EXTEND) { return self.parseExtendDecl() }
+        if isPub { self.errorf(self.peek().span, "esperado declaração após pub") }
+        val expr = self.parseExpression(0)
+        self.consume(TokenType.SEMICOLON)
+        return Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: [expr] })
     }
 
     fn parseVarDecl(self, isPub: Bool) -> Node {
@@ -149,7 +126,7 @@ extend Parser {
         )
     }
 
-    fn parseTestFuncDecl(self) -> Option[Node] {
+    fn parseTestFuncDecl(self) -> Node {
         self.expect(TokenType.TEST)
         var ignore = false
         if self.check(TokenType.IDENT) && self.peek().lexeme == "ignore" {
@@ -159,11 +136,11 @@ extend Parser {
         if !self.check(TokenType.FN) {
             self.errorf(self.peek().span, "esperado 'fn' após 'test'")
             self.synchronize()
-            return None
+            return Node.NoneLit(self.allocNodeId(), self.peek().span)
         }
         match self.parseFuncDecl(false) {
             FuncDecl(id, span, data) => {
-                return Some(Node.FuncDecl(id, span, FuncDeclData {
+                return Node.FuncDecl(id, span, FuncDeclData {
                     namePos: data.namePos,
                     isPub: data.isPub,
                     name: data.name,
@@ -175,9 +152,9 @@ extend Parser {
                     isExprBody: data.isExprBody,
                     isTest: true,
                     isIgnore: ignore
-                }))
+                })
             }
-            other => Some(other)
+            other => other
         }
     }
 
@@ -431,7 +408,7 @@ extend Parser {
                     break
                 }
                 var fieldName = ""
-                if self.checkName() && self.peekN(1).type == TokenType.COLON {
+                if self.checkName() && self.tokenTypeIs(self.peekN(1).type, TokenType.COLON) {
                     fieldName = self.advance().lexeme
                     self.advance()
                 }
@@ -448,7 +425,7 @@ extend Parser {
                     break
                 }
                 var fieldName = ""
-                if self.checkName() && self.peekN(1).type == TokenType.COLON {
+                if self.checkName() && self.tokenTypeIs(self.peekN(1).type, TokenType.COLON) {
                     fieldName = self.advance().lexeme
                     self.advance()
                 }
@@ -571,10 +548,10 @@ extend Parser {
             if self.check(TokenType.RPAREN) || self.check(TokenType.EOF) {
                 break
             }
-            match self.parseImportSpec(pos) {
-                Some(spec) => decls.append(spec)
-                None => { self.advance(); () }
-            }
+            if match self.parseImportSpec(pos) {
+                Some(spec) => { decls.append(spec); true }
+                None => { self.advance(); false }
+            } { () }
             self.consume(TokenType.SEMICOLON)
             self.skipSemicolons()
         }
@@ -650,7 +627,7 @@ extend Parser {
             if !self.check(TokenType.DOT) && !self.check(TokenType.SLASH) {
                 break
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type == TokenType.LBRACE {
+            if self.check(TokenType.DOT) && self.tokenTypeIs(self.peekN(1).type, TokenType.LBRACE) {
                 break
             }
             self.advance()
@@ -671,7 +648,7 @@ extend Parser {
                 break
             }
             self.advance()
-            if self.check(TokenType.DOT) && self.peekN(1).type == TokenType.DOT {
+            if self.check(TokenType.DOT) && self.tokenTypeIs(self.peekN(1).type, TokenType.DOT) {
                 self.advance()
                 parts.append("..")
             } else {
@@ -696,7 +673,7 @@ extend Parser {
                     parts.append(self.advance().lexeme)
                 }
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type != TokenType.LBRACE {
+            if self.check(TokenType.DOT) && !self.tokenTypeIs(self.peekN(1).type, TokenType.LBRACE) {
                 continue
             }
             break
@@ -729,7 +706,7 @@ extend Parser {
             if !self.check(TokenType.DOT) && !self.check(TokenType.SLASH) {
                 break
             }
-            if self.check(TokenType.DOT) && self.peekN(1).type == TokenType.LBRACE {
+            if self.check(TokenType.DOT) && self.tokenTypeIs(self.peekN(1).type, TokenType.LBRACE) {
                 break
             }
             self.advance()
@@ -750,7 +727,7 @@ extend Parser {
                 break
             }
             val tok = self.peek()
-            if tok.type != TokenType.IDENT {
+            if !self.tokenTypeIs(tok.type, TokenType.IDENT) {
                 self.errorf(tok.span, "esperado identificador na lista de import")
                 self.advance()
             } else {

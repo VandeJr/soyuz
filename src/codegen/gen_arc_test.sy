@@ -23,10 +23,10 @@ fn arcEmptyCheckResult() -> CheckResult = CheckResult {
 fn arcEmptyClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -34,8 +34,8 @@ fn arcEmptyClass(name: String) -> ClassType = ClassType {
 test fn testIsArcType() {
     val arcClass = arcEmptyClass("Arc")
     val channelClass = arcEmptyClass("Channel")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     assertMsg(isArcType(arcInt), "Arc[Int] is arc")
     assertMsg(!isArcType(channelInt), "Channel[Int] not arc")
     assertMsg(!isArcType(IntType), "Int not arc")
@@ -43,7 +43,7 @@ test fn testIsArcType() {
 
 test fn testArcInnerType() {
     val arcClass = arcEmptyClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     match arcInnerType(arcInt) {
         None => assertMsg(false, "Arc[Int] inner type")
         Some(t) => assertMsg(match t { Basic(name) => name == "Int", _ => false }, "inner is Int")
@@ -70,34 +70,34 @@ test fn testIsArcStaticNew() {
 test fn testIsArcNewCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcId = Node.Identifier(1, span, IdentifierData { name: "Arc" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: arcId, property: "new" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [arcId], property: "new" })
     assertMsg(isArcNewCall(member), "Arc.new member is arc new call")
     val channelId = Node.Identifier(3, span, IdentifierData { name: "Channel" })
-    val channelMember = Node.MemberExpr(4, span, MemberExprData { object: channelId, property: "new" })
+    val channelMember = Node.MemberExpr(4, span, MemberExprData { object: [channelId], property: "new" })
     assertMsg(!isArcNewCall(channelMember), "Channel.new not arc new")
 }
 
 test fn testIsArcCloneCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = arcEmptyClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val cloneMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "clone" })
+    val cloneMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "clone" })
     var cr = arcEmptyCheckResult()
     cr.nodeTypes.append(Some(arcInt))
     cr.nodeTypes.append(Some(arcInt))
     val g = newGenerator(cr)
     assertMsg(isArcCloneCall(cloneMember, g), "a.clone on Arc[Int]")
-    val getMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "get" })
+    val getMember = Node.MemberExpr(3, span, MemberExprData { object: [aId], property: "get" })
     assertMsg(!isArcCloneCall(getMember, g), "a.get not clone")
 }
 
 test fn testIsArcGetCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = arcEmptyClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val getMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "get" })
+    val getMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "get" })
     var cr = arcEmptyCheckResult()
     cr.nodeTypes.append(Some(arcInt))
     cr.nodeTypes.append(Some(arcInt))
@@ -108,9 +108,9 @@ test fn testIsArcGetCall() {
 test fn testIsArcRefcountCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = arcEmptyClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val rcMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "refcount" })
+    val rcMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "refcount" })
     var cr = arcEmptyCheckResult()
     cr.nodeTypes.append(Some(arcInt))
     cr.nodeTypes.append(Some(arcInt))

@@ -186,7 +186,7 @@ test fn testGenerateExprNodeCall() {
     val arg1 = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
     val arg2 = Node.IntLiteral(4, span, IntLiteralData { value: "2" })
     val callee = Node.Identifier(5, span, IdentifierData { name: "add" })
-    val ft = FuncType { params: [IntType, IntType], returnType: IntType, generics: [], defaults: [], isOptional: [] }
+    val ft = FuncType { params: [IntType, IntType], returnType: [IntType], generics: [], defaults: [], isOptional: [] }
     val call = Node.CallExpr(6, span, CallExprData { callee: [callee], args: [arg1, arg2] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(3, IntType)
@@ -227,7 +227,7 @@ test fn testGenerateExprNodeIndexExpr() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 6 }
     val obj = Node.Identifier(1, span, IdentifierData { name: "xs" })
     val idx = Node.IntLiteral(2, span, IntLiteralData { value: "0" })
-    val node = Node.IndexExpr(3, span, IndexExprData { object: obj, index: idx })
+    val node = Node.IndexExpr(3, span, IndexExprData { object: [obj], index: [idx] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, IntType)
@@ -317,15 +317,15 @@ test fn testGenerateMatchExprWithGuard() {
         span: span,
         pattern: Pattern.Binding(2, span, "n"),
         guard: Some(guardCond),
-        body: negBody
+        body: [negBody]
     }
     val catchallArm = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(3, span),
         guard: None,
-        body: posBody
+        body: [posBody]
     }
-    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val data = MatchExprData { subject: [subject], arms: [guardedArm, catchallArm] }
     val node = Node.MatchExpr(6, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -349,9 +349,9 @@ test fn testGenerateMatchExprEnumConstructor() {
         span: span,
         pattern: Pattern.Constructor(2, span, "Verde", []),
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     val corType = Type.Enum(EnumType {
         name: "Cor",
@@ -384,21 +384,21 @@ test fn testM6EnumMatchCodegen() {
         span: span,
         pattern: Pattern.Constructor(2, span, "Vermelho", []),
         guard: None,
-        body: body0
+        body: [body0]
     }
     val arm1 = MatchArm {
         span: span,
         pattern: Pattern.Constructor(3, span, "Verde", []),
         guard: None,
-        body: body1
+        body: [body1]
     }
     val arm2 = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(4, span),
         guard: None,
-        body: body2
+        body: [body2]
     }
-    val data = MatchExprData { subject: subject, arms: [arm0, arm1, arm2] }
+    val data = MatchExprData { subject: [subject], arms: [arm0, arm1, arm2] }
     val node = Node.MatchExpr(5, span, data)
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     variants.set("Vermelho", [])
@@ -449,15 +449,15 @@ test fn testM6EnumWithFieldsMatchCodegen() {
         span: span,
         pattern: Pattern.Constructor(2, span, "Circulo", [raioBinding]),
         guard: None,
-        body: body0
+        body: [body0]
     }
     val arm1 = MatchArm {
         span: span,
         pattern: Pattern.Constructor(3, span, "Retangulo", [larguraBinding]),
         guard: None,
-        body: body1
+        body: [body1]
     }
-    val data = MatchExprData { subject: subject, arms: [arm0, arm1] }
+    val data = MatchExprData { subject: [subject], arms: [arm0, arm1] }
     val node = Node.MatchExpr(5, span, data)
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     variants.set("Circulo", [floatType])
@@ -509,7 +509,7 @@ test fn testM6EnumSimpleCodegen() {
     })
     val ctorType = Type.Func(FuncType {
         params: [],
-        returnType: corType,
+        returnType: [corType],
         generics: [],
         defaults: [],
         isOptional: []
@@ -580,7 +580,7 @@ test fn testM6EnumWithFieldsCtorCodegen() {
 test fn testM6EnumDotSyntaxCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
     val corId = Node.Identifier(1, span, IdentifierData { name: "Cor" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: corId, property: "Vermelho" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [corId], property: "Vermelho" })
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     variants.set("Vermelho", [])
     variants.set("Verde", [])
@@ -616,7 +616,7 @@ test fn testM6EnumDotSyntaxWithArgsCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
     val floatType = Type.Basic("Float")
     val formaId = Node.Identifier(1, span, IdentifierData { name: "Forma" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: formaId, property: "Circulo" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [formaId], property: "Circulo" })
     val arg = Node.FloatLiteral(3, span, FloatLiteralData { value: "3.14" })
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: [arg] })
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
@@ -658,8 +658,8 @@ test fn testM6TwoEnumsSameVariantNameCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 40 }
     val statusId = Node.Identifier(1, span, IdentifierData { name: "Status" })
     val resultadoId = Node.Identifier(3, span, IdentifierData { name: "Resultado" })
-    val statusOk = Node.MemberExpr(2, span, MemberExprData { object: statusId, property: "Ok" })
-    val resultadoOk = Node.MemberExpr(4, span, MemberExprData { object: resultadoId, property: "Ok" })
+    val statusOk = Node.MemberExpr(2, span, MemberExprData { object: [statusId], property: "Ok" })
+    val resultadoOk = Node.MemberExpr(4, span, MemberExprData { object: [resultadoId], property: "Ok" })
     var statusVariants: Map[String, List[Type]] = Map[String, List[Type]]{}
     statusVariants.set("Ok", [])
     statusVariants.set("Erro", [])
@@ -719,8 +719,8 @@ test fn testGenerateRecordLiteralCodegen() {
     val xVal = Node.IntLiteral(10, span, IntLiteralData { value: "1" })
     val yVal = Node.IntLiteral(11, span, IntLiteralData { value: "2" })
     var litFields: List[RecordLiteralField] = []
-    litFields.append(RecordLiteralField { span: span, name: "x", value: xVal })
-    litFields.append(RecordLiteralField { span: span, name: "y", value: yVal })
+    litFields.append(RecordLiteralField { span: span, name: "x", value: [xVal] })
+    litFields.append(RecordLiteralField { span: span, name: "y", value: [yVal] })
     val node = Node.RecordLiteral(5, span, RecordLiteralData { name: "Point", typeArgs: [], fields: litFields })
     var recordFields: Map[String, Type] = Map[String, Type]{}
     recordFields.set("x", IntType)
@@ -758,9 +758,9 @@ test fn testMatchExprRecordPatternCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     var pointFields: Map[String, Type] = Map[String, Type]{}
     pointFields.set("x", IntType)
@@ -800,9 +800,9 @@ test fn testMatchExprTuplePatternCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     val floatType = Type.Basic("Float")
     val tupleType = Type.Tuple([IntType, floatType])
@@ -832,14 +832,14 @@ test fn testMatchExprRangePatternCodegen() {
     val subject = Node.Identifier(1, span, IdentifierData { name: "n" })
     val body = Node.IntLiteral(10, span, IntLiteralData { value: "42" })
     val toPat = Pattern.Literal(3, span, LiteralPatternValue.Int("10"))
-    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), toPat, true)
+    val pat = Pattern.Range(2, span, LiteralPatternValue.Int("0"), [toPat], true)
     val arm = MatchArm {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -870,9 +870,9 @@ test fn testMatchExprLiteralPatternCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -905,9 +905,9 @@ test fn testMatchExprBindingPatternCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -940,9 +940,9 @@ test fn testMatchExprConstructorPatternCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     val corType = Type.Enum(EnumType {
         name: "Cor",
@@ -984,9 +984,9 @@ test fn testMatchExprConstructorPayloadBindingCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     var variants: Map[String, List[Type]] = Map[String, List[Type]]{}
     variants.set("Some", [IntType])
@@ -1033,9 +1033,9 @@ test fn testMatchExprWildcardPatternCodegen() {
         span: span,
         pattern: pat,
         guard: None,
-        body: body
+        body: [body]
     }
-    val data = MatchExprData { subject: subject, arms: [arm] }
+    val data = MatchExprData { subject: [subject], arms: [arm] }
     val node = Node.MatchExpr(5, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -1068,15 +1068,15 @@ test fn testMatchWhenGuardCodegen() {
         span: span,
         pattern: Pattern.Binding(2, span, "n"),
         guard: Some(guardCond),
-        body: negBody
+        body: [negBody]
     }
     val catchallArm = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(3, span),
         guard: None,
-        body: posBody
+        body: [posBody]
     }
-    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val data = MatchExprData { subject: [subject], arms: [guardedArm, catchallArm] }
     val node = Node.MatchExpr(6, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -1109,15 +1109,15 @@ test fn testGenerateMatchExprCreatesBlocks() {
         span: span,
         pattern: Pattern.Binding(2, span, "n"),
         guard: Some(guardCond),
-        body: negBody
+        body: [negBody]
     }
     val catchallArm = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(3, span),
         guard: None,
-        body: posBody
+        body: [posBody]
     }
-    val data = MatchExprData { subject: subject, arms: [guardedArm, catchallArm] }
+    val data = MatchExprData { subject: [subject], arms: [guardedArm, catchallArm] }
     val node = Node.MatchExpr(6, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -1152,15 +1152,15 @@ test fn testGenerateMatchExprRestoresBindingVarsBetweenArms() {
         span: span,
         pattern: Pattern.Binding(2, span, "n"),
         guard: None,
-        body: bindingBody
+        body: [bindingBody]
     }
     val catchallArm = MatchArm {
         span: span,
         pattern: Pattern.Wildcard(3, span),
         guard: None,
-        body: catchallBody
+        body: [catchallBody]
     }
-    val data = MatchExprData { subject: subject, arms: [bindingArm, catchallArm] }
+    val data = MatchExprData { subject: [subject], arms: [bindingArm, catchallArm] }
     val node = Node.MatchExpr(6, span, data)
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -1183,10 +1183,10 @@ test fn testGenerateMatchExprRestoresBindingVarsBetweenArms() {
 fn channelTestClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -1195,9 +1195,9 @@ fn channelTestClass(name: String) -> ClassType = ClassType {
 test fn testChannelNewCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [channelId], property: "new" })
     val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "4" })
     var args: List[Node] = []
     args.append(capArg)
@@ -1221,9 +1221,9 @@ test fn testChannelNewCallExprCodegen() {
 test fn testMutexNewCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val mutexClass = channelTestClass("Mutex")
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
     val mutexId = Node.Identifier(1, span, IdentifierData { name: "Mutex" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: mutexId, property: "new" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [mutexId], property: "new" })
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
     var args: List[Node] = []
     args.append(initArg)
@@ -1247,9 +1247,9 @@ test fn testMutexNewCallExprCodegen() {
 test fn testRwLockNewCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = channelTestClass("RwLock")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
     val rwlockId = Node.Identifier(1, span, IdentifierData { name: "RwLock" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwlockId, property: "new" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [rwlockId], property: "new" })
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     var args: List[Node] = []
     args.append(initArg)
@@ -1273,9 +1273,9 @@ test fn testRwLockNewCallExprCodegen() {
 test fn testAtomicNewCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = channelTestClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val atomicId = Node.Identifier(1, span, IdentifierData { name: "Atomic" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: atomicId, property: "new" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [atomicId], property: "new" })
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     var args: List[Node] = []
     args.append(initArg)
@@ -1299,9 +1299,9 @@ test fn testAtomicNewCallExprCodegen() {
 test fn testAtomicStoreCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = channelTestClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "store" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "store" })
     val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
     var args: List[Node] = []
     args.append(valArg)
@@ -1325,9 +1325,9 @@ test fn testAtomicStoreCallExprCodegen() {
 test fn testAtomicLoadCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = channelTestClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "load" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "load" })
     var args: List[Node] = []
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1348,9 +1348,9 @@ test fn testAtomicLoadCallExprCodegen() {
 test fn testAtomicAddCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = channelTestClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "add" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "add" })
     val deltaArg = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
     var args: List[Node] = []
     args.append(deltaArg)
@@ -1374,9 +1374,9 @@ test fn testAtomicAddCallExprCodegen() {
 test fn testAtomicCasCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = channelTestClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "compareAndSwap" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "compareAndSwap" })
     val expArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     val desArg = Node.IntLiteral(4, span, IntLiteralData { value: "1" })
     var args: List[Node] = []
@@ -1404,10 +1404,10 @@ test fn testRwLockReadCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = channelTestClass("RwLock")
     val readGuardClass = channelTestClass("ReadGuard")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
-    val readGuardInt = Type.Specialized(Type.Class(readGuardClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
+    val readGuardInt = Type.Specialized([Type.Class(readGuardClass)], [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [rwId], property: "read" })
     var args: List[Node] = []
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1429,10 +1429,10 @@ test fn testRwLockWriteCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = channelTestClass("RwLock")
     val writeGuardClass = channelTestClass("WriteGuard")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
-    val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
+    val writeGuardInt = Type.Specialized([Type.Class(writeGuardClass)], [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [rwId], property: "write" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, rwlockInt)
@@ -1453,10 +1453,10 @@ test fn testMutexLockCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val mutexClass = channelTestClass("Mutex")
     val guardClass = channelTestClass("MutexGuard")
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
     val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [mId], property: "lock" })
     var args: List[Node] = []
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1477,9 +1477,9 @@ test fn testMutexLockCallExprCodegen() {
 test fn testChannelZeroCapacityNewCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [channelId], property: "new" })
     val capArg = Node.IntLiteral(3, span, IntLiteralData { value: "0" })
     var args: List[Node] = []
     args.append(capArg)
@@ -1503,9 +1503,9 @@ test fn testChannelZeroCapacityNewCallExprCodegen() {
 test fn testChannelSendCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "send" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "send" })
     val valArg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
     var args: List[Node] = []
     args.append(valArg)
@@ -1535,17 +1535,17 @@ fn optionIntType() -> Type {
         variantFieldNames: Map[String, List[String]]{},
         generics: ["T"]
     }
-    return Type.Specialized(Type.Enum(optEnum), [IntType])
+    return Type.Specialized([Type.Enum(optEnum)], [IntType])
 }
 
 // Port of m_channel_test.go TestChannelRecvEmitsSrtChanRecv — ch.recv() call expr dispatch.
 test fn testChannelRecvCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val optionInt = optionIntType()
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "recv" })
     var args: List[Node] = []
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1568,10 +1568,10 @@ test fn testChannelRecvCallExprCodegen() {
 test fn testChannelTryRecvCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val optionInt = optionIntType()
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "tryRecv" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "tryRecv" })
     var args: List[Node] = []
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1595,9 +1595,9 @@ test fn testChannelTryRecvCallExprCodegen() {
 test fn testChannelCloseCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "close" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "close" })
     var args: List[Node] = []
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1618,9 +1618,9 @@ test fn testChannelCloseCallExprCodegen() {
 test fn testChannelIsClosedCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelTestClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "isClosed" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "isClosed" })
     var args: List[Node] = []
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1641,9 +1641,9 @@ test fn testChannelIsClosedCallExprCodegen() {
 test fn testSyncGuardValueReadExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val guardClass = channelTestClass("MutexGuard")
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
     val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [guardId], property: "value" })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, guardInt)
     types.set(2, IntType)
@@ -1661,9 +1661,9 @@ test fn testSyncGuardValueReadExprCodegen() {
 test fn testSyncGuardValueWriteExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val guardClass = channelTestClass("MutexGuard")
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
     val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
-    val left = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    val left = Node.MemberExpr(2, span, MemberExprData { object: [guardId], property: "value" })
     val right = Node.IntLiteral(3, span, IntLiteralData { value: "1" })
     val assign = Node.AssignExpr(4, span, AssignExprData { left: [left], right: [right] })
     var types: Map[Int, Type] = Map[Int, Type]{}
@@ -1685,9 +1685,9 @@ test fn testSyncGuardValueWriteExprCodegen() {
 test fn testArcNewCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = channelTestClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val arcId = Node.Identifier(1, span, IdentifierData { name: "Arc" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: arcId, property: "new" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [arcId], property: "new" })
     val arg = Node.IntLiteral(3, span, IntLiteralData { value: "42" })
     var args: List[Node] = []
     args.append(arg)
@@ -1711,9 +1711,9 @@ test fn testArcNewCallExprCodegen() {
 test fn testArcCloneCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = channelTestClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "clone" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "clone" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, arcInt)
@@ -1733,9 +1733,9 @@ test fn testArcCloneCallExprCodegen() {
 test fn testArcGetCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = channelTestClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "get" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "get" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, arcInt)
@@ -1755,9 +1755,9 @@ test fn testArcGetCallExprCodegen() {
 test fn testArcRefcountCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = channelTestClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "refcount" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "refcount" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, arcInt)
@@ -1778,9 +1778,9 @@ test fn testTaskGatherCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val listClass = channelTestClass("List")
     val taskClass = channelTestClass("Task")
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "gather" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "gather" })
     val listArg = Node.Identifier(3, span, IdentifierData { name: "nums" })
     val fnArg = Node.Identifier(4, span, IdentifierData { name: "dobrar" })
     var args: List[Node] = []
@@ -1813,13 +1813,13 @@ test fn testTaskGatherCallExprCodegen() {
 test fn testTaskEnqueueExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val callee = Node.Identifier(1, span, IdentifierData { name: "double" })
     val arg = Node.IntLiteral(2, span, IntLiteralData { value: "5" })
     var args: List[Node] = []
     args.append(arg)
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: args })
-    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: call })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: [call] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Basic("Unit"))
     types.set(2, IntType)
@@ -1843,7 +1843,7 @@ test fn testTaskEnqueueExprCodegen() {
 test fn testTaskWrapperFreeArgsCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val callee = Node.Identifier(1, span, IdentifierData { name: "add" })
     val argA = Node.IntLiteral(2, span, IntLiteralData { value: "3" })
     val argB = Node.IntLiteral(3, span, IntLiteralData { value: "7" })
@@ -1851,7 +1851,7 @@ test fn testTaskWrapperFreeArgsCodegen() {
     args.append(argA)
     args.append(argB)
     val call = Node.CallExpr(4, span, CallExprData { callee: [callee], args: args })
-    val taskExpr = Node.TaskExpr(5, span, TaskExprData { inner: call })
+    val taskExpr = Node.TaskExpr(5, span, TaskExprData { inner: [call] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Basic("Unit"))
     types.set(2, IntType)
@@ -1873,9 +1873,9 @@ test fn testTaskWrapperFreeArgsCodegen() {
 test fn testTaskDetachCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "detach" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "detach" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, taskInt)
@@ -1897,9 +1897,9 @@ test fn testTaskDetachCallExprCodegen() {
 test fn testTaskCancelCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "cancel" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "cancel" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, taskInt)
@@ -1919,9 +1919,9 @@ test fn testTaskCancelCallExprCodegen() {
 test fn testTaskAwaitCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val tId = Node.Identifier(1, span, IdentifierData { name: "t" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: tId, property: "await" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [tId], property: "await" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, taskInt)
@@ -1941,11 +1941,11 @@ test fn testTaskAwaitCallExprCodegen() {
 test fn testTaskPipeExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
     val fnId = Node.Identifier(2, span, IdentifierData { name: "double" })
-    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
-    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: pipe })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: [nId], right: [fnId] })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: [pipe] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
     types.set(2, Type.Basic("Unit"))
@@ -1968,13 +1968,13 @@ test fn testTaskPipeExprCodegen() {
 test fn testTaskPipeAwaitResultCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
     val fnId = Node.Identifier(2, span, IdentifierData { name: "inc" })
-    val pipe = Node.PipeExpr(3, span, PipeExprData { left: nId, right: fnId })
-    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: pipe })
+    val pipe = Node.PipeExpr(3, span, PipeExprData { left: [nId], right: [fnId] })
+    val taskExpr = Node.TaskExpr(4, span, TaskExprData { inner: [pipe] })
     val tId = Node.Identifier(5, span, IdentifierData { name: "t" })
-    val awaitCallee = Node.MemberExpr(6, span, MemberExprData { object: tId, property: "await" })
+    val awaitCallee = Node.MemberExpr(6, span, MemberExprData { object: [tId], property: "await" })
     val awaitCall = Node.CallExpr(7, span, CallExprData { callee: [awaitCallee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, IntType)
@@ -2002,9 +2002,9 @@ test fn testTaskPipeAwaitResultCodegen() {
 test fn testTaskAllCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "all" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "all" })
     val t1 = Node.Identifier(3, span, IdentifierData { name: "t1" })
     val t2 = Node.Identifier(4, span, IdentifierData { name: "t2" })
     var args: List[Node] = []
@@ -2034,7 +2034,7 @@ test fn testTaskFanCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "fan" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "fan" })
     val input = Node.IntLiteral(3, span, IntLiteralData { value: "5" })
     val f1 = Node.Identifier(4, span, IdentifierData { name: "double" })
     val f2 = Node.Identifier(5, span, IdentifierData { name: "triple" })
@@ -2067,7 +2067,7 @@ test fn testTaskFanCallExprCodegen() {
 test fn testAsyncPipeExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
     val doubleId = Node.Identifier(2, span, IdentifierData { name: "double" })
     val tripleId = Node.Identifier(3, span, IdentifierData { name: "triple" })
@@ -2101,11 +2101,11 @@ test fn testAsyncPipeExprCodegen() {
 test fn testAsyncPipeQuestExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = channelTestClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val nId = Node.Identifier(1, span, IdentifierData { name: "n" })
     val validateId = Node.Identifier(2, span, IdentifierData { name: "validate" })
     val doubleId = Node.Identifier(3, span, IdentifierData { name: "double" })
-    val questDouble = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: doubleId })
+    val questDouble = Node.AsyncPipeQuestStep(4, span, AsyncPipeQuestStepData { step: [doubleId] })
     var steps: List[Node] = []
     steps.append(nId)
     steps.append(validateId)
@@ -2138,7 +2138,7 @@ test fn testAsyncPipeQuestExprCodegen() {
 test fn testTaskHandleCurrentCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskHandleId = Node.Identifier(1, span, IdentifierData { name: "TaskHandle" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: taskHandleId, property: "current" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [taskHandleId], property: "current" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelTestClass("TaskHandle")))
@@ -2163,7 +2163,7 @@ test fn testTaskHandleCurrentCallExprCodegen() {
 test fn testTaskHandleCancelledCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "cancelled" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [handleId], property: "cancelled" })
     val call = Node.CallExpr(3, span, CallExprData { callee: [callee], args: [] })
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, Type.Class(channelTestClass("TaskHandle")))
@@ -2183,7 +2183,7 @@ test fn testTaskHandleCancelledCallExprCodegen() {
 test fn testTaskHandleProgressCallExprCodegen() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val handleId = Node.Identifier(1, span, IdentifierData { name: "handle" })
-    val callee = Node.MemberExpr(2, span, MemberExprData { object: handleId, property: "progress" })
+    val callee = Node.MemberExpr(2, span, MemberExprData { object: [handleId], property: "progress" })
     val progressArg = Node.FloatLiteral(3, span, FloatLiteralData { value: "0.5" })
     var args: List[Node] = []
     args.append(progressArg)

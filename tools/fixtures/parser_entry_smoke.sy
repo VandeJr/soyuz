@@ -1,0 +1,10 @@
+import @parser/load
+import (
+    { tokenize } from @lexer/lexer
+    { parseTokens } from @parser/parser
+)
+
+fn main() {
+    parseTokens(tokenize("fn main() {}"))
+    print("parser entry ok")
+}

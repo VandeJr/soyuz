@@ -62,19 +62,41 @@ fn isBinaryInfixToken(t: TokenType) -> Bool = match t {
 
 extend Parser {
     fn parseExpression(self, minBP: Int) -> Node {
-        var left = self.parsePrefix()
+        var left: List[Node] = [self.parsePrefix()]
         loop {
             val bp = bindingPower(self.peek().type)
             if bp <= minBP {
                 break
             }
-            left = self.parseInfix(left)
+            left.set(0, self.parseInfix(left.get(0)))
         }
-        return left
+        return left.get(0)
     }
 
     fn parsePrefix(self) -> Node {
         val span = self.peek().span
+
+        if self.check(TokenType.INT_LITERAL) {
+            val tok = self.advance()
+            return Node.IntLiteral(self.allocNodeId(), tok.span, IntLiteralData { value: tok.lexeme })
+        }
+        if self.check(TokenType.FLOAT_LITERAL) {
+            val tok = self.advance()
+            return Node.FloatLiteral(self.allocNodeId(), tok.span, FloatLiteralData { value: tok.lexeme })
+        }
+        if self.check(TokenType.STRING_LITERAL) {
+            val tok = self.advance()
+            return Node.StringLiteral(self.allocNodeId(), tok.span, StringLiteralData { value: tok.lexeme })
+        }
+        if self.check(TokenType.TRUE) {
+            self.advance()
+            return Node.BoolLiteral(self.allocNodeId(), span, BoolLiteralData { value: true })
+        }
+        if self.check(TokenType.FALSE) {
+            self.advance()
+            return Node.BoolLiteral(self.allocNodeId(), span, BoolLiteralData { value: false })
+        }
+        if self.check(TokenType.IDENT) { return self.parseIdentOrRecordLiteral() }
 
         return match self.peek().type {
             INT_LITERAL => {
@@ -117,21 +139,21 @@ extend Parser {
                 self.expect(TokenType.LPAREN)
                 val value = self.parseExpression(0)
                 self.expect(TokenType.RPAREN)
-                Node.OkExpr(self.allocNodeId(), span, OkExprData { value: value })
+                Node.OkExpr(self.allocNodeId(), span, OkExprData { value: [value] })
             }
             ERR => {
                 self.advance()
                 self.expect(TokenType.LPAREN)
                 val value = self.parseExpression(0)
                 self.expect(TokenType.RPAREN)
-                Node.ErrExpr(self.allocNodeId(), span, ErrExprData { value: value })
+                Node.ErrExpr(self.allocNodeId(), span, ErrExprData { value: [value] })
             }
             SOME => {
                 self.advance()
                 self.expect(TokenType.LPAREN)
                 val value = self.parseExpression(0)
                 self.expect(TokenType.RPAREN)
-                Node.SomeExpr(self.allocNodeId(), span, SomeExprData { value: value })
+                Node.SomeExpr(self.allocNodeId(), span, SomeExprData { value: [value] })
             }
             MINUS => {
                 self.advance()
@@ -157,15 +179,15 @@ extend Parser {
             LOOP => self.parseLoop()
             TASK => {
                 self.advance()
-                if self.peek().type == TokenType.FN {
+                if self.tokenTypeIs(self.peek().type, TokenType.FN) {
                     self.errorf(span, "task não aceita lambda — extraia uma função nomeada")
                 }
                 val inner = self.parseExpression(0)
-                Node.TaskExpr(self.allocNodeId(), span, TaskExprData { inner: inner })
+                Node.TaskExpr(self.allocNodeId(), span, TaskExprData { inner: [inner] })
             }
             SELECT => self.parseSelectExpr()
             FN => {
-                if self.peekN(1).type == TokenType.IDENT {
+                if self.tokenTypeIs(self.peekN(1).type, TokenType.IDENT) {
                     self.errorf(span, "declaração de função não é uma expressão — use fn(...) => expr para funções anônimas")
                 }
                 self.parseAnonymousFunc()
@@ -193,6 +215,13 @@ extend Parser {
             return Node.BinaryExpr(self.allocNodeId(), tok.span, BinaryExprData { operator: tok.lexeme, left: [left], right: [right] })
         }
 
+        if self.tokenTypeIs(tok.type, TokenType.LPAREN) {
+            self.advance()
+            val args = self.parseCallArgs()
+            self.expect(TokenType.RPAREN)
+            return Node.CallExpr(self.allocNodeId(), tok.span, CallExprData { callee: [left], args: args })
+        }
+
         return match tok.type {
             ASSIGN => {
                 self.advance()
@@ -202,12 +231,12 @@ extend Parser {
             PIPE => {
                 self.advance()
                 val right = self.parseExpression(bp)
-                Node.PipeExpr(self.allocNodeId(), tok.span, PipeExprData { left: left, right: right })
+                Node.PipeExpr(self.allocNodeId(), tok.span, PipeExprData { left: [left], right: [right] })
             }
             PIPE_QUEST => {
                 self.advance()
                 val right = self.parseExpression(bp)
-                Node.PipeQuestExpr(self.allocNodeId(), tok.span, PipeQuestExprData { left: left, right: right })
+                Node.PipeQuestExpr(self.allocNodeId(), tok.span, PipeQuestExprData { left: [left], right: [right] })
             }
             ASYNC_PIPE => {
                 self.advance()
@@ -227,7 +256,7 @@ extend Parser {
                 val questStep = Node.AsyncPipeQuestStep(
                     self.allocNodeId(),
                     tok.span,
-                    AsyncPipeQuestStepData { step: right }
+                    AsyncPipeQuestStepData { step: [right] }
                 )
                 match left {
                     AsyncPipeExpr(id, span, data) => {
@@ -241,7 +270,7 @@ extend Parser {
             ELVIS => {
                 self.advance()
                 val right = self.parseExpression(bp)
-                Node.ElvisExpr(self.allocNodeId(), tok.span, ElvisExprData { left: left, right: right })
+                Node.ElvisExpr(self.allocNodeId(), tok.span, ElvisExprData { left: [left], right: [right] })
             }
             RANGE => {
                 self.advance()
@@ -257,15 +286,15 @@ extend Parser {
                 self.advance()
                 if self.check(TokenType.INT_LITERAL) {
                     val prop = self.advance().lexeme
-                    return Node.MemberExpr(self.allocNodeId(), tok.span, MemberExprData { object: left, property: prop })
+                    return Node.MemberExpr(self.allocNodeId(), tok.span, MemberExprData { object: [left], property: prop })
                 }
                 val prop = self.expectName().lexeme
-                Node.MemberExpr(self.allocNodeId(), tok.span, MemberExprData { object: left, property: prop })
+                Node.MemberExpr(self.allocNodeId(), tok.span, MemberExprData { object: [left], property: prop })
             }
             SAFE_NAV => {
                 self.advance()
                 val prop = self.expectName().lexeme
-                Node.SafeNavExpr(self.allocNodeId(), tok.span, SafeNavExprData { object: left, property: prop })
+                Node.SafeNavExpr(self.allocNodeId(), tok.span, SafeNavExprData { object: [left], property: prop })
             }
             LPAREN => {
                 self.advance()
@@ -276,12 +305,12 @@ extend Parser {
             LBRACKET => {
                 if self.looksLikeTypeArgList() {
                     val typeArgs = self.parseBracketTypeArgs()
-                    return Node.SpecializedExpr(self.allocNodeId(), tok.span, SpecializedExprData { base: left, typeArgs: typeArgs })
+                    return Node.SpecializedExpr(self.allocNodeId(), tok.span, SpecializedExprData { base: [left], typeArgs: typeArgs })
                 }
                 self.advance()
                 val idx = self.parseExpression(0)
                 self.expect(TokenType.RBRACKET)
-                Node.IndexExpr(self.allocNodeId(), tok.span, IndexExprData { object: left, index: idx })
+                Node.IndexExpr(self.allocNodeId(), tok.span, IndexExprData { object: [left], index: [idx] })
             }
             _ => left
         }
@@ -297,12 +326,12 @@ extend Parser {
             if self.check(TokenType.RPAREN) {
                 break
             }
-            if self.check(TokenType.IDENT) && self.peekN(1).type == TokenType.COLON {
+            if self.check(TokenType.IDENT) && self.tokenTypeIs(self.peekN(1).type, TokenType.COLON) {
                 val pos = self.peek().span
                 val name = self.expect(TokenType.IDENT).lexeme
                 self.expect(TokenType.COLON)
                 val value = self.parseExpression(0)
-                args.append(Node.NamedArg(self.allocNodeId(), pos, NamedArgData { name: name, value: value }))
+                args.append(Node.NamedArg(self.allocNodeId(), pos, NamedArgData { name: name, value: [value] }))
             } else {
                 args.append(self.parseExpression(0))
             }
@@ -348,7 +377,7 @@ extend Parser {
         val first = self.parseExpression(0)
         if self.consume(TokenType.COLON) {
             val firstVal = self.parseExpression(0)
-            var entries: List[MapEntry] = [MapEntry { key: first, value: firstVal }]
+            var entries: List[MapEntry] = [MapEntry { key: [first], value: [firstVal] }]
             loop {
                 if !self.consume(TokenType.COMMA) {
                     break
@@ -359,7 +388,7 @@ extend Parser {
                 val key = self.parseExpression(0)
                 self.expect(TokenType.COLON)
                 val value = self.parseExpression(0)
-                entries.append(MapEntry { key: key, value: value })
+                entries.append(MapEntry { key: [key], value: [value] })
             }
             self.expect(TokenType.RBRACKET)
             return Node.MapExpr(self.allocNodeId(), span, MapExprData { entries: entries })
@@ -390,7 +419,7 @@ extend Parser {
                 self.allocNodeId(),
                 tok.span,
                 SpecializedExprData {
-                    base: Node.Identifier(self.allocNodeId(), tok.span, IdentifierData { name: name }),
+                    base: [Node.Identifier(self.allocNodeId(), tok.span, IdentifierData { name: name })],
                     typeArgs: typeArgs
                 }
             )
@@ -453,7 +482,7 @@ extend Parser {
             val fname = self.expect(TokenType.IDENT).lexeme
             self.expect(TokenType.COLON)
             val fval = self.parseExpression(0)
-            fields.append(RecordLiteralField { span: fpos, name: fname, value: fval })
+            fields.append(RecordLiteralField { span: fpos, name: fname, value: [fval] })
             self.consume(TokenType.COMMA)
             self.skipSemicolons()
         }
@@ -475,7 +504,7 @@ extend Parser {
             self.skipSemicolons()
         }
         self.expect(TokenType.RBRACE)
-        return Node.MatchExpr(self.allocNodeId(), span, MatchExprData { subject: subject, arms: arms })
+        return Node.MatchExpr(self.allocNodeId(), span, MatchExprData { subject: [subject], arms: arms })
     }
 
     fn parseMatchArm(self) -> MatchArm {
@@ -488,15 +517,15 @@ extend Parser {
         }
         self.expect(TokenType.FAT_ARROW)
         val body = self.parseArmBody()
-        match body {
-            BlockStmt(_, _, _) => ()
-            _ => {
-                if !self.consume(TokenType.COMMA) {
-                    self.consume(TokenType.SEMICOLON)
-                }
+        if !match body {
+            BlockStmt(_, _, _) => true
+            _ => false
+        } {
+            if !self.consume(TokenType.COMMA) {
+                self.consume(TokenType.SEMICOLON)
             }
         }
-        return MatchArm { span: span, pattern: pat, guard: guard, body: body }
+        return MatchArm { span: span, pattern: pat, guard: guard, body: [body] }
     }
 
     fn parseAnonymousFunc(self) -> Node {
@@ -513,7 +542,7 @@ extend Parser {
         } else {
             body = self.parseExpression(0)
         }
-        return Node.ArrowFunc(self.allocNodeId(), span, ArrowFuncData { params: params, returnType: returnType, body: body })
+        return Node.ArrowFunc(self.allocNodeId(), span, ArrowFuncData { params: params, returnType: returnType, body: [body] })
     }
 
     fn isPlainStringLiteral(self, n: Node) -> Bool = match n {

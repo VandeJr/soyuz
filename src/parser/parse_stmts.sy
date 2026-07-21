@@ -6,28 +6,25 @@ import (
 )
 
 extend Parser {
-    fn parseStatement(self) -> Option[Node] {
-        return match self.peek().type {
-            VAL => Some(self.parseVarDecl(false))
-            VAR => Some(self.parseVarDecl(false))
-            FN => Some(self.parseFuncDecl(false))
-            RECORD => Some(self.parseRecordDecl(false))
-            ENUM => Some(self.parseEnumDecl(false))
-            RETURN => Some(self.parseReturn())
-            BREAK => Some(self.parseBreak())
-            CONTINUE => Some(self.parseContinue())
-            IF => Some(self.parseIf())
-            FOR => Some(self.parseFor())
-            WHILE => Some(self.parseWhile())
-            LOOP => Some(self.parseLoop())
-            SELECT => Some(self.parseSelectExpr())
-            LBRACE => Some(self.parseBlock())
-            _ => {
-                val expr = self.parseExpression(0)
-                self.consume(TokenType.SEMICOLON)
-                Some(Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: [expr] }))
-            }
-        }
+    fn parseStatement(self) -> Node {
+        val kind = self.peek().type
+        if self.tokenTypeIs(kind, TokenType.VAL) { return self.parseVarDecl(false) }
+        if self.tokenTypeIs(kind, TokenType.VAR) { return self.parseVarDecl(false) }
+        if self.tokenTypeIs(kind, TokenType.FN) { return self.parseFuncDecl(false) }
+        if self.tokenTypeIs(kind, TokenType.RECORD) { return self.parseRecordDecl(false) }
+        if self.tokenTypeIs(kind, TokenType.ENUM) { return self.parseEnumDecl(false) }
+        if self.tokenTypeIs(kind, TokenType.RETURN) { return self.parseReturn() }
+        if self.tokenTypeIs(kind, TokenType.BREAK) { return self.parseBreak() }
+        if self.tokenTypeIs(kind, TokenType.CONTINUE) { return self.parseContinue() }
+        if self.tokenTypeIs(kind, TokenType.IF) { return self.parseIf() }
+        if self.tokenTypeIs(kind, TokenType.FOR) { return self.parseFor() }
+        if self.tokenTypeIs(kind, TokenType.WHILE) { return self.parseWhile() }
+        if self.tokenTypeIs(kind, TokenType.LOOP) { return self.parseLoop() }
+        if self.tokenTypeIs(kind, TokenType.SELECT) { return self.parseSelectExpr() }
+        if self.tokenTypeIs(kind, TokenType.LBRACE) { return self.parseBlock() }
+        val expr = self.parseExpression(0)
+        self.consume(TokenType.SEMICOLON)
+        return Node.ExprStmt(self.allocNodeId(), nodePos(expr), ExprStmtData { expr: [expr] })
     }
 
     fn parseBlock(self) -> Node {
@@ -38,10 +35,7 @@ extend Parser {
             if self.check(TokenType.RBRACE) || self.check(TokenType.EOF) {
                 break
             }
-            match self.parseStatement() {
-                Some(stmt) => stmts.append(stmt)
-                None => ()
-            }
+            stmts.append(self.parseStatement())
             self.skipSemicolons()
         }
         self.expect(TokenType.RBRACE)
@@ -143,20 +137,20 @@ extend Parser {
             self.advance()
             self.expect(TokenType.FAT_ARROW)
             val body = self.parseArmBody()
-            return SelectArm { span: span, binding: "", chanExpr: None, isDefault: true, body: body }
+            return SelectArm { span: span, binding: "", chanExpr: None, isDefault: true, body: [body] }
         }
-        if self.check(TokenType.IDENT) && self.peekN(1).type == TokenType.ASSIGN {
+        if self.check(TokenType.IDENT) && self.tokenTypeIs(self.peekN(1).type, TokenType.ASSIGN) {
             val binding = self.advance().lexeme
             self.advance()
             val chanExpr = self.parseExpression(0)
             self.expect(TokenType.FAT_ARROW)
             val body = self.parseArmBody()
-            return SelectArm { span: span, binding: binding, chanExpr: Some(chanExpr), isDefault: false, body: body }
+            return SelectArm { span: span, binding: binding, chanExpr: Some(chanExpr), isDefault: false, body: [body] }
         }
         val chanExpr = self.parseExpression(0)
         self.expect(TokenType.FAT_ARROW)
         val body = self.parseArmBody()
-        return SelectArm { span: span, binding: "", chanExpr: Some(chanExpr), isDefault: false, body: body }
+        return SelectArm { span: span, binding: "", chanExpr: Some(chanExpr), isDefault: false, body: [body] }
     }
 
     fn parseArmBody(self) -> Node {

@@ -67,7 +67,7 @@ pub fn isTaskStaticAll(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isTaskAllCombinatorCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isTaskStaticAll(idData.name, memberData.property)
         _ => false
     }
@@ -79,7 +79,7 @@ pub fn isTaskStaticFan(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isTaskFanCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isTaskStaticFan(idData.name, memberData.property)
         _ => false
     }
@@ -91,7 +91,7 @@ pub fn isTaskStaticPipeline(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isTaskHandleCurrentCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => idData.name == "TaskHandle" && memberData.property == "current"
         _ => false
     }
@@ -99,7 +99,7 @@ pub fn isTaskHandleCurrentCall(callee: Node) -> Bool = match callee {
 }
 
 pub fn isTaskPipelineCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isTaskStaticPipeline(idData.name, memberData.property)
         _ => false
     }
@@ -150,7 +150,7 @@ fn taskCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
 pub fn isTaskInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match taskCheckerNodeType(g, nodeId(memberData.object)) {
+        match taskCheckerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isTaskInstanceType(t)
         }
@@ -186,7 +186,7 @@ pub fn isTaskHandleInstanceType(t: Type) -> Bool = match t {
 pub fn isTaskHandleInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match taskCheckerNodeType(g, nodeId(memberData.object)) {
+        match taskCheckerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isTaskHandleInstanceType(t)
         }
@@ -588,11 +588,19 @@ pub fn ownTaskVar(g: Generator, name: String) {
     g.taskVarStack = stack
 }
 
+fn taskStackWithoutLast(stack: List[List[String]]) -> List[List[String]] {
+    var next: List[List[String]] = []
+    var index = 0
+    for item in stack {
+        if index + 1 < stack.size() { next.append(item) }
+        index = index + 1
+    }
+    return next
+}
+
 pub fn popTaskScope(g: Generator) -> List[String] {
     if g.taskVarStack.size() == 0 { return [] }
     val owned = g.taskVarStack.get(g.taskVarStack.size() - 1)
-    var stack = g.taskVarStack
-    stack.removeAt(g.taskVarStack.size() - 1)
-    g.taskVarStack = stack
+    g.taskVarStack = taskStackWithoutLast(g.taskVarStack)
     return owned
 }

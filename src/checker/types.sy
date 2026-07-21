@@ -5,10 +5,10 @@ import (
 
 pub record FuncType {
     params: List[Type],
-    returnType: Type,
+    returnType: List[Type],
     generics: List[String],
     defaults: List[Option[Node]],
-    isOptional: List[Bool]
+    isOptional: List[String]
 }
 
 pub record EnumType {
@@ -26,10 +26,10 @@ pub record InterfaceType {
 pub record ClassType {
     name: String,
     fields: Map[String, Type],
-    fieldPub: Map[String, Bool],
+    fieldPub: Map[String, String],
     fieldInit: Map[String, Node],
     methods: Map[String, List[FuncType]],
-    methodPub: Map[String, Bool],
+    methodPub: Map[String, String],
     implements: List[InterfaceType],
     generics: List[String]
 }
@@ -43,7 +43,7 @@ pub enum Type {
     Class(data: ClassType)
     Tuple(elements: List[Type])
     TypeParam(name: String)
-    Specialized(base: Type, params: List[Type])
+    Specialized(base: List[Type], params: List[Type])
 }
 
 pub fn typeToString(t: Type) -> String = match t {
@@ -58,7 +58,7 @@ pub fn typeToString(t: Type) -> String = match t {
             var p = ft.params.get(i)
             var isOpt = false
             if i < ft.isOptional.size() {
-                isOpt = ft.isOptional.get(i)
+                isOpt = ft.isOptional.get(i) == "1"
             }
             if isOpt {
                 paramStrs.append("$(typeToString(p))?")
@@ -66,7 +66,7 @@ pub fn typeToString(t: Type) -> String = match t {
                 paramStrs.append(typeToString(p))
             }
         }
-        "$(gen)($(paramStrs.join(", "))) -> $(typeToString(ft.returnType))"
+        "$(gen)($(paramStrs.join(", "))) -> $(typeToString(ft.returnType.get(0)))"
     }
     Record(name, _, _) => name
     Enum(data) => data.name
@@ -88,7 +88,7 @@ pub fn typeToString(t: Type) -> String = match t {
         for p in params {
             paramStrs.append(typeToString(p))
         }
-        "$(typeToString(base))[$(paramStrs.join(", "))]"
+        "$(typeToString(base.get(0)))[$(paramStrs.join(", "))]"
     }
 }
 

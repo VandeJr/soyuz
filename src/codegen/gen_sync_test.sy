@@ -23,10 +23,10 @@ fn syncEmptyCheckResult() -> CheckResult = CheckResult {
 fn syncEmptyClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -34,8 +34,8 @@ fn syncEmptyClass(name: String) -> ClassType = ClassType {
 test fn testIsMutexType() {
     val mutexClass = syncEmptyClass("Mutex")
     val atomicClass = syncEmptyClass("Atomic")
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     assertMsg(isMutexType(mutexInt), "Mutex[Int] is mutex")
     assertMsg(!isMutexType(atomicInt), "Atomic[Int] not mutex")
     assertMsg(!isMutexType(IntType), "Int not mutex")
@@ -43,7 +43,7 @@ test fn testIsMutexType() {
 
 test fn testMutexInnerType() {
     val mutexClass = syncEmptyClass("Mutex")
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
     match mutexInnerType(mutexInt) {
         None => assertMsg(false, "Mutex[Int] inner type")
         Some(t) => assertMsg(match t { Basic(name) => name == "Int", _ => false }, "inner is Int")
@@ -63,25 +63,25 @@ test fn testIsMutexStaticNew() {
 test fn testIsMutexNewCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val mutexId = Node.Identifier(1, span, IdentifierData { name: "Mutex" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: mutexId, property: "new" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [mutexId], property: "new" })
     assertMsg(isMutexNewCall(member), "Mutex.new member is mutex new call")
     val channelId = Node.Identifier(3, span, IdentifierData { name: "Channel" })
-    val channelMember = Node.MemberExpr(4, span, MemberExprData { object: channelId, property: "new" })
+    val channelMember = Node.MemberExpr(4, span, MemberExprData { object: [channelId], property: "new" })
     assertMsg(!isMutexNewCall(channelMember), "Channel.new not mutex new")
 }
 
 test fn testIsMutexLockCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val mutexClass = syncEmptyClass("Mutex")
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
     val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
-    val lockMember = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    val lockMember = Node.MemberExpr(2, span, MemberExprData { object: [mId], property: "lock" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(mutexInt))
     cr.nodeTypes.append(Some(mutexInt))
     val g = newGenerator(cr)
     assertMsg(isMutexLockCall(lockMember, g), "m.lock on Mutex[Int]")
-    val newMember = Node.MemberExpr(3, span, MemberExprData { object: mId, property: "new" })
+    val newMember = Node.MemberExpr(3, span, MemberExprData { object: [mId], property: "new" })
     assertMsg(!isMutexLockCall(newMember, g), "m.new not lock")
 }
 
@@ -96,13 +96,13 @@ test fn testGenerateMutexLockStub() {
 
 test fn testSyncGuardKind() {
     val guardClass = syncEmptyClass("MutexGuard")
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
     match syncGuardKind(guardInt) {
         None => assertMsg(false, "MutexGuard[Int] kind")
         Some(k) => assertMsg(k == "mutex", "mutex guard kind")
     }
     val readClass = syncEmptyClass("ReadGuard")
-    val readInt = Type.Specialized(Type.Class(readClass), [IntType])
+    val readInt = Type.Specialized([Type.Class(readClass)], [IntType])
     match syncGuardKind(readInt) {
         None => assertMsg(false, "ReadGuard[Int] kind")
         Some(k) => assertMsg(k == "rwlock", "rwlock guard kind")
@@ -112,19 +112,19 @@ test fn testSyncGuardKind() {
 test fn testSyncGuardValueAccess() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val guardClass = syncEmptyClass("MutexGuard")
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
     val guardId = Node.Identifier(1, span, IdentifierData { name: "guard" })
-    val valueMember = Node.MemberExpr(2, span, MemberExprData { object: guardId, property: "value" })
+    val valueMember = Node.MemberExpr(2, span, MemberExprData { object: [guardId], property: "value" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(guardInt))
     cr.nodeTypes.append(Some(guardInt))
     val g = newGenerator(cr)
-    match syncGuardValueAccess(g, MemberExprData { object: guardId, property: "value" }) {
+    match syncGuardValueAccess(g, MemberExprData { object: [guardId], property: "value" }) {
         None => assertMsg(false, "guard.value access")
         Some(k) => assertMsg(k == "mutex", "mutex guard value")
     }
-    val otherMember = Node.MemberExpr(3, span, MemberExprData { object: guardId, property: "other" })
-    assertMsg(syncGuardValueAccess(g, MemberExprData { object: guardId, property: "other" }) == None, "not value property")
+    val otherMember = Node.MemberExpr(3, span, MemberExprData { object: [guardId], property: "other" })
+    assertMsg(syncGuardValueAccess(g, MemberExprData { object: [guardId], property: "other" }) == None, "not value property")
 }
 
 test fn testGenerateSyncGuardReadStub() {
@@ -148,8 +148,8 @@ test fn testGenerateSyncGuardWriteStub() {
 test fn testIsRwLockType() {
     val rwlockClass = syncEmptyClass("RwLock")
     val mutexClass = syncEmptyClass("Mutex")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
     assertMsg(isRwLockType(rwlockInt), "RwLock[Int] is rwlock")
     assertMsg(!isRwLockType(mutexInt), "Mutex[Int] not rwlock")
 }
@@ -157,19 +157,19 @@ test fn testIsRwLockType() {
 test fn testIsRwLockNewCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockId = Node.Identifier(1, span, IdentifierData { name: "RwLock" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: rwlockId, property: "new" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [rwlockId], property: "new" })
     assertMsg(isRwLockNewCall(member), "RwLock.new member is rwlock new call")
     val mutexId = Node.Identifier(3, span, IdentifierData { name: "Mutex" })
-    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: mutexId, property: "new" })
+    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: [mutexId], property: "new" })
     assertMsg(!isRwLockNewCall(mutexMember), "Mutex.new not rwlock new")
 }
 
 test fn testIsRwLockReadCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = syncEmptyClass("RwLock")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
-    val readMember = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    val readMember = Node.MemberExpr(2, span, MemberExprData { object: [rwId], property: "read" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(rwlockInt))
     cr.nodeTypes.append(Some(rwlockInt))
@@ -180,15 +180,15 @@ test fn testIsRwLockReadCall() {
 test fn testIsRwLockWriteCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = syncEmptyClass("RwLock")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
-    val writeMember = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    val writeMember = Node.MemberExpr(2, span, MemberExprData { object: [rwId], property: "write" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(rwlockInt))
     cr.nodeTypes.append(Some(rwlockInt))
     val g = newGenerator(cr)
     assertMsg(isRwLockWriteCall(writeMember, g), "rw.write on RwLock[Int]")
-    assertMsg(!isRwLockWriteCall(Node.MemberExpr(3, span, MemberExprData { object: rwId, property: "read" }), g), "rw.read not write")
+    assertMsg(!isRwLockWriteCall(Node.MemberExpr(3, span, MemberExprData { object: [rwId], property: "read" }), g), "rw.read not write")
 }
 
 test fn testGenerateRwLockNewStub() {
@@ -222,9 +222,9 @@ test fn testSyncGuardUnlockFn() {
     val guardClass = syncEmptyClass("MutexGuard")
     val readClass = syncEmptyClass("ReadGuard")
     val writeClass = syncEmptyClass("WriteGuard")
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
-    val readInt = Type.Specialized(Type.Class(readClass), [IntType])
-    val writeInt = Type.Specialized(Type.Class(writeClass), [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
+    val readInt = Type.Specialized([Type.Class(readClass)], [IntType])
+    val writeInt = Type.Specialized([Type.Class(writeClass)], [IntType])
     match syncGuardUnlockFn(guardInt) {
         None => assertMsg(false, "MutexGuard unlock fn")
         Some(unlockName) => assertMsg(unlockName == mutexRuntimeUnlock(), "mutex unlock")
@@ -262,7 +262,7 @@ test fn testGenerateMutexNewStub() {
 
 test fn testIsAtomicType() {
     val atomicClass = syncEmptyClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     assertMsg(isAtomicType(atomicInt), "Atomic[Int] is atomic")
     assertMsg(!isAtomicType(IntType), "Int not atomic")
 }
@@ -270,25 +270,25 @@ test fn testIsAtomicType() {
 test fn testIsAtomicNewCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicId = Node.Identifier(1, span, IdentifierData { name: "Atomic" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: atomicId, property: "new" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [atomicId], property: "new" })
     assertMsg(isAtomicNewCall(member), "Atomic.new member is atomic new call")
     val mutexId = Node.Identifier(3, span, IdentifierData { name: "Mutex" })
-    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: mutexId, property: "new" })
+    val mutexMember = Node.MemberExpr(4, span, MemberExprData { object: [mutexId], property: "new" })
     assertMsg(!isAtomicNewCall(mutexMember), "Mutex.new not atomic new")
 }
 
 test fn testIsAtomicStoreCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = syncEmptyClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val storeMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "store" })
+    val storeMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "store" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(atomicInt))
     cr.nodeTypes.append(Some(atomicInt))
     val g = newGenerator(cr)
     assertMsg(isAtomicStoreCall(storeMember, g), "a.store on Atomic[Int]")
-    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "load" })
+    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: [aId], property: "load" })
     assertMsg(!isAtomicStoreCall(loadMember, g), "a.load not store")
 }
 
@@ -313,15 +313,15 @@ test fn testGenerateAtomicStoreStub() {
 test fn testIsAtomicLoadCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = syncEmptyClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val loadMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "load" })
+    val loadMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "load" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(atomicInt))
     cr.nodeTypes.append(Some(atomicInt))
     val g = newGenerator(cr)
     assertMsg(isAtomicLoadCall(loadMember, g), "a.load on Atomic[Int]")
-    val storeMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "store" })
+    val storeMember = Node.MemberExpr(3, span, MemberExprData { object: [aId], property: "store" })
     assertMsg(!isAtomicLoadCall(storeMember, g), "a.store not load")
 }
 
@@ -337,15 +337,15 @@ test fn testGenerateAtomicLoadStub() {
 test fn testIsAtomicAddCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = syncEmptyClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val addMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "add" })
+    val addMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "add" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(atomicInt))
     cr.nodeTypes.append(Some(atomicInt))
     val g = newGenerator(cr)
     assertMsg(isAtomicAddCall(addMember, g), "a.add on Atomic[Int]")
-    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "load" })
+    val loadMember = Node.MemberExpr(3, span, MemberExprData { object: [aId], property: "load" })
     assertMsg(!isAtomicAddCall(loadMember, g), "a.load not add")
 }
 
@@ -361,15 +361,15 @@ test fn testGenerateAtomicAddStub() {
 test fn testIsAtomicCasCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val atomicClass = syncEmptyClass("Atomic")
-    val atomicInt = Type.Specialized(Type.Class(atomicClass), [IntType])
+    val atomicInt = Type.Specialized([Type.Class(atomicClass)], [IntType])
     val aId = Node.Identifier(1, span, IdentifierData { name: "a" })
-    val casMember = Node.MemberExpr(2, span, MemberExprData { object: aId, property: "compareAndSwap" })
+    val casMember = Node.MemberExpr(2, span, MemberExprData { object: [aId], property: "compareAndSwap" })
     var cr = syncEmptyCheckResult()
     cr.nodeTypes.append(Some(atomicInt))
     cr.nodeTypes.append(Some(atomicInt))
     val g = newGenerator(cr)
     assertMsg(isAtomicCasCall(casMember, g), "a.compareAndSwap on Atomic[Int]")
-    val addMember = Node.MemberExpr(3, span, MemberExprData { object: aId, property: "add" })
+    val addMember = Node.MemberExpr(3, span, MemberExprData { object: [aId], property: "add" })
     assertMsg(!isAtomicCasCall(addMember, g), "a.add not cas")
 }
 

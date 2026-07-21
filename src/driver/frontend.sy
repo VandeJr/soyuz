@@ -15,12 +15,12 @@ pub record FrontendBuildPlan {
 }
 
 fn frontendEmptyCheckResult() -> CheckResult = CheckResult {
-    errors: List[TypeError]{},
-    warnings: List[TypeWarning]{},
-    nodeTypes: List[Option[Type]]{},
+    errors: [],
+    warnings: [],
+    nodeTypes: [],
     specializations: Map[Int, FuncType]{},
     funcVariants: Map[String, List[FuncDeclData]]{},
-    testFuncs: List[FuncDeclData]{},
+    testFuncs: [],
     captures: Map[Int, List[String]]{},
     synthCallArgs: Map[Int, List[Node]]{},
     curriedCalls: Map[Int, Node]{},

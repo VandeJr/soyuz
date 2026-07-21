@@ -5,11 +5,11 @@ import (
 )
 
 fn emptyStrings() -> List[String] { [] }
-fn emptyBools() -> List[Bool] { [] }
+fn emptyBools() -> List[String] { [] }
 fn emptyNodeOpts() -> List[Option[Node]] { [] }
 
 fn tbFnType(params: List[Type], ret: Type) -> FuncType {
-    FuncType { params: params, returnType: ret, generics: emptyStrings(), defaults: emptyNodeOpts(), isOptional: emptyBools() }
+    FuncType { params: params, returnType: [ret], generics: emptyStrings(), defaults: emptyNodeOpts(), isOptional: emptyBools() }
 }
 
 fn oneFnList(ft: FuncType) -> List[FuncType] = [ft]
@@ -18,7 +18,7 @@ fn setMethod(methods: Map[String, List[FuncType]], name: String, ft: FuncType) {
     methods.set(name, oneFnList(ft))
 }
 
-fn setBool(m: Map[String, Bool], k: String, v: Bool) { m.set(k, v) }
+fn setBool(m: Map[String, String], k: String, v: Bool) { if v { m.set(k, "1") } }
 
 fn buildErrorIface() -> InterfaceType {
     var methods = Map[String, FuncType]{}
@@ -62,8 +62,8 @@ fn buildListType() -> ClassType {
     setMethod(methods, "iter", fn0(Unknown))
     return ClassType {
         name: "List", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [], methods: methods, methodPub: Map[String, Bool]{}
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
+        implements: [], methods: methods, methodPub: Map[String, String]{}
     }
 }
 
@@ -77,26 +77,26 @@ fn buildMapType() -> ClassType {
     setMethod(methods, "iter", fn0(Unknown))
     return ClassType {
         name: "Map", generics: ["K", "V"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [], methods: methods, methodPub: Map[String, Bool]{}
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
+        implements: [], methods: methods, methodPub: Map[String, String]{}
     }
 }
 
 fn buildIteratorType(optionEnum: EnumType) -> ClassType {
-    val optT = Type.Specialized(Type.Enum(optionEnum), [tParam("T")])
+    val optT = Type.Specialized([Type.Enum(optionEnum)], [tParam("T")])
     var methods = Map[String, List[FuncType]]{}
     setMethod(methods, "next", fn0(optT))
     setMethod(methods, "isEmpty", fn0(BoolType))
     return ClassType {
         name: "Iterator", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
-        implements: [], methods: methods, methodPub: Map[String, Bool]{}
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
+        implements: [], methods: methods, methodPub: Map[String, String]{}
     }
 }
 
 fn buildTaskType() -> ClassType {
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "await", fn0(tParam("T")))
     setMethod(methods, "detach", fn0(UnitType))
     setMethod(methods, "cancel", fn0(UnitType))
@@ -112,42 +112,42 @@ fn buildTaskType() -> ClassType {
     }
     return ClassType {
         name: "Task", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }
 
 fn buildGuardType(name: String) -> ClassType {
     var fields = Map[String, Type]{}
-    var fieldPub = Map[String, Bool]{}
+    var fieldPub = Map[String, String]{}
     fields.set("value", tParam("T"))
-    fieldPub.set("value", true)
+    fieldPub.set("value", "1")
     return ClassType {
         name: name, generics: ["T"], fields: fields, fieldPub: fieldPub, fieldInit: Map[String, Node]{},
-        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, Bool]{}
+        implements: [], methods: Map[String, List[FuncType]]{}, methodPub: Map[String, String]{}
     }
 }
 
 fn buildMutexType(guard: ClassType) -> ClassType {
-    val lockRet = Type.Specialized(Type.Class(guard), [tParam("T")])
+    val lockRet = Type.Specialized([Type.Class(guard)], [tParam("T")])
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "new", fn1(Unknown, Unknown))
     setMethod(methods, "lock", fn0(lockRet))
     setBool(methodPubMap, "new", true)
     setBool(methodPubMap, "lock", true)
     return ClassType {
         name: "Mutex", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }
 
 fn buildRwLockType(readGuard: ClassType, writeGuard: ClassType) -> ClassType {
-    val readRet = Type.Specialized(Type.Class(readGuard), [tParam("T")])
-    val writeRet = Type.Specialized(Type.Class(writeGuard), [tParam("T")])
+    val readRet = Type.Specialized([Type.Class(readGuard)], [tParam("T")])
+    val writeRet = Type.Specialized([Type.Class(writeGuard)], [tParam("T")])
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "new", fn1(Unknown, Unknown))
     setMethod(methods, "read", fn0(readRet))
     setMethod(methods, "write", fn0(writeRet))
@@ -156,14 +156,14 @@ fn buildRwLockType(readGuard: ClassType, writeGuard: ClassType) -> ClassType {
     setBool(methodPubMap, "write", true)
     return ClassType {
         name: "RwLock", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }
 
 fn buildAtomicType() -> ClassType {
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "new", fn1(Unknown, Unknown))
     setMethod(methods, "load", fn0(tParam("T")))
     setMethod(methods, "store", fn1(tParam("T"), UnitType))
@@ -172,14 +172,14 @@ fn buildAtomicType() -> ClassType {
     for name in ["new", "load", "store", "add", "compareAndSwap"] { setBool(methodPubMap, name, true) }
     return ClassType {
         name: "Atomic", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }
 
 fn buildArcType() -> ClassType {
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "new", fn1(Unknown, Unknown))
     setMethod(methods, "clone", fn0(Unknown))
     setMethod(methods, "get", fn0(tParam("T")))
@@ -187,14 +187,14 @@ fn buildArcType() -> ClassType {
     for name in ["new", "clone", "get", "refcount"] { setBool(methodPubMap, name, true) }
     return ClassType {
         name: "Arc", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }
 
 fn buildChannelType() -> ClassType {
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "new", fn1(IntType, Unknown))
     setMethod(methods, "send", fn1(tParam("T"), UnitType))
     setMethod(methods, "recv", fn0(Unknown))
@@ -204,21 +204,21 @@ fn buildChannelType() -> ClassType {
     for name in ["new", "send", "recv", "tryRecv", "close", "isClosed"] { setBool(methodPubMap, name, true) }
     return ClassType {
         name: "Channel", generics: ["T"],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }
 
 fn buildTaskHandleType() -> ClassType {
     var methods = Map[String, List[FuncType]]{}
-    var methodPubMap = Map[String, Bool]{}
+    var methodPubMap = Map[String, String]{}
     setMethod(methods, "current", fn0(Unknown))
     setMethod(methods, "cancelled", fn0(BoolType))
     setMethod(methods, "progress", fn1(FloatType, UnitType))
     for name in ["current", "cancelled", "progress"] { setBool(methodPubMap, name, true) }
     return ClassType {
         name: "TaskHandle", generics: [],
-        fields: Map[String, Type]{}, fieldPub: Map[String, Bool]{}, fieldInit: Map[String, Node]{},
+        fields: Map[String, Type]{}, fieldPub: Map[String, String]{}, fieldInit: Map[String, Node]{},
         implements: [], methods: methods, methodPub: methodPubMap
     }
 }

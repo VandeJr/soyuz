@@ -36,7 +36,7 @@ pub fn inferExprType(c: Checker, n: Node) -> Type {
                 BoolLiteral(_, _, _) => BoolType
                 StringLiteral(_, _, _) => StringType
                 CharLiteral(_, _, _) => CharType
-                NamedArg(_, _, data) => inferExprType(c, data.value)
+                NamedArg(_, _, data) => inferExprType(c, data.value.get(0))
                 Identifier(_, _, data) => match c.scope.resolve(data.name) {
                     Some(sym) => sym.typ
                     None => Unknown
@@ -51,14 +51,14 @@ pub fn inferExprType(c: Checker, n: Node) -> Type {
 }
 
 fn inferSpecializedExprType(c: Checker, data: SpecializedExprData, n: Node) -> Type {
-    val baseType = inferExprType(c, data.base)
+    val baseType = inferExprType(c, data.base.get(0))
     return match typeArgsFromExprs(c, data.typeArgs) {
         None => Unknown
         Some(params) => match baseType {
             Func(ft) if params.size() == ft.generics.size() => Type.Func(instantiateFunc(c, ft, params))
-            Record(_, _, _) => Type.Specialized(baseType, params)
-            Class(_) => Type.Specialized(baseType, params)
-            Enum(_) => Type.Specialized(baseType, params)
+            Record(_, _, _) => Type.Specialized([baseType], params)
+            Class(_) => Type.Specialized([baseType], params)
+            Enum(_) => Type.Specialized([baseType], params)
             _ => Unknown
         }
     }
@@ -72,9 +72,9 @@ fn inferCallExprType(c: Checker, data: CallExprData) -> Type {
     return match calleeType {
         Func(ft) => {
             if ft.generics.size() > 0 && data.args.size() > 0 {
-                return instantiateFunc(c, ft, inferGenerics(c, ft, data.args)).returnType
+                return instantiateFunc(c, ft, inferGenerics(c, ft, data.args)).returnType.get(0)
             }
-            return ft.returnType
+            return ft.returnType.get(0)
         }
         _ => Unknown
     }
@@ -96,7 +96,7 @@ pub fn unify(c: Checker, param: Type, actual: Type, inferred: Map[String, Type])
             _ => {}
         }
         Specialized(pBase, pParams) => match actual {
-            Specialized(aBase, aParams) if typeToString(pBase) == typeToString(aBase) => {
+            Specialized(aBase, aParams) if typeToString(pBase.get(0)) == typeToString(aBase.get(0)) => {
                 for i in range(0, pParams.size()) {
                     if i < aParams.size() {
                         unify(c, pParams.get(i), aParams.get(i), inferred)
@@ -121,7 +121,7 @@ pub fn instantiateFunc(c: Checker, f: FuncType, specParams: List[Type]) -> FuncT
     for p in f.params {
         newParams.append(substitute(c, p, sub))
     }
-    return FuncType { params: newParams, returnType: substitute(c, f.returnType, sub), generics: f.generics, defaults: f.defaults, isOptional: f.isOptional }
+    return FuncType { params: newParams, returnType: [substitute(c, f.returnType.get(0), sub)], generics: f.generics, defaults: f.defaults, isOptional: f.isOptional }
 }
 
 fn substTypeParam(name: String, sub: Map[String, Type], defaultType: Type) -> Type {
@@ -136,7 +136,7 @@ fn substTypeParam(name: String, sub: Map[String, Type], defaultType: Type) -> Ty
 fn substSpecialized(c: Checker, base: Type, params: List[Type], sub: Map[String, Type]) -> Type {
     var newParams: List[Type] = []
     for p in params { newParams.append(substitute(c, p, sub)) }
-    return Type.Specialized(base, newParams)
+    return Type.Specialized([base], newParams)
 }
 
 fn substTuple(c: Checker, elems: List[Type], sub: Map[String, Type]) -> Type {
@@ -147,7 +147,7 @@ fn substTuple(c: Checker, elems: List[Type], sub: Map[String, Type]) -> Type {
 
 pub fn substitute(c: Checker, t: Type, sub: Map[String, Type]) -> Type = match t {
     TypeParam(name) => substTypeParam(name, sub, t)
-    Specialized(base, params) => substSpecialized(c, base, params, sub)
+    Specialized(base, params) => substSpecialized(c, base.get(0), params, sub)
     Tuple(elems) => substTuple(c, elems, sub)
     _ => t
 }
@@ -163,19 +163,19 @@ pub fn resolveTypeExpr(c: Checker, e: TypeExpr) -> Type = match e {
     Func(_, _, paramTypes, ret) => {
         var params: List[Type] = []
         for p in paramTypes { params.append(resolveTypeExpr(c, p)) }
-        Type.Func(FuncType { params: params, returnType: match ret { Some(r) => resolveTypeExpr(c, r), None => UnitType }, generics: [], defaults: [], isOptional: [] })
+        Type.Func(FuncType { params: params, returnType: [match ret { Some(r) => resolveTypeExpr(c, r), None => UnitType }], generics: [], defaults: [], isOptional: [] })
     }
     Named(_, span, name) => resolveNamedType(c, span, name)
     Generic(_, _, name, params) => {
         val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, name))
         var p: List[Type] = []
         for te in params { p.append(resolveTypeExpr(c, te)) }
-        Type.Specialized(base, p)
+        Type.Specialized([base], p)
     }
     Optional(_, _, inner) => {
-        val innerT = resolveTypeExpr(c, inner)
+        val innerT = resolveTypeExpr(c, inner.get(0))
         val base = resolveTypeExpr(c, Named(0, Span { line: 0, column: 0, startOffset: 0, endOffset: 0 }, "Option"))
-        Type.Specialized(base, [innerT])
+        Type.Specialized([base], [innerT])
     }
     Tuple(_, _, elements) => {
         if elements.size() == 0 { return UnitType }

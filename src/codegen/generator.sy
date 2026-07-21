@@ -41,7 +41,7 @@ pub class Generator {
     pub var pendingExtendBodies: List[PendingExtendMethodBody] = []
     pub var destructors: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
     pub var traces: Map[String, LlvmFunc] = Map[String, LlvmFunc]{}
-    pub var heapVars: Map[String, Bool] = Map[String, Bool]{}
+    pub var heapVars: Map[String, String] = Map[String, String]{}
     pub var scopeStack: List[List[String]] = []
     pub var taskVarStack: List[List[String]] = []
     pub var syncGuardStack: List[List[SyncGuardEntry]] = []

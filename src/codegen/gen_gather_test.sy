@@ -23,10 +23,10 @@ fn gatherEmptyCheckResult() -> CheckResult = CheckResult {
 fn gatherEmptyClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -34,8 +34,8 @@ fn gatherEmptyClass(name: String) -> ClassType = ClassType {
 test fn testIsTaskInstanceType() {
     val taskClass = gatherEmptyClass("Task")
     val arcClass = gatherEmptyClass("Arc")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     assertMsg(isTaskInstanceType(taskInt), "Task[Int] is task")
     assertMsg(!isTaskInstanceType(arcInt), "Arc[Int] not task")
     assertMsg(!isTaskInstanceType(IntType), "Int not task")
@@ -57,10 +57,10 @@ test fn testIsTaskStaticGather() {
 test fn testIsTaskGatherCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskId = Node.Identifier(1, span, IdentifierData { name: "Task" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: taskId, property: "gather" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [taskId], property: "gather" })
     assertMsg(isTaskGatherCall(member), "Task.gather member is gather call")
     val arcId = Node.Identifier(3, span, IdentifierData { name: "Arc" })
-    val arcMember = Node.MemberExpr(4, span, MemberExprData { object: arcId, property: "new" })
+    val arcMember = Node.MemberExpr(4, span, MemberExprData { object: [arcId], property: "new" })
     assertMsg(!isTaskGatherCall(arcMember), "Arc.new not gather")
 }
 

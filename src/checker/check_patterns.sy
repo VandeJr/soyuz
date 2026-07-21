@@ -23,7 +23,7 @@ fn patternLiteralType(v: LiteralPatternValue) -> Type = match v {
 
 fn enumFromReturn(ret: Type, variantName: String) -> Option[EnumType] = match ret {
     Enum(et) => Some(et)
-    Specialized(base, _) => match base {
+    Specialized(base, _) => match base.get(0) {
         Enum(et) => Some(et)
         _ => None
     }
@@ -31,7 +31,7 @@ fn enumFromReturn(ret: Type, variantName: String) -> Option[EnumType] = match re
 }
 
 fn enumFromSymbol(t: Type, variantName: String) -> Option[EnumType] = match t {
-    Func(ft) => enumFromReturn(ft.returnType, variantName)
+    Func(ft) => enumFromReturn(ft.returnType.get(0), variantName)
     Enum(et) => Some(et)
     _ => None
 }
@@ -43,11 +43,11 @@ fn checkRangePattern(c: Checker, span: Span, from: LiteralPatternValue, to: Patt
 
 fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Pattern], subjectType: Type) {
     var typeSub: Map[String, Type] = Map[String, Type]{}
-    var unwrapped = subjectType
+    var unwrappedTypes: List[Type] = [subjectType]
     match subjectType {
         Specialized(base, params) => {
-            unwrapped = base
-            match base {
+            unwrappedTypes.set(0, base.get(0))
+            match base.get(0) {
                 Enum(et) if et.generics.size() == params.size() => {
                     for i in range(0, et.generics.size()) {
                         typeSub.set(et.generics.get(i), params.get(i))
@@ -58,7 +58,7 @@ fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Patt
         }
         _ => {}
     }
-    var et: Option[EnumType] = match unwrapped {
+    var et: Option[EnumType] = match unwrappedTypes.get(0) {
         Enum(enumData) => Some(enumData)
         _ => None
     }
@@ -83,9 +83,9 @@ fn checkConstructorPattern(c: Checker, span: Span, name: String, args: List[Patt
                     patternError(c, span, "incorrect number of arguments for variant $(name): expected $(fts.size()), got $(args.size())")
                 } else {
                     for i in range(0, args.size()) {
-                        var ft = fts.get(i)
-                        if typeSub.size() > 0 { ft = substitute(c, ft, typeSub) }
-                        checkPattern(c, args.get(i), ft)
+                        var fieldTypes: List[Type] = [fts.get(i)]
+                        if typeSub.size() > 0 { fieldTypes.set(0, substitute(c, fieldTypes.get(0), typeSub)) }
+                        checkPattern(c, args.get(i), fieldTypes.get(0))
                     }
                 }
             }
@@ -135,7 +135,7 @@ pub fn checkPattern(c: Checker, pat: Pattern, subjectType: Type) {
         }
         Constructor(_, span, name, args) => checkConstructorPattern(c, span, name, args, subjectType)
         Record(_, span, name, fields) => checkRecordPattern(c, span, name, fields, subjectType)
-        Range(_, span, from, to, _) => checkRangePattern(c, span, from, to)
+        Range(_, span, from, to, _) => checkRangePattern(c, span, from, to.get(0))
         Tuple(_, span, elements) => {
             match subjectType {
                 Tuple(ttElems) => {

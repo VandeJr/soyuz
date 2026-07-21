@@ -28,7 +28,7 @@ pub fn arcRuntimeRefcount() -> String {
 }
 
 pub fn isArcType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Arc" && params.size() > 0
         _ => false
     }
@@ -36,7 +36,7 @@ pub fn isArcType(t: Type) -> Bool = match t {
 }
 
 pub fn arcInnerType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Arc" && params.size() > 0 {
                 return Some(params.get(0))
@@ -58,7 +58,7 @@ pub fn isArcStaticNew(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isArcNewCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isArcStaticNew(idData.name, memberData.property)
         _ => false
     }
@@ -73,7 +73,7 @@ fn arcCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
 pub fn isArcInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match arcCheckerNodeType(g, nodeId(memberData.object)) {
+        match arcCheckerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isArcType(t)
         }
@@ -162,12 +162,20 @@ pub fn ownArcVar(g: Generator, name: String) {
     g.arcVarStack = stack
 }
 
+fn arcStackWithoutLast(stack: List[List[String]]) -> List[List[String]] {
+    var next: List[List[String]] = []
+    var index = 0
+    for item in stack {
+        if index + 1 < stack.size() { next.append(item) }
+        index = index + 1
+    }
+    return next
+}
+
 pub fn popArcScope(g: Generator) -> List[String] {
     if g.arcVarStack.size() == 0 { return [] }
     val owned = g.arcVarStack.get(g.arcVarStack.size() - 1)
-    var stack = g.arcVarStack
-    stack.removeAt(g.arcVarStack.size() - 1)
-    g.arcVarStack = stack
+    g.arcVarStack = arcStackWithoutLast(g.arcVarStack)
     return owned
 }
 

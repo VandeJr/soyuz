@@ -59,7 +59,7 @@ pub fn gatherAwaitAfterBlockName() -> String {
 }
 
 pub fn isTaskInstanceType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Task" && params.size() > 0
         _ => false
     }
@@ -76,7 +76,7 @@ pub fn isTaskStaticGather(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isTaskGatherCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isTaskStaticGather(idData.name, memberData.property)
         _ => false
     }

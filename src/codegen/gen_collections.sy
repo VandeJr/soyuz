@@ -23,7 +23,7 @@ pub fn mapKeyIsStringKind(t: Type) -> Int = match t {
 }
 
 pub fn isListOrMapType(t: Type) -> Bool = match t {
-    Specialized(base, _) => match base {
+    Specialized(base, _) => match base.get(0) {
         Class(ct) => ct.name == "List" || ct.name == "Map"
         _ => false
     }
@@ -31,7 +31,7 @@ pub fn isListOrMapType(t: Type) -> Bool = match t {
 }
 
 pub fn isListType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "List" && params.size() > 0
         _ => false
     }
@@ -39,7 +39,7 @@ pub fn isListType(t: Type) -> Bool = match t {
 }
 
 pub fn listElemType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "List" && params.size() > 0 {
                 return Some(params.get(0))
@@ -52,7 +52,7 @@ pub fn listElemType(t: Type) -> Option[Type] = match t {
 }
 
 pub fn isMapType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Map" && params.size() >= 2
         _ => false
     }
@@ -60,7 +60,7 @@ pub fn isMapType(t: Type) -> Bool = match t {
 }
 
 pub fn mapKeyType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Map" && params.size() >= 2 {
                 return Some(params.get(0))
@@ -73,7 +73,7 @@ pub fn mapKeyType(t: Type) -> Option[Type] = match t {
 }
 
 pub fn mapValType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Map" && params.size() >= 2 {
                 return Some(params.get(1))
@@ -98,7 +98,7 @@ pub fn generateMapValuesStub(g: Generator, _mapVal: LlvmValue, mapType: Type) ->
 }
 
 pub fn isIteratorType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Iterator" && params.size() > 0
         _ => false
     }
@@ -106,7 +106,7 @@ pub fn isIteratorType(t: Type) -> Bool = match t {
 }
 
 pub fn iteratorElemType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Iterator" && params.size() > 0 {
                 return Some(params.get(0))

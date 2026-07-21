@@ -123,4 +123,4 @@ if [[ "$ast_module_output" != "native hello" ]]; then
   exit 1
 fi
 
-echo "→ LLVM IR tipado validado pelo clang (stores, tipos, funções, if, while, loop, range, break e continue)"
+echo "→ backend tipado validado pelo clang (IR direto e módulo AST executável)"

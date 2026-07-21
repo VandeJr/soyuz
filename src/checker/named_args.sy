@@ -7,7 +7,7 @@ import (
 )
 
 pub fn variantFieldNamesForCall(c: Checker, callee: Node) -> List[String] = match callee {
-    MemberExpr(_, _, data) => mapGetOrStringList(getNodeTypeEnumVfn(c, nodeId(data.object)), data.property)
+    MemberExpr(_, _, data) => mapGetOrStringList(getNodeTypeEnumVfn(c, nodeId(data.object.get(0))), data.property)
     Identifier(_, _, data) => match c.scope.resolve(data.name) {
         Some(sym) => fieldNamesFromReturn(sym.typ, data.name)
         None => []
@@ -21,9 +21,9 @@ fn getNodeTypeEnumVfn(c: Checker, id: Int) -> Map[String, List[String]] = match 
 }
 
 fn fieldNamesFromReturn(ret: Type, variantName: String) -> List[String] = match ret {
-    Func(ft) => fieldNamesFromReturn(ft.returnType, variantName)
+    Func(ft) => fieldNamesFromReturn(ft.returnType.get(0), variantName)
     Enum(data) => mapGetOrStringList(data.variantFieldNames, variantName)
-    Specialized(base, _) => match base {
+    Specialized(base, _) => match base.get(0) {
         Enum(data) => mapGetOrStringList(data.variantFieldNames, variantName)
         _ => []
     }
@@ -50,7 +50,7 @@ pub fn resolveNamedCallArgs(c: Checker, n: CallExprData, node: Node, ft: FuncTyp
                 if mapHasStrNode(named, data.name) {
                     checkerErrorf(c, span, "argumento duplicado: $(data.name)", [])
                 } else {
-                    named.set(data.name, data.value)
+                    named.set(data.name, data.value.get(0))
                 }
             }
             _ => positional.append(arg)

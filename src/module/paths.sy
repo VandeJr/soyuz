@@ -4,7 +4,7 @@ pub record PathIndex {
 }
 
 pub fn emptyPathIndex() -> PathIndex = PathIndex {
-    markerFiles: List[String]{},
+    markerFiles: [],
     fileContents: Map[String, String]{}
 }
 

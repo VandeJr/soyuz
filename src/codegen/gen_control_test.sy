@@ -207,14 +207,14 @@ test fn testGenerateForListStmt() {
     val listClass = ClassType {
         name: "List",
         fields: Map[String, Type]{},
-        fieldPub: Map[String, Bool]{},
+        fieldPub: Map[String, String]{},
         fieldInit: Map[String, Node]{},
         methods: Map[String, List[FuncType]]{},
-        methodPub: Map[String, Bool]{},
+        methodPub: Map[String, String]{},
         implements: [],
         generics: ["T"]
     }
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, listInt)
     types.set(2, UnitType)
@@ -252,14 +252,14 @@ test fn testGenerateForMapStmt() {
     val mapClass = ClassType {
         name: "Map",
         fields: Map[String, Type]{},
-        fieldPub: Map[String, Bool]{},
+        fieldPub: Map[String, String]{},
         fieldInit: Map[String, Node]{},
         methods: Map[String, List[FuncType]]{},
-        methodPub: Map[String, Bool]{},
+        methodPub: Map[String, String]{},
         implements: [],
         generics: ["K", "V"]
     }
-    val mapStrInt = Type.Specialized(Type.Class(mapClass), [StringType, IntType])
+    val mapStrInt = Type.Specialized([Type.Class(mapClass)], [StringType, IntType])
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, mapStrInt)
     types.set(2, UnitType)
@@ -290,14 +290,14 @@ test fn testGenerateForIteratorStmt() {
     val iterClass = ClassType {
         name: "Iterator",
         fields: Map[String, Type]{},
-        fieldPub: Map[String, Bool]{},
+        fieldPub: Map[String, String]{},
         fieldInit: Map[String, Node]{},
         methods: Map[String, List[FuncType]]{},
-        methodPub: Map[String, Bool]{},
+        methodPub: Map[String, String]{},
         implements: [],
         generics: ["T"]
     }
-    val iterInt = Type.Specialized(Type.Class(iterClass), [IntType])
+    val iterInt = Type.Specialized([Type.Class(iterClass)], [IntType])
     var types: Map[Int, Type] = Map[Int, Type]{}
     types.set(1, iterInt)
     types.set(2, UnitType)
@@ -594,10 +594,10 @@ test fn testGenerateLoopEndsOnAfterBlock() {
 fn controlTaskClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -606,10 +606,10 @@ fn controlTaskClass(name: String) -> ClassType = ClassType {
 test fn testBlockEmitsTaskDropOnScopeExit() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val taskClass = controlTaskClass("Task")
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     val callee = Node.Identifier(1, span, IdentifierData { name: "work" })
     val call = Node.CallExpr(2, span, CallExprData { callee: [callee], args: [] })
-    val taskExpr = Node.TaskExpr(3, span, TaskExprData { inner: call })
+    val taskExpr = Node.TaskExpr(3, span, TaskExprData { inner: [call] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
         isPub: false,
@@ -641,10 +641,10 @@ test fn testBlockEmitsTaskDropOnScopeExit() {
 fn controlArcClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -653,9 +653,9 @@ fn controlArcClass(name: String) -> ClassType = ClassType {
 test fn testBlockEmitsArcReleaseOnScopeExit() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val arcClass = controlArcClass("Arc")
-    val arcInt = Type.Specialized(Type.Class(arcClass), [IntType])
+    val arcInt = Type.Specialized([Type.Class(arcClass)], [IntType])
     val arcId = Node.Identifier(1, span, IdentifierData { name: "Arc" })
-    val newMember = Node.MemberExpr(2, span, MemberExprData { object: arcId, property: "new" })
+    val newMember = Node.MemberExpr(2, span, MemberExprData { object: [arcId], property: "new" })
     val initArg = Node.IntLiteral(3, span, IntLiteralData { value: "7" })
     var args: List[Node] = []
     args.append(initArg)
@@ -694,10 +694,10 @@ test fn testBlockEmitsSyncGuardUnlockOnScopeExit() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val mutexClass = controlArcClass("Mutex")
     val guardClass = controlArcClass("MutexGuard")
-    val mutexInt = Type.Specialized(Type.Class(mutexClass), [IntType])
-    val guardInt = Type.Specialized(Type.Class(guardClass), [IntType])
+    val mutexInt = Type.Specialized([Type.Class(mutexClass)], [IntType])
+    val guardInt = Type.Specialized([Type.Class(guardClass)], [IntType])
     val mId = Node.Identifier(1, span, IdentifierData { name: "m" })
-    val lockCallee = Node.MemberExpr(2, span, MemberExprData { object: mId, property: "lock" })
+    val lockCallee = Node.MemberExpr(2, span, MemberExprData { object: [mId], property: "lock" })
     val lockCall = Node.CallExpr(3, span, CallExprData { callee: [lockCallee], args: [] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
@@ -733,10 +733,10 @@ test fn testBlockEmitsWriteGuardUnlockOnScopeExit() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = controlArcClass("RwLock")
     val writeGuardClass = controlArcClass("WriteGuard")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
-    val writeGuardInt = Type.Specialized(Type.Class(writeGuardClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
+    val writeGuardInt = Type.Specialized([Type.Class(writeGuardClass)], [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
-    val writeCallee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "write" })
+    val writeCallee = Node.MemberExpr(2, span, MemberExprData { object: [rwId], property: "write" })
     val writeCall = Node.CallExpr(3, span, CallExprData { callee: [writeCallee], args: [] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,
@@ -772,10 +772,10 @@ test fn testBlockEmitsReadGuardUnlockOnScopeExit() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val rwlockClass = controlArcClass("RwLock")
     val readGuardClass = controlArcClass("ReadGuard")
-    val rwlockInt = Type.Specialized(Type.Class(rwlockClass), [IntType])
-    val readGuardInt = Type.Specialized(Type.Class(readGuardClass), [IntType])
+    val rwlockInt = Type.Specialized([Type.Class(rwlockClass)], [IntType])
+    val readGuardInt = Type.Specialized([Type.Class(readGuardClass)], [IntType])
     val rwId = Node.Identifier(1, span, IdentifierData { name: "rw" })
-    val readCallee = Node.MemberExpr(2, span, MemberExprData { object: rwId, property: "read" })
+    val readCallee = Node.MemberExpr(2, span, MemberExprData { object: [rwId], property: "read" })
     val readCall = Node.CallExpr(3, span, CallExprData { callee: [readCallee], args: [] })
     val varDecl = Node.VarDecl(4, span, VarDeclData {
         namePos: span,

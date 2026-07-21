@@ -12,7 +12,7 @@ pub fn isCompatibleFunc(expected: FuncType, actual: FuncType) -> Bool {
             return false
         }
     }
-    return typeToString(expected.returnType) == typeToString(actual.returnType)
+    return typeToString(expected.returnType.get(0)) == typeToString(actual.returnType.get(0))
 }
 
 fn interfaceAssignable(expectedName: String, actual: Type) -> Bool = match actual {
@@ -66,7 +66,7 @@ fn specializedAssignable(c: Checker, stBase: Type, stParams: List[Type], actual:
     if match actual {
         Specialized(actBase, params) => {
             actParams = params
-            typeToString(actBase) == typeToString(stBase)
+            typeToString(actBase.get(0)) == typeToString(stBase)
         }
         _ => false
     } {
@@ -101,13 +101,13 @@ pub fn isAssignable(c: Checker, expected: Type, actual: Type) -> Bool {
         return true
     }
     if match expected {
-        Func(ft) if ft.returnType == actual => true
+        Func(ft) if ft.returnType.get(0) == actual => true
         _ => false
     } {
         return false
     }
     if match expected {
-        Specialized(stBase, stParams) => specializedAssignable(c, stBase, stParams, actual)
+        Specialized(stBase, stParams) => specializedAssignable(c, stBase.get(0), stParams, actual)
         _ => false
     } {
         return true

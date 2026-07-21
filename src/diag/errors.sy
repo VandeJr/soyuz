@@ -1,6 +1,6 @@
 import (
     { Span } from @lexer/tokens
-    { TypeError } from @checker/types
+    { TypeError, TypeWarning } from @checker/types
 )
 
 pub enum Severity {
@@ -11,22 +11,6 @@ pub enum Severity {
 pub record ParseError {
     span: Span,
     end: Span,
-    message: String
-}
-
-pub record TypeError {
-    span: Span,
-    end: Span,
-    file: String,
-    code: String,
-    message: String
-}
-
-pub record TypeWarning {
-    span: Span,
-    end: Span,
-    file: String,
-    code: String,
     message: String
 }
 

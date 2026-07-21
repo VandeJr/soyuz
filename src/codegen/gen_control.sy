@@ -608,9 +608,19 @@ pub fn pushLoop(g: Generator, ctx: LoopCtx) {
     g.loops.append(ctx)
 }
 
+fn loopStackWithoutLast(stack: List[LoopCtx]) -> List[LoopCtx] {
+    var next: List[LoopCtx] = []
+    var index = 0
+    for item in stack {
+        if index + 1 < stack.size() { next.append(item) }
+        index = index + 1
+    }
+    return next
+}
+
 pub fn popLoop(g: Generator) {
     if g.loops.size() > 0 {
-        g.loops = g.loops.slice(0, g.loops.size() - 1)
+        g.loops = loopStackWithoutLast(g.loops)
     }
 }
 

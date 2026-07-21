@@ -23,10 +23,10 @@ fn collectionsEmptyCheckResult() -> CheckResult = CheckResult {
 fn collectionsEmptyClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -46,9 +46,9 @@ test fn testIsListOrMapType() {
     val listClass = collectionsEmptyClass("List")
     val mapClass = collectionsEmptyClass("Map")
     val taskClass = collectionsEmptyClass("Task")
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
-    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
+    val mapIntInt = Type.Specialized([Type.Class(mapClass)], [IntType, IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     assertMsg(isListOrMapType(listInt), "List[Int] is collection")
     assertMsg(isListOrMapType(mapIntInt), "Map[Int,Int] is collection")
     assertMsg(!isListOrMapType(taskInt), "Task[Int] not collection")
@@ -58,8 +58,8 @@ test fn testIsListOrMapType() {
 test fn testIsListType() {
     val listClass = collectionsEmptyClass("List")
     val mapClass = collectionsEmptyClass("Map")
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
-    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
+    val mapIntInt = Type.Specialized([Type.Class(mapClass)], [IntType, IntType])
     assertMsg(isListType(listInt), "List[Int] is list")
     assertMsg(!isListType(mapIntInt), "Map not list")
     match listElemType(listInt) {
@@ -71,8 +71,8 @@ test fn testIsListType() {
 test fn testIsMapType() {
     val mapClass = collectionsEmptyClass("Map")
     val listClass = collectionsEmptyClass("List")
-    val mapStrInt = Type.Specialized(Type.Class(mapClass), [StringType, IntType])
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val mapStrInt = Type.Specialized([Type.Class(mapClass)], [StringType, IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
     assertMsg(isMapType(mapStrInt), "Map[String,Int] is map")
     assertMsg(!isMapType(listInt), "List not map")
     match mapKeyType(mapStrInt) {
@@ -88,7 +88,7 @@ test fn testIsMapType() {
 test fn testGenerateMapKeysStub() {
     val g = newGenerator(collectionsEmptyCheckResult())
     val mapClass = collectionsEmptyClass("Map")
-    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
+    val mapIntInt = Type.Specialized([Type.Class(mapClass)], [IntType, IntType])
     val mapVal = legacyI64Stub(g)
     match generateMapKeysStub(g, mapVal, mapIntInt) {
         None => assertMsg(false, "expected map keys stub")
@@ -103,7 +103,7 @@ test fn testGenerateMapKeysStub() {
 test fn testGenerateMapValuesStub() {
     val g = newGenerator(collectionsEmptyCheckResult())
     val mapClass = collectionsEmptyClass("Map")
-    val mapIntInt = Type.Specialized(Type.Class(mapClass), [IntType, IntType])
+    val mapIntInt = Type.Specialized([Type.Class(mapClass)], [IntType, IntType])
     val mapVal = legacyI64Stub(g)
     match generateMapValuesStub(g, mapVal, mapIntInt) {
         None => assertMsg(false, "expected map values stub")
@@ -118,8 +118,8 @@ test fn testGenerateMapValuesStub() {
 test fn testIsIteratorType() {
     val iterClass = collectionsEmptyClass("Iterator")
     val listClass = collectionsEmptyClass("List")
-    val iterInt = Type.Specialized(Type.Class(iterClass), [IntType])
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val iterInt = Type.Specialized([Type.Class(iterClass)], [IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
     assertMsg(isIteratorType(iterInt), "Iterator[Int] is iterator")
     assertMsg(!isIteratorType(listInt), "List not iterator")
     match iteratorElemType(iterInt) {
@@ -131,7 +131,7 @@ test fn testIsIteratorType() {
 test fn testEmitCollectionToStringStub() {
     val g = newGenerator(collectionsEmptyCheckResult())
     val listClass = collectionsEmptyClass("List")
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
     val valHandle = legacyI64Stub(g)
     match emitCollectionToStringStub(g, valHandle, listInt) {
         None => assertMsg(false, "expected stub for List to_string")

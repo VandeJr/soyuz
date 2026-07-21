@@ -73,7 +73,7 @@ pub fn atomicRuntimeCas() -> String {
 }
 
 pub fn isMutexType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Mutex" && params.size() > 0
         _ => false
     }
@@ -81,7 +81,7 @@ pub fn isMutexType(t: Type) -> Bool = match t {
 }
 
 pub fn mutexInnerType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Mutex" && params.size() > 0 {
                 return Some(params.get(0))
@@ -98,7 +98,7 @@ pub fn isMutexStaticNew(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isMutexNewCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isMutexStaticNew(idData.name, memberData.property)
         _ => false
     }
@@ -113,7 +113,7 @@ fn syncCheckerNodeType(g: Generator, id: Int) -> Option[Type] {
 pub fn isMutexInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match syncCheckerNodeType(g, nodeId(memberData.object)) {
+        match syncCheckerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isMutexType(t)
         }
@@ -126,7 +126,7 @@ pub fn isMutexLockCall(callee: Node, g: Generator) -> Bool {
 }
 
 pub fn isRwLockType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "RwLock" && params.size() > 0
         _ => false
     }
@@ -134,7 +134,7 @@ pub fn isRwLockType(t: Type) -> Bool = match t {
 }
 
 pub fn rwlockInnerType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "RwLock" && params.size() > 0 {
                 return Some(params.get(0))
@@ -151,7 +151,7 @@ pub fn isRwLockStaticNew(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isRwLockNewCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isRwLockStaticNew(idData.name, memberData.property)
         _ => false
     }
@@ -161,7 +161,7 @@ pub fn isRwLockNewCall(callee: Node) -> Bool = match callee {
 pub fn isRwLockInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match syncCheckerNodeType(g, nodeId(memberData.object)) {
+        match syncCheckerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isRwLockType(t)
         }
@@ -178,7 +178,7 @@ pub fn isRwLockWriteCall(callee: Node, g: Generator) -> Bool {
 }
 
 pub fn isAtomicType(t: Type) -> Bool = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => ct.name == "Atomic" && params.size() > 0
         _ => false
     }
@@ -186,7 +186,7 @@ pub fn isAtomicType(t: Type) -> Bool = match t {
 }
 
 pub fn atomicInnerType(t: Type) -> Option[Type] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if ct.name == "Atomic" && params.size() > 0 {
                 return Some(params.get(0))
@@ -203,7 +203,7 @@ pub fn isAtomicStaticNew(typeName: String, methodName: String) -> Bool {
 }
 
 pub fn isAtomicNewCall(callee: Node) -> Bool = match callee {
-    MemberExpr(_, _, memberData) => match memberData.object {
+    MemberExpr(_, _, memberData) => match memberData.object.get(0) {
         Identifier(_, _, idData) => isAtomicStaticNew(idData.name, memberData.property)
         _ => false
     }
@@ -213,7 +213,7 @@ pub fn isAtomicNewCall(callee: Node) -> Bool = match callee {
 pub fn isAtomicInstanceMethodCall(callee: Node, g: Generator, methodName: String) -> Bool = match callee {
     MemberExpr(_, _, memberData) => {
         if memberData.property != methodName { return false }
-        match syncCheckerNodeType(g, nodeId(memberData.object)) {
+        match syncCheckerNodeType(g, nodeId(memberData.object.get(0))) {
             None => false
             Some(t) => isAtomicType(t)
         }
@@ -238,7 +238,7 @@ pub fn isAtomicCasCall(callee: Node, g: Generator) -> Bool {
 }
 
 pub fn syncGuardKind(t: Type) -> Option[String] = match t {
-    Specialized(base, params) => match base {
+    Specialized(base, params) => match base.get(0) {
         Class(ct) => {
             if params.size() == 0 { return None }
             match ct.name {
@@ -255,14 +255,14 @@ pub fn syncGuardKind(t: Type) -> Option[String] = match t {
 
 pub fn syncGuardValueAccess(g: Generator, data: MemberExprData) -> Option[String] {
     if data.property != "value" { return None }
-    match syncCheckerNodeType(g, nodeId(data.object)) {
+    match syncCheckerNodeType(g, nodeId(data.object.get(0))) {
         None => None
         Some(t) => syncGuardKind(t)
     }
 }
 
 pub fn syncGuardUnlockFn(t: Type) -> Option[String] = match t {
-    Specialized(base, _) => match base {
+    Specialized(base, _) => match base.get(0) {
         Class(ct) => {
             if ct.name == "MutexGuard" { return Some(mutexRuntimeUnlock()) }
             if ct.name == "ReadGuard" || ct.name == "WriteGuard" { return Some(rwlockRuntimeUnlock()) }
@@ -403,12 +403,20 @@ pub fn ownSyncGuard(g: Generator, name: String, unlockFn: String) {
     g.syncGuardStack = stack
 }
 
+fn syncStackWithoutLast(stack: List[List[SyncGuardEntry]]) -> List[List[SyncGuardEntry]] {
+    var next: List[List[SyncGuardEntry]] = []
+    var index = 0
+    for item in stack {
+        if index + 1 < stack.size() { next.append(item) }
+        index = index + 1
+    }
+    return next
+}
+
 pub fn popSyncGuardScope(g: Generator) -> List[SyncGuardEntry] {
     if g.syncGuardStack.size() == 0 { return [] }
     val owned = g.syncGuardStack.get(g.syncGuardStack.size() - 1)
-    var stack = g.syncGuardStack
-    stack.removeAt(g.syncGuardStack.size() - 1)
-    g.syncGuardStack = stack
+    g.syncGuardStack = syncStackWithoutLast(g.syncGuardStack)
     return owned
 }
 

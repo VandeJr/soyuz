@@ -39,14 +39,14 @@ pub fn generateFuncDeclNode(g: Generator, node: Node, data: FuncDeclData) -> Opt
             }
             val result = FuncResult {
                 name: data.name,
-                returnLlvm: mapTypeToLLVM(g, ft.returnType),
+                returnLlvm: mapTypeToLLVM(g, ft.returnType.get(0)),
                 paramCount: data.params.size(),
                 hasBody: hasBody
             }
             match data.body {
                 None => Some(result)
                 Some(body) => {
-                    g.currentReturnType = ft.returnType
+                    g.currentReturnType = ft.returnType.get(0)
                     setCurrentBlock(g, newBlock(g, "entry"))
                     match generateStmtNode(g, body) {
                         None => None
@@ -406,7 +406,7 @@ record ClassMethodCodegenSnapshot {
     vars: Map[String, LlvmValue],
     blockNames: Map[String, Int],
     currentReturnType: Type,
-    heapVars: Map[String, Bool]
+    heapVars: Map[String, String]
 }
 
 fn snapshotBlockNames(g: Generator) -> Map[String, Int] {
@@ -417,8 +417,8 @@ fn snapshotBlockNames(g: Generator) -> Map[String, Int] {
     return copy
 }
 
-fn snapshotHeapVars(g: Generator) -> Map[String, Bool] {
-    var copy: Map[String, Bool] = Map[String, Bool]{}
+fn snapshotHeapVars(g: Generator) -> Map[String, String] {
+    var copy: Map[String, String] = Map[String, String]{}
     for k in g.heapVars.keys() {
         copy.set(k, g.heapVars.get(k))
     }
@@ -445,7 +445,7 @@ fn restoreClassMethodCodegen(g: Generator, snap: ClassMethodCodegenSnapshot) {
 
 fn resetClassMethodCodegen(g: Generator) {
     g.vars = Map[String, LlvmValue]{}
-    g.heapVars = Map[String, Bool]{}
+    g.heapVars = Map[String, String]{}
     g.blockNames = Map[String, Int]{}
 }
 
@@ -454,7 +454,7 @@ fn classMethodBodyReturnType(g: Generator, member: Node, fd: FuncDeclData) -> Ty
         None => UnitType
         Some(_) => UnitType
     }
-    Some(ft) => ft.returnType
+    Some(ft) => ft.returnType.get(0)
 }
 
 fn bindClassMethodSelf(g: Generator, si: StructInfo) -> Bool {

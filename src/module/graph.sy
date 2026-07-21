@@ -3,7 +3,7 @@ import @checker/load
 import (
     { tokenize } from @lexer/lexer
     { Span } from @lexer/tokens
-    { Parser } from @parser/parser
+    { parseTokens } from @parser/parser
     { Node, ImportDeclData, ImportPathKind, ImportName } from @ast/ast
     { nodeId } from @ast/ast_helpers
     { PathIndex, pathIndexFileContent } from @module/paths
@@ -38,9 +38,9 @@ pub fn collectSucceeded(result: CollectResult) -> Bool = result.error.len() == 0
 pub fn collectProgramSucceeded(result: CollectedProgram) -> Bool = result.error.len() == 0
 
 fn emptyCollectState() -> CollectState = CollectState {
-    visited: List[String]{},
-    visiting: List[String]{},
-    order: List[String]{},
+    visited: [],
+    visiting: [],
+    order: [],
     error: ""
 }
 
@@ -61,11 +61,10 @@ fn listRemove(items: List[String], item: String) -> List[String] {
 
 fn parseBodyFromSource(source: String) -> List[Node] {
     val tokens = tokenize(source)
-    val p = Parser.new(tokens)
-    val prog = p.parse()
+    val prog = parseTokens(tokens)
     match prog {
         Program(_, _, body) => body
-        _ => List[Node]{}
+        _ => []
     }
 }
 
@@ -108,9 +107,9 @@ fn applyResolvedImports(body: List[Node], resolved: List[ImportDeclData]) -> Lis
 }
 
 fn collectProgramFailed(error: String) -> CollectedProgram = CollectedProgram {
-    files: List[String]{},
-    preludeFiles: List[String]{},
-    body: List[Node]{},
+    files: [],
+    preludeFiles: [],
+    body: [],
     nodeFile: Map[Int, String]{},
     error: error
 }
@@ -154,7 +153,7 @@ pub fn collectProgram(entryFile: String, r: Resolver, index: PathIndex) -> Colle
         return collectProgramFailed(collected.error)
     }
     val prelude = resolvePrelude(r, index)
-    return collectProgramBuild(collected, prelude, r, index, 0, List[Node]{}, Map[Int, String]{})
+    return collectProgramBuild(collected, prelude, r, index, 0, [], Map[Int, String]{})
 }
 
 pub fn checkCollectedProgram(collected: CollectedProgram) -> CheckResult {
@@ -194,7 +193,7 @@ fn resolveOneImport(imp: ImportDeclData, file: String, r: Resolver, index: PathI
 
 fn resolveImportsFromContent(content: String, file: String, r: Resolver, index: PathIndex) -> Option[List[ImportDeclData]] {
     val imports = extractImportDeclsFromSource(content)
-    return resolveImportsList(imports, file, r, index, List[ImportDeclData]{}, 0)
+    return resolveImportsList(imports, file, r, index, [], 0)
 }
 
 fn resolveImportsList(imports: List[ImportDeclData], file: String, r: Resolver, index: PathIndex, acc: List[ImportDeclData], idx: Int) -> Option[List[ImportDeclData]] {
@@ -210,18 +209,18 @@ fn resolveImportsList(imports: List[ImportDeclData], file: String, r: Resolver, 
 }
 
 pub fn resolvePrelude(r: Resolver, index: PathIndex) -> List[String] {
-    if r.stdlibDir.len() == 0 { return List[String]{} }
+    if r.stdlibDir.len() == 0 { return [] }
     val data = ImportDeclData {
         path: "@soyuz/prelude",
-        names: List[ImportName]{},
+        names: [],
         namespace: "",
         pathKind: ImportPathKind.Stdlib,
         packageAlias: "",
         isStdlib: false,
-        resolvedFiles: List[String]{}
+        resolvedFiles: []
     }
     match resolveImport(r, data, "", index) {
-        None => List[String]{}
+        None => []
         Some(files) => files
     }
 }
@@ -281,12 +280,12 @@ pub fn collect(entryFile: String, r: Resolver, index: PathIndex) -> CollectResul
     for f in prelude {
         state = collectVisit(state, f, r, index)
         if state.error.len() > 0 {
-            return CollectResult { files: List[String]{}, error: state.error }
+            return CollectResult { files: [], error: state.error }
         }
     }
     state = collectVisit(state, entryFile, r, index)
     if state.error.len() > 0 {
-        return CollectResult { files: List[String]{}, error: state.error }
+        return CollectResult { files: [], error: state.error }
     }
     return CollectResult { files: state.order, error: "" }
 }

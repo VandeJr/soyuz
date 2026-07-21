@@ -21,17 +21,17 @@ pub class Checker {
     pub var captures: Map[Int, List[String]] = Map[Int, List[String]]{}
     pub var currentClass: Option[ClassType] = None
     pub var synthCallArgs: Map[Int, List[Node]] = Map[Int, List[Node]]{}
-    pub var inferredBodies: Map[Int, Bool] = Map[Int, Bool]{}
+    pub var inferredBodies: List[String] = ["0"]
     pub var arrowFuncHints: Map[Int, List[Type]] = Map[Int, List[Type]]{}
     pub var curriedCalls: Map[Int, Node] = Map[Int, Node]{}
     pub var pendingClassMethods: List[PendingClassMethod] = []
     pub var pendingExtendMethods: List[PendingExtendMethod] = []
     pub var nodeFile: Option[Map[Int, String]] = None
     pub var symbolOrigin: Map[String, String] = Map[String, String]{}
-    pub var symbolPub: Map[String, Bool] = Map[String, Bool]{}
-    pub var fileNamedImports: Map[String, Map[String, Bool]] = Map[String, Map[String, Bool]]{}
-    pub var fileModuleNamespaces: Map[String, Map[String, Bool]] = Map[String, Map[String, Bool]]{}
-    pub var preludeFiles: Map[String, Bool] = Map[String, Bool]{}
+    pub var symbolPub: Map[String, String] = Map[String, String]{}
+    pub var fileNamedImports: Map[String, Map[String, String]] = Map[String, Map[String, String]]{}
+    pub var fileModuleNamespaces: Map[String, Map[String, String]] = Map[String, Map[String, String]]{}
+    pub var preludeFiles: Map[String, String] = Map[String, String]{}
     pub var currentFile: String = ""
     pub var inTopLevel: Bool = false
     pub var context: CheckContext = CheckContext { returnType: None, expectedType: None }
@@ -80,7 +80,7 @@ pub fn checkerWarnf(c: Checker, span: Span, code: String, format: String) {
 }
 
 pub fn isTaskType(c: Checker, t: Type) -> Bool = match t {
-    Specialized(base, _) => match base {
+    Specialized(base, _) => match base.get(0) {
         Class(data) => data.name == "Task"
         _ => false
     }
@@ -88,7 +88,7 @@ pub fn isTaskType(c: Checker, t: Type) -> Bool = match t {
 }
 
 pub fn contextInnerType(c: Checker, enumName: String) -> Type = match c.context.returnType {
-    Some(Specialized(base, params)) => match base {
+    Some(Specialized(base, params)) => match base.get(0) {
         Enum(data) if data.name == enumName && params.size() > 0 => params.get(0)
         _ => Unknown
     }
@@ -101,7 +101,7 @@ pub fn setNodeFiles(c: Checker, nf: Map[Int, String]) {
 
 pub fn setPreludeFiles(c: Checker, files: List[String]) {
     for f in files {
-        c.preludeFiles.set(f, true)
+        c.preludeFiles.set(f, "1")
     }
 }
 
@@ -129,7 +129,7 @@ pub fn registerGlobalSymbol(c: Checker, name: String, nodeId: Int, isPub: Bool) 
                 }
             }
             c.symbolOrigin.set(name, origin)
-            c.symbolPub.set(name, isPub)
+            if isPub { c.symbolPub.set(name, "1") }
         }
     }
 }
@@ -143,14 +143,14 @@ pub fn checkGlobalAccess(c: Checker, name: String, span: Span) {
     if !hasOrigin { return }
     val origin = c.symbolOrigin.get(name)
     if origin == "" || origin == c.currentFile { return }
-    if !mapHasStrBool(c.symbolPub, name) || !c.symbolPub.get(name) {
+    if !mapHasStrBool(c.symbolPub, name) {
         checkerErrorf(c, span, "símbolo '$(name)' não é público (defina com 'pub' em $(pathBaseName(origin)))", [])
         return
     }
-    if mapHasStrBool(c.preludeFiles, origin) && c.preludeFiles.get(origin) { return }
+    if mapHasStrBool(c.preludeFiles, origin) { return }
     if mapHasStrStrBoolMap(c.fileNamedImports, c.currentFile) {
         val imports = c.fileNamedImports.get(c.currentFile)
-        if mapHasStrBool(imports, name) && imports.get(name) { return }
+        if mapHasStrBool(imports, name) { return }
     }
     checkerErrorf(c, span, "símbolo '$(name)' não foi importado em $(pathBaseName(c.currentFile))", [])
 }
@@ -159,7 +159,7 @@ pub fn checkModuleNamespaceAccess(c: Checker, ns: String, span: Span) {
     if c.nodeFile == None { return }
     if mapHasStrStrBoolMap(c.fileModuleNamespaces, c.currentFile) {
         val namespaces = c.fileModuleNamespaces.get(c.currentFile)
-        if mapHasStrBool(namespaces, ns) && namespaces.get(ns) { return }
+        if mapHasStrBool(namespaces, ns) { return }
     }
     checkerErrorf(c, span, "namespace '$(ns)' não foi importado em $(pathBaseName(c.currentFile))", [])
 }
@@ -182,7 +182,7 @@ pub fn isHeapType(c: Checker, t: Type) -> Bool = match t {
     Tuple(_) => true
     Enum(_) => true
     Func(_) => true
-    Specialized(base, _) => isHeapType(c, base)
+    Specialized(base, _) => isHeapType(c, base.get(0))
     Basic(name) => name == "String"
     _ => false
 }

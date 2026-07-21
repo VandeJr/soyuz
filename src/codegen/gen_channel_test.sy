@@ -24,10 +24,10 @@ fn channelEmptyCheckResult() -> CheckResult = CheckResult {
 fn channelEmptyClass(name: String) -> ClassType = ClassType {
     name: name,
     fields: Map[String, Type]{},
-    fieldPub: Map[String, Bool]{},
+    fieldPub: Map[String, String]{},
     fieldInit: Map[String, Node]{},
     methods: Map[String, List[FuncType]]{},
-    methodPub: Map[String, Bool]{},
+    methodPub: Map[String, String]{},
     implements: [],
     generics: ["T"]
 }
@@ -35,8 +35,8 @@ fn channelEmptyClass(name: String) -> ClassType = ClassType {
 test fn testIsChannelType() {
     val channelClass = channelEmptyClass("Channel")
     val taskClass = channelEmptyClass("Task")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
-    val taskInt = Type.Specialized(Type.Class(taskClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
+    val taskInt = Type.Specialized([Type.Class(taskClass)], [IntType])
     assertMsg(isChannelType(channelInt), "Channel[Int] is channel")
     assertMsg(!isChannelType(taskInt), "Task[Int] not channel")
     assertMsg(!isChannelType(IntType), "Int not channel")
@@ -44,7 +44,7 @@ test fn testIsChannelType() {
 
 test fn testChannelInnerType() {
     val channelClass = channelEmptyClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     match channelInnerType(channelInt) {
         None => assertMsg(false, "Channel[Int] inner type")
         Some(t) => assertMsg(match t { Basic(name) => name == "Int", _ => false }, "inner is Int")
@@ -64,26 +64,26 @@ test fn testIsChannelStaticNew() {
 test fn testIsChannelNewCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelId = Node.Identifier(1, span, IdentifierData { name: "Channel" })
-    val member = Node.MemberExpr(2, span, MemberExprData { object: channelId, property: "new" })
+    val member = Node.MemberExpr(2, span, MemberExprData { object: [channelId], property: "new" })
     assertMsg(isChannelNewCall(member), "Channel.new member is channel new call")
     val formaId = Node.Identifier(3, span, IdentifierData { name: "Forma" })
-    val formaMember = Node.MemberExpr(4, span, MemberExprData { object: formaId, property: "Circulo" })
+    val formaMember = Node.MemberExpr(4, span, MemberExprData { object: [formaId], property: "Circulo" })
     assertMsg(!isChannelNewCall(formaMember), "enum constructor not channel new")
 }
 
 test fn testIsChannelSendCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelEmptyClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val sendMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "send" })
+    val sendMember = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "send" })
     var cr = channelEmptyCheckResult()
     cr.nodeTypes.append(Some(channelInt))
     cr.nodeTypes.append(Some(channelInt))
     val g = newGenerator(cr)
     assertMsg(isChannelSendCall(sendMember, g), "ch.send on Channel[Int]")
     val listClass = channelEmptyClass("List")
-    val listInt = Type.Specialized(Type.Class(listClass), [IntType])
+    val listInt = Type.Specialized([Type.Class(listClass)], [IntType])
     var cr2 = channelEmptyCheckResult()
     cr2.nodeTypes.append(Some(listInt))
     cr2.nodeTypes.append(Some(listInt))
@@ -94,60 +94,60 @@ test fn testIsChannelSendCall() {
 test fn testIsChannelRecvCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelEmptyClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val recvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    val recvMember = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "recv" })
     var cr = channelEmptyCheckResult()
     cr.nodeTypes.append(Some(channelInt))
     cr.nodeTypes.append(Some(channelInt))
     val g = newGenerator(cr)
     assertMsg(isChannelRecvCall(recvMember, g), "ch.recv on Channel[Int]")
-    val sendMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "send" })
+    val sendMember = Node.MemberExpr(3, span, MemberExprData { object: [chId], property: "send" })
     assertMsg(!isChannelRecvCall(sendMember, g), "ch.send not recv")
 }
 
 test fn testIsChannelTryRecvCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelEmptyClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val tryRecvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "tryRecv" })
+    val tryRecvMember = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "tryRecv" })
     var cr = channelEmptyCheckResult()
     cr.nodeTypes.append(Some(channelInt))
     cr.nodeTypes.append(Some(channelInt))
     val g = newGenerator(cr)
     assertMsg(isChannelTryRecvCall(tryRecvMember, g), "ch.tryRecv on Channel[Int]")
-    val recvMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "recv" })
+    val recvMember = Node.MemberExpr(3, span, MemberExprData { object: [chId], property: "recv" })
     assertMsg(!isChannelTryRecvCall(recvMember, g), "ch.recv not tryRecv")
 }
 
 test fn testIsChannelCloseCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelEmptyClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val closeMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "close" })
+    val closeMember = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "close" })
     var cr = channelEmptyCheckResult()
     cr.nodeTypes.append(Some(channelInt))
     cr.nodeTypes.append(Some(channelInt))
     val g = newGenerator(cr)
     assertMsg(isChannelCloseCall(closeMember, g), "ch.close on Channel[Int]")
-    val sendMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "send" })
+    val sendMember = Node.MemberExpr(3, span, MemberExprData { object: [chId], property: "send" })
     assertMsg(!isChannelCloseCall(sendMember, g), "ch.send not close")
 }
 
 test fn testIsChannelIsClosedCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val channelClass = channelEmptyClass("Channel")
-    val channelInt = Type.Specialized(Type.Class(channelClass), [IntType])
+    val channelInt = Type.Specialized([Type.Class(channelClass)], [IntType])
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val isClosedMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "isClosed" })
+    val isClosedMember = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "isClosed" })
     var cr = channelEmptyCheckResult()
     cr.nodeTypes.append(Some(channelInt))
     cr.nodeTypes.append(Some(channelInt))
     val g = newGenerator(cr)
     assertMsg(isChannelIsClosedCall(isClosedMember, g), "ch.isClosed on Channel[Int]")
-    val closeMember = Node.MemberExpr(3, span, MemberExprData { object: chId, property: "close" })
+    val closeMember = Node.MemberExpr(3, span, MemberExprData { object: [chId], property: "close" })
     assertMsg(!isChannelIsClosedCall(closeMember, g), "ch.close not isClosed")
 }
 
@@ -219,8 +219,8 @@ test fn testGenerateChannelNewStub() {
 test fn testSelectRecvArmCount() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     var arms: List[SelectArm] = []
-    arms.append(SelectArm { span: span, binding: "msg", chanExpr: None, isDefault: false, body: Node.IntLiteral(1, span, IntLiteralData { value: "0" }) })
-    arms.append(SelectArm { span: span, binding: "", chanExpr: None, isDefault: true, body: Node.IntLiteral(2, span, IntLiteralData { value: "1" }) })
+    arms.append(SelectArm { span: span, binding: "msg", chanExpr: None, isDefault: false, body: [Node.IntLiteral(1, span, IntLiteralData { value: "0" })] })
+    arms.append(SelectArm { span: span, binding: "", chanExpr: None, isDefault: true, body: [Node.IntLiteral(2, span, IntLiteralData { value: "1" })] })
     assertMsg(selectRecvArmCount(arms) == 1, "one recv arm")
     assertMsg(selectHasDefaultArm(arms), "has default arm")
 }
@@ -228,7 +228,7 @@ test fn testSelectRecvArmCount() {
 test fn testExtractChannelFromRecvCall() {
     val span = Span { line: 1, column: 1, startOffset: 0, endOffset: 20 }
     val chId = Node.Identifier(1, span, IdentifierData { name: "ch" })
-    val recvMember = Node.MemberExpr(2, span, MemberExprData { object: chId, property: "recv" })
+    val recvMember = Node.MemberExpr(2, span, MemberExprData { object: [chId], property: "recv" })
     var args: List[Node] = []
     val recvCall = Node.CallExpr(3, span, CallExprData { callee: [recvMember], args: args })
     match extractChannelFromRecvCall(recvCall) {

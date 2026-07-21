@@ -285,7 +285,7 @@ test fn testGenerateClassVtable() {
         isPub: incrementarIface.isPub,
         name: incrementarIface.name,
         params: ifaceParams,
-        returnType: incrementarIface.returnType
+        returnType: incrementarIface.returnType.get(0)
     }
     var ifaceMethods: List[InterfaceMethod] = []
     ifaceMethods.append(incrementarMethod)

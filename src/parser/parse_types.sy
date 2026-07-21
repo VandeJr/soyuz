@@ -92,7 +92,7 @@ extend Parser {
 
         if self.check(TokenType.QUESTION) {
             self.advance()
-            t = TypeExpr.Optional(self.allocNodeId(), span, t)
+            t = TypeExpr.Optional(self.allocNodeId(), span, [t])
         }
         return t
     }

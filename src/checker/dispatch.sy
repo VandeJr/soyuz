@@ -32,25 +32,25 @@ pub fn checkerDispatchNode(c: Checker, node: Node) -> Type = match node {
     StringLiteral(_, _, _) => StringType
     CharLiteral(_, _, _) => CharType
     Identifier(_, _, data) => checkIdentifier(c, data, node)
-    NamedArg(_, _, data) => c.checkNode(data.value)
+    NamedArg(_, _, data) => c.checkNode(data.value.get(0))
     OkExpr(_, _, data) => {
-        val valType = c.checkNode(data.value)
+        val valType = c.checkNode(data.value.get(0))
         val base = resolveTypeExpr(c, Named(0, nodePos(node), "Result"))
-        Type.Specialized(base, [valType])
+        Type.Specialized([base], [valType])
     }
     ErrExpr(_, _, data) => {
-        c.checkNode(data.value)
+        c.checkNode(data.value.get(0))
         val base = resolveTypeExpr(c, Named(0, nodePos(node), "Result"))
-        Type.Specialized(base, [contextInnerType(c, "Result")])
+        Type.Specialized([base], [contextInnerType(c, "Result")])
     }
     SomeExpr(_, _, data) => {
-        val valType = c.checkNode(data.value)
+        val valType = c.checkNode(data.value.get(0))
         val base = resolveTypeExpr(c, Named(0, nodePos(node), "Option"))
-        Type.Specialized(base, [valType])
+        Type.Specialized([base], [valType])
     }
     NoneLit(_, _) => {
         val base = resolveTypeExpr(c, Named(0, nodePos(node), "Option"))
-        Type.Specialized(base, [contextInnerType(c, "Option")])
+        Type.Specialized([base], [contextInnerType(c, "Option")])
     }
     RecordLiteral(_, _, data) => checkRecordLiteral(c, data, node)
     BinaryExpr(_, _, data) => checkBinaryExpr(c, data, node)
@@ -117,7 +117,7 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
                         checkerErrorf(c, nodePos(node), "test fn $(data.name): funções de teste não podem declarar tipo de retorno", [])
                     }
                 }
-                var variants: List[FuncDeclData] = List[FuncDeclData]{}
+                var variants: List[FuncDeclData] = []
                 if mapHasStrFuncDeclList(c.funcVariants, data.name) {
                     variants = c.funcVariants.get(data.name)
                 }
@@ -151,7 +151,7 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
             if nk == name { nodeIds = c.funcVariantNodeIds.get(name) }
         }
         if nodeIds.size() > 0 { setCurrentFileFromNodeId(c, nodeIds.get(0)) }
-        registerFuncVariants(c, name, c.funcVariants[name], nodeIds)
+        registerFuncVariants(c, name, c.funcVariants.get(name), nodeIds)
     }
 
     for node in progBody(c, prog) {
@@ -193,7 +193,7 @@ pub fn check(c: Checker, prog: Node) -> CheckResult {
             if nk == name { nodeIds = c.funcVariantNodeIds.get(name) }
         }
         if nodeIds.size() > 0 { setCurrentFileFromNodeId(c, nodeIds.get(0)) }
-        checkFuncVariantsBody(c, name, c.funcVariants[name])
+        checkFuncVariantsBody(c, name, c.funcVariants.get(name))
     }
 
     return CheckResult {
