@@ -520,14 +520,15 @@ fn resolveClassMethodCall(c: Checker, ct: ClassType, property: String, arity: In
 
 fn resolveMethodTypeForCall(c: Checker, objType: Type, property: String, arity: Int, span: Span) -> Option[FuncType] = match objType {
     Class(ct) => resolveClassMethodCall(c, ct, property, arity, span, Map[String, Type]{})
-    Specialized(Class(ct), params) => {
-        var sub: Map[String, Type] = Map[String, Type]{}
-        for i in range(0, ct.generics.size()) {
-            if i < params.size() {
-                sub.set(ct.generics.get(i), params.get(i))
+    Specialized(base, params) => match base.get(0) {
+        Class(ct) => {
+            var sub: Map[String, Type] = Map[String, Type]{}
+            for i in range(0, ct.generics.size()) {
+                if i < params.size() { sub.set(ct.generics.get(i), params.get(i)) }
             }
+            resolveClassMethodCall(c, ct, property, arity, span, sub)
         }
-        resolveClassMethodCall(c, ct, property, arity, span, sub)
+        _ => None
     }
     _ => None
 }
@@ -939,7 +940,10 @@ fn checkTaskGatherCall(c: Checker, data: CallExprData, node: Node) -> Type {
     val listArg = data.args.get(0)
     val listType = c.checkNode(listArg)
     val elemType = match listType {
-        Specialized(Class(lct), params) if lct.name == "List" && params.size() > 0 => params.get(0)
+        Specialized(base, params) => match base.get(0) {
+            Class(lct) if lct.name == "List" && params.size() > 0 => params.get(0)
+            _ => { checkerErrorf(c, nodePos(listArg), "Task.gather: primeiro argumento deve ser List[T], obtido $(typeToString(listType))", []); Unknown }
+        }
         _ => {
             checkerErrorf(c, nodePos(listArg), "Task.gather: primeiro argumento deve ser List[T], obtido $(typeToString(listType))", [])
             Unknown
@@ -983,11 +987,17 @@ fn checkTaskPipeCall(c: Checker, data: CallExprData, node: Node) -> Type {
     val firstType = c.checkNode(data.args.get(0))
     var elemTypes: List[Type] = [firstType]
     if match firstType {
-        Specialized(Class(chCt), params) if chCt.name == "Channel" && params.size() > 0 => true
+        Specialized(base, params) => match base.get(0) {
+            Class(chCt) if chCt.name == "Channel" && params.size() > 0 => true
+            _ => false
+        }
         _ => false
     } {
         elemTypes.set(0, match firstType {
-            Specialized(Class(chCt), params) if chCt.name == "Channel" && params.size() > 0 => params.get(0)
+            Specialized(base, params) => match base.get(0) {
+                Class(chCt) if chCt.name == "Channel" && params.size() > 0 => params.get(0)
+                _ => firstType
+            }
             _ => firstType
         })
     }
@@ -1055,8 +1065,9 @@ fn checkTaskAllCall(c: Checker, data: CallExprData, node: Node, method: String) 
     for arg in data.args {
         val at = c.checkNode(arg)
         match at {
-            Specialized(Class(tCt), params) if tCt.name == "Task" && params.size() > 0 => {
-                innerTypes.append(params.get(0))
+            Specialized(base, params) => match base.get(0) {
+                Class(tCt) if tCt.name == "Task" && params.size() > 0 => { innerTypes.append(params.get(0)); () }
+                _ => { checkerErrorf(c, nodePos(arg), "Task.$(method) espera Task[T], obtido $(typeToString(at))", []); innerTypes.append(Unknown); () }
             }
             _ => {
                 checkerErrorf(c, nodePos(arg), "Task.$(method) espera Task[T], obtido $(typeToString(at))", [])

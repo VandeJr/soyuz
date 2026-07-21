@@ -404,15 +404,15 @@ pub fn generateProgramBody(g: Generator, body: List[Node]) -> Option[ProgramResu
 record ClassMethodCodegenSnapshot {
     current: Option[LlvmBasicBlock],
     vars: Map[String, LlvmValue],
-    blockNames: Map[String, Int],
+    blockNames: Map[String, List[Int]],
     currentReturnType: Type,
     heapVars: Map[String, String]
 }
 
-fn snapshotBlockNames(g: Generator) -> Map[String, Int] {
-    var copy: Map[String, Int] = Map[String, Int]{}
+fn snapshotBlockNames(g: Generator) -> Map[String, List[Int]] {
+    var copy: Map[String, List[Int]] = Map[String, List[Int]]{}
     for k in g.blockNames.keys() {
-        copy.set(k, g.blockNames.get(k))
+        copy.set(k, [g.blockNames.get(k).get(0)])
     }
     return copy
 }
@@ -446,7 +446,7 @@ fn restoreClassMethodCodegen(g: Generator, snap: ClassMethodCodegenSnapshot) {
 fn resetClassMethodCodegen(g: Generator) {
     g.vars = Map[String, LlvmValue]{}
     g.heapVars = Map[String, String]{}
-    g.blockNames = Map[String, Int]{}
+    g.blockNames = Map[String, List[Int]]{}
 }
 
 fn classMethodBodyReturnType(g: Generator, member: Node, fd: FuncDeclData) -> Type = match funcDeclFuncType(g, member) {

@@ -82,14 +82,14 @@ pub fn typedLlvmValue(g: Generator, ty: LlvmType, origin: String) -> LlvmValue {
 
 fn blockNameUseCount(g: Generator, name: String) -> Int {
     for k in g.blockNames.keys() {
-        if k == name { return g.blockNames.get(name) }
+        if k == name { return g.blockNames.get(name).get(0) }
     }
     return 0
 }
 
 fn recordBlockNameUse(g: Generator, name: String) {
     val count = blockNameUseCount(g, name)
-    g.blockNames.set(name, count + 1)
+    g.blockNames.set(name, [count + 1])
 }
 
 pub fn blockNameWithSuffix(name: String, count: Int) -> String {

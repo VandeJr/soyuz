@@ -44,9 +44,7 @@ fn enumFieldIndexName(index: Int) -> String {
     return "$(index)"
 }
 
-fn buildEnumVariantFields(g: Generator, v: EnumVariant) -> (List[LlvmType], Map[String, Int]) {
-    var fields: List[LlvmType] = []
-    var fieldNames: Map[String, Int] = Map[String, Int]{}
+fn buildEnumVariantFields(g: Generator, v: EnumVariant, fields: List[LlvmType], fieldNames: Map[String, Int]) {
     var j = 0
     for f in v.fields {
         fields.append(mapSoyuzTypeToLLVM(g, Some(f.typeExpr)))
@@ -57,7 +55,6 @@ fn buildEnumVariantFields(g: Generator, v: EnumVariant) -> (List[LlvmType], Map[
         }
         j = j + 1
     }
-    return (fields, fieldNames)
 }
 
 fn registerEnumPayloadStruct(g: Generator, enumName: String, variantName: String, fields: List[LlvmType], fieldNames: Map[String, Int]) -> Option[LlvmType] {
@@ -94,7 +91,9 @@ pub fn generateEnumDecl(g: Generator, data: EnumDeclData) -> Bool {
     var variants: Map[String, VariantInfo] = Map[String, VariantInfo]{}
     var tag = 0
     for v in data.variants {
-        val (fields, fieldNames) = buildEnumVariantFields(g, v)
+        var fields: List[LlvmType] = []
+        var fieldNames: Map[String, Int] = Map[String, Int]{}
+        buildEnumVariantFields(g, v, fields, fieldNames)
         val payloadType = registerEnumPayloadStruct(g, data.name, v.name, fields, fieldNames)
         variants.set(v.name, VariantInfo {
             tag: tag,
@@ -313,16 +312,16 @@ fn appendClassMethodVariantNode(group: Map[String, List[Node]], key: String, mem
 fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: List[Node], methods: Map[String, List[LlvmFunc]]) {
     var methodCounts: Map[String, Int] = Map[String, Int]{}
     for member in body {
-        match member {
-            FuncDecl(_, _, fd) => { incrementMapStringCount(methodCounts, fd.name); () }
-            _ => {}
-        }
+        if match member {
+            FuncDecl(_, _, fd) => { incrementMapStringCount(methodCounts, fd.name); true }
+            _ => false
+        } { () }
     }
     var declaredKeys: List[ClassMethodArityKey] = []
     var seenKeys: Map[String, String] = Map[String, String]{}
     var arityGroupNodes: Map[String, List[Node]] = Map[String, List[Node]]{}
     for member in body {
-        match member {
+        if match member {
             FuncDecl(_, _, fd) => {
                 val arity = classMethodNonSelfArity(fd)
                 val key = classArityKeyStr(fd.name, arity)
@@ -331,9 +330,10 @@ fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: L
                     declaredKeys.append(ClassMethodArityKey { name: fd.name, arity: arity })
                 }
                 appendClassMethodVariantNode(arityGroupNodes, key, member)
+                true
             }
-            _ => {}
-        }
+            _ => false
+        } { () }
     }
     for key in declaredKeys {
         val groupKey = classArityKeyStr(key.name, key.arity)
@@ -350,10 +350,10 @@ fn registerClassMethods(g: Generator, className: String, si: StructInfo, body: L
                 appendClassMethodVariantArity(g, className, fd.name, key.arity)
                 var variants: List[FuncDeclData] = []
                 for n in nodes {
-                    match n {
-                        FuncDecl(_, _, vfd) => { variants.append(vfd); () }
-                        _ => {}
-                    }
+                    if match n {
+                        FuncDecl(_, _, vfd) => { variants.append(vfd); true }
+                        _ => false
+                    } { () }
                 }
                 if classMethodVariantsHaveBody(variants) {
                     g.pendingClassBodies.append(PendingClassMethodBody {
@@ -414,10 +414,10 @@ pub fn generateClassDecl(g: Generator, data: ClassDeclData) -> Bool {
     var fieldTypes: List[LlvmType] = []
     var fieldIdx = 0
     for member in data.body {
-        match member {
-            VarDecl(_, _, vd) => { fieldIdx = registerClassVarField(g, vd, indices, fieldTypes, fieldIdx); () }
-            _ => {}
-        }
+        if match member {
+            VarDecl(_, _, vd) => { fieldIdx = registerClassVarField(g, vd, indices, fieldTypes, fieldIdx); true }
+            _ => false
+        } { () }
     }
     val st = llvmStructType(data.name, fieldTypes)
     val si = StructInfo { typ: st, fieldIndices: indices }

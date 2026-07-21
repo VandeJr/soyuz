@@ -46,7 +46,7 @@ pub class Generator {
     pub var taskVarStack: List[List[String]] = []
     pub var syncGuardStack: List[List[SyncGuardEntry]] = []
     pub var arcVarStack: List[List[String]] = []
-    pub var blockNames: Map[String, Int] = Map[String, Int]{}
+    pub var blockNames: Map[String, List[Int]] = Map[String, List[Int]]{}
     pub var blockHandleCounter: Int = 0
     pub var valueHandleCounter: Int = 0
     pub var taskWrapperCounter: Int = 0

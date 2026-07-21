@@ -361,14 +361,12 @@ fn clearEnumConstructorExprStubs(g: Generator) {
 }
 
 fn appendEnumConstructorArgLoadStubs(g: Generator, count: Int) -> Bool {
-    var loads = g.constructorArgLoads
     var i = 0
     loop {
         if i >= count { break }
-        loads.append(legacyI64Stub(g))
+        g.constructorArgLoads.append(legacyI64Stub(g))
         i = i + 1
     }
-    g.constructorArgLoads = loads
     return true
 }
 
